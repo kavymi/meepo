@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::signal;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn, error};
 use tracing_subscriber::EnvFilter;
@@ -74,7 +76,8 @@ async fn main() -> Result<()> {
 
 async fn cmd_init() -> Result<()> {
     let config_dir = config::config_dir();
-    std::fs::create_dir_all(&config_dir)
+    tokio::fs::create_dir_all(&config_dir)
+        .await
         .with_context(|| format!("Failed to create config dir: {}", config_dir.display()))?;
 
     let config_path = config_dir.join("config.toml");
@@ -82,24 +85,24 @@ async fn cmd_init() -> Result<()> {
         warn!("Config already exists at {}", config_path.display());
     } else {
         let default_config = include_str!("../../../config/default.toml");
-        std::fs::write(&config_path, default_config)?;
+        tokio::fs::write(&config_path, default_config).await?;
         info!("Created default config at {}", config_path.display());
     }
 
     // Create workspace directory
     let workspace = config_dir.join("workspace");
-    std::fs::create_dir_all(&workspace)?;
+    tokio::fs::create_dir_all(&workspace).await?;
 
     // Copy SOUL.md and MEMORY.md templates if not present
     let soul_path = workspace.join("SOUL.md");
     if !soul_path.exists() {
-        std::fs::write(&soul_path, include_str!("../../../SOUL.md"))?;
+        tokio::fs::write(&soul_path, include_str!("../../../SOUL.md")).await?;
         info!("Created SOUL.md at {}", soul_path.display());
     }
 
     let memory_path = workspace.join("MEMORY.md");
     if !memory_path.exists() {
-        std::fs::write(&memory_path, include_str!("../../../MEMORY.md"))?;
+        tokio::fs::write(&memory_path, include_str!("../../../MEMORY.md")).await?;
         info!("Created MEMORY.md at {}", memory_path.display());
     }
 
@@ -194,7 +197,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::system::RunCommandTool));
     registry.register(Arc::new(meepo_core::tools::system::ReadFileTool));
     registry.register(Arc::new(meepo_core::tools::system::WriteFileTool));
-    // Filesystem access tools
+    // Filesystem access tools — validate configured directories exist
+    for dir in &cfg.filesystem.allowed_directories {
+        let expanded = shellexpand(dir);
+        if !expanded.exists() {
+            warn!("Configured allowed directory does not exist: {} (expanded: {})", dir, expanded.display());
+        }
+    }
     registry.register(Arc::new(meepo_core::tools::filesystem::ListDirectoryTool::new(
         cfg.filesystem.allowed_directories.clone(),
     )));
@@ -334,11 +343,16 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     let (mut incoming_rx, bus_sender) = bus.split();
     let bus_sender = Arc::new(bus_sender);
 
+    // Semaphore to limit concurrent message processing
+    let semaphore = Arc::new(Semaphore::new(10));
+
     // Main event loop
     let agent_clone = agent.clone();
     let cancel_clone = cancel.clone();
     let watcher_runner_clone = watcher_runner.clone();
     let main_loop = tokio::spawn(async move {
+        let mut join_set = JoinSet::new();
+
         loop {
             tokio::select! {
                 _ = cancel_clone.cancelled() => {
@@ -354,7 +368,9 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                 &incoming.content[..incoming.content.len().min(100)]);
                             let agent = agent_clone.clone();
                             let sender = bus_sender.clone();
-                            tokio::spawn(async move {
+                            let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed");
+                            join_set.spawn(async move {
+                                let _permit = permit;
                                 match agent.handle_message(incoming).await {
                                     Ok(response) => {
                                         info!("Response generated ({} chars), routing to {}", response.content.len(), response.channel);
@@ -443,7 +459,9 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                     if let Some(event) = event {
                         info!("Watcher event: {} from {}", event.kind, event.watcher_id);
                         let agent = agent_clone.clone();
-                        tokio::spawn(async move {
+                        let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed");
+                        join_set.spawn(async move {
+                            let _permit = permit;
                             let msg = meepo_core::types::IncomingMessage {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 sender: "watcher".to_string(),
@@ -465,6 +483,9 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 }
             }
         }
+
+        // Drain remaining tasks for graceful shutdown
+        while join_set.join_next().await.is_some() {}
     });
 
     // Wait for shutdown signal

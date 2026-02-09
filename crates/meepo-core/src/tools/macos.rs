@@ -85,7 +85,7 @@ impl ToolHandler for ReadEmailsTool {
         let script = format!(r#"
 tell application "Mail"
     try
-        set msgs to (messages 1 thru {} of {}{}))
+        set msgs to (messages 1 thru {} of {}{})
         set output to ""
         repeat with m in msgs
             set msgBody to content of m
@@ -253,6 +253,10 @@ impl ToolHandler for SendEmailTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
         let cc = input.get("cc").and_then(|v| v.as_str());
         let in_reply_to = input.get("in_reply_to").and_then(|v| v.as_str());
+
+        if body.len() > 50_000 {
+            return Err(anyhow::anyhow!("Email body too long ({} chars, max 50,000)", body.len()));
+        }
 
         let safe_to = sanitize_applescript_string(to);
         let safe_subject = sanitize_applescript_string(subject);
@@ -447,6 +451,14 @@ impl ToolHandler for OpenAppTool {
         let app_name = input.get("app_name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'app_name' parameter"))?;
+
+        // Prevent path traversal — only allow app names, not paths
+        if app_name.contains('/') || app_name.contains('\\') {
+            return Err(anyhow::anyhow!("App name cannot contain path separators"));
+        }
+        if app_name.len() > 100 {
+            return Err(anyhow::anyhow!("App name too long (max 100 characters)"));
+        }
 
         debug!("Opening application: {}", app_name);
 

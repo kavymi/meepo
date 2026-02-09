@@ -46,6 +46,10 @@ impl ToolHandler for WriteCodeTool {
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 
+        if task.len() > 50_000 {
+            return Err(anyhow::anyhow!("Task description too long ({} chars, max 50,000)", task.len()));
+        }
+
         debug!("Executing code task in workspace: {}", workspace);
 
         let output = tokio::time::timeout(
@@ -109,6 +113,9 @@ impl ToolHandler for MakePrTool {
         let task = input.get("task")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?;
+        if task.len() > 50_000 {
+            return Err(anyhow::anyhow!("Task description too long ({} chars, max 50,000)", task.len()));
+        }
         let repo = input.get("repo")
             .and_then(|v| v.as_str())
             .unwrap_or(".");
@@ -118,6 +125,17 @@ impl ToolHandler for MakePrTool {
             .unwrap_or_else(|| {
                 format!("meepo-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap())
             });
+
+        // Validate branch name to prevent git command injection
+        if branch_name.len() > 255 {
+            return Err(anyhow::anyhow!("Branch name too long (max 255 characters)"));
+        }
+        if branch_name.starts_with('-') {
+            return Err(anyhow::anyhow!("Branch name cannot start with a dash"));
+        }
+        if !branch_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '_' || c == '-' || c == '.') {
+            return Err(anyhow::anyhow!("Branch name contains invalid characters. Only alphanumeric, /, _, -, and . are allowed."));
+        }
 
         debug!("Creating PR in repo: {} with branch: {}", repo, branch_name);
 

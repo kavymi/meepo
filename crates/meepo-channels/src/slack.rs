@@ -5,13 +5,15 @@ use meepo_core::types::{ChannelType, IncomingMessage, OutgoingMessage};
 use tokio::sync::mpsc;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
-use tracing::{info, error, debug};
+use tracing::{info, error, debug, warn};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use dashmap::DashMap;
+
+const MAX_MESSAGE_SIZE: usize = 10_240;
 
 /// Slack channel adapter using Web API polling
 pub struct SlackChannel {
@@ -254,6 +256,20 @@ impl MessageChannel for SlackChannel {
 
                         // Skip empty messages
                         if text.is_empty() {
+                            continue;
+                        }
+
+                        // Check message size limit
+                        if text.len() > MAX_MESSAGE_SIZE {
+                            warn!(
+                                "Dropping oversized Slack message from {} ({} bytes, limit {} bytes)",
+                                user,
+                                text.len(),
+                                MAX_MESSAGE_SIZE,
+                            );
+                            if ts > max_ts.as_str() {
+                                max_ts = ts.to_string();
+                            }
                             continue;
                         }
 

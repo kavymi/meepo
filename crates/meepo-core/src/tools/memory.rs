@@ -62,7 +62,7 @@ impl ToolHandler for RememberTool {
 
         debug!("Remembering: {} (type: {})", name, entity_type);
 
-        let entity_id = self.db.insert_entity(name, entity_type, metadata)
+        let entity_id = self.db.insert_entity(name, entity_type, metadata).await
             .context("Failed to insert entity")?;
 
         Ok(format!("Remembered '{}' with ID: {}", name, entity_id))
@@ -115,7 +115,7 @@ impl ToolHandler for RecallTool {
 
         debug!("Searching knowledge graph for: {}", query);
 
-        let results = self.db.search_entities(query, entity_type)
+        let results = self.db.search_entities(query, entity_type).await
             .context("Failed to search entities")?;
 
         if results.is_empty() {
@@ -195,7 +195,7 @@ impl ToolHandler for LinkEntitiesTool {
 
         debug!("Linking {} -> {} ({})", source_id, target_id, relation_type);
 
-        let rel_id = self.db.insert_relationship(source_id, target_id, relation_type, metadata)
+        let rel_id = self.db.insert_relationship(source_id, target_id, relation_type, metadata).await
             .context("Failed to create relationship")?;
 
         Ok(format!("Created relationship with ID: {}", rel_id))
@@ -294,7 +294,7 @@ impl ToolHandler for SearchKnowledgeTool {
         } else if let Some(db) = &self.db {
             // Fallback to basic SQL search
             debug!("Using fallback SQL search (Tantivy not available)");
-            let results = db.search_entities(query, None)
+            let results = db.search_entities(query, None).await
                 .context("Failed to search knowledge")?;
 
             if results.is_empty() {
@@ -445,13 +445,13 @@ mod tests {
             "Rust programming language",
             "concept",
             Some(serde_json::json!({"description": "Systems programming"}))
-        ).unwrap();
+        ).await.unwrap();
 
         let _ = graph.add_entity(
             "Python scripting language",
             "concept",
             Some(serde_json::json!({"description": "High-level programming"}))
-        ).unwrap();
+        ).await.unwrap();
 
         let search = SearchKnowledgeTool::with_graph(graph);
 
@@ -474,13 +474,13 @@ mod tests {
             "Rust is the best systems programming language",
             "article",
             Some(serde_json::json!({"content": "Rust Rust Rust systems programming"}))
-        ).unwrap();
+        ).await.unwrap();
 
         let _ = graph.add_entity(
             "Introduction to programming",
             "article",
             Some(serde_json::json!({"content": "General programming concepts"}))
-        ).unwrap();
+        ).await.unwrap();
 
         let search = SearchKnowledgeTool::with_graph(graph);
 

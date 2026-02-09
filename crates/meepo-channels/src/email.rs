@@ -134,6 +134,7 @@ end tell
             }
 
             if id.is_empty() || sender.is_empty() {
+                debug!("Skipping email with missing id='{}' or sender='{}'", id, sender);
                 continue;
             }
 

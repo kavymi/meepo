@@ -17,6 +17,7 @@ use tokio::sync::{Mutex, RwLock};
 use lru::LruCache;
 
 const MAX_MESSAGE_SENDERS: usize = 1000;
+const MAX_MESSAGE_SIZE: usize = 10_240;
 
 /// iMessage channel adapter
 pub struct IMessageChannel {
@@ -151,6 +152,17 @@ impl IMessageChannel {
 
                 // Remove trigger prefix from content
                 let content = text.trim_start_matches(&self.trigger_prefix).trim().to_string();
+
+                // Check message size limit
+                if content.len() > MAX_MESSAGE_SIZE {
+                    warn!(
+                        "Dropping oversized iMessage from {} ({} bytes, limit {} bytes)",
+                        handle,
+                        content.len(),
+                        MAX_MESSAGE_SIZE,
+                    );
+                    continue;
+                }
 
                 // Parse timestamp (fallback to current time if parsing fails)
                 let timestamp = chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")

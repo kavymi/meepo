@@ -41,7 +41,7 @@ impl KnowledgeGraph {
     }
 
     /// Add an entity to the knowledge graph
-    pub fn add_entity(
+    pub async fn add_entity(
         &self,
         name: &str,
         entity_type: &str,
@@ -50,7 +50,7 @@ impl KnowledgeGraph {
         debug!("Adding entity: {} ({})", name, entity_type);
 
         // Insert into SQLite
-        let id = self.db.insert_entity(name, entity_type, metadata.clone())?;
+        let id = self.db.insert_entity(name, entity_type, metadata.clone()).await?;
 
         // Index in Tantivy
         let content = format!(
@@ -75,7 +75,7 @@ impl KnowledgeGraph {
     }
 
     /// Link two entities with a relationship
-    pub fn link_entities(
+    pub async fn link_entities(
         &self,
         source_id: &str,
         target_id: &str,
@@ -89,15 +89,18 @@ impl KnowledgeGraph {
 
         // Verify both entities exist
         self.db
-            .get_entity(source_id)?
+            .get_entity(source_id)
+            .await?
             .context("Source entity not found")?;
         self.db
-            .get_entity(target_id)?
+            .get_entity(target_id)
+            .await?
             .context("Target entity not found")?;
 
         let id = self
             .db
-            .insert_relationship(source_id, target_id, relation_type, metadata)?;
+            .insert_relationship(source_id, target_id, relation_type, metadata)
+            .await?;
 
         info!("Linked entities with relationship ID {}", id);
         Ok(id)
@@ -110,17 +113,18 @@ impl KnowledgeGraph {
     }
 
     /// Get full context for an entity
-    pub fn get_context_for(&self, entity_id: &str) -> Result<EntityContext> {
+    pub async fn get_context_for(&self, entity_id: &str) -> Result<EntityContext> {
         debug!("Getting context for entity: {}", entity_id);
 
         // Get the entity
         let entity = self
             .db
-            .get_entity(entity_id)?
+            .get_entity(entity_id)
+            .await?
             .context("Entity not found")?;
 
         // Get relationships
-        let relationships = self.db.get_relationships_for(entity_id)?;
+        let relationships = self.db.get_relationships_for(entity_id).await?;
 
         // Get related entities
         let mut related_entities = Vec::new();
@@ -131,13 +135,13 @@ impl KnowledgeGraph {
                 &rel.source_id
             };
 
-            if let Some(related) = self.db.get_entity(related_id)? {
+            if let Some(related) = self.db.get_entity(related_id).await? {
                 related_entities.push(related);
             }
         }
 
         // Get recent conversations (limit to 20)
-        let recent_conversations = self.db.get_recent_conversations(None, 20)?;
+        let recent_conversations = self.db.get_recent_conversations(None, 20).await?;
 
         Ok(EntityContext {
             entity,
@@ -148,7 +152,7 @@ impl KnowledgeGraph {
     }
 
     /// Remember something (store as entity and conversation)
-    pub fn remember(
+    pub async fn remember(
         &self,
         content: &str,
         entity_type: &str,
@@ -169,7 +173,7 @@ impl KnowledgeGraph {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
-        let entity_id = self.add_entity(&name, entity_type, Some(metadata))?;
+        let entity_id = self.add_entity(&name, entity_type, Some(metadata)).await?;
 
         // Also store as conversation if channel provided
         if let Some(ch) = channel {
@@ -178,7 +182,7 @@ impl KnowledgeGraph {
                 "system",
                 content,
                 Some(serde_json::json!({"entity_id": entity_id})),
-            )?;
+            ).await?;
         }
 
         info!("Remembered content as entity {}", entity_id);
@@ -186,7 +190,7 @@ impl KnowledgeGraph {
     }
 
     /// Recall information by query
-    pub fn recall(&self, query: &str, limit: usize) -> Result<Vec<EntityContext>> {
+    pub async fn recall(&self, query: &str, limit: usize) -> Result<Vec<EntityContext>> {
         debug!("Recalling: {}", query);
 
         // Search using Tantivy
@@ -195,7 +199,7 @@ impl KnowledgeGraph {
         // Get full context for each result
         let mut contexts = Vec::new();
         for result in results {
-            if let Ok(context) = self.get_context_for(&result.id) {
+            if let Ok(context) = self.get_context_for(&result.id).await {
                 contexts.push(context);
             }
         }
@@ -205,71 +209,72 @@ impl KnowledgeGraph {
     }
 
     /// Get entity by ID
-    pub fn get_entity(&self, id: &str) -> Result<Option<Entity>> {
-        self.db.get_entity(id)
+    pub async fn get_entity(&self, id: &str) -> Result<Option<Entity>> {
+        self.db.get_entity(id).await
     }
 
     /// Search entities in database
-    pub fn search_entities(&self, query: &str, entity_type: Option<&str>) -> Result<Vec<Entity>> {
-        self.db.search_entities(query, entity_type)
+    pub async fn search_entities(&self, query: &str, entity_type: Option<&str>) -> Result<Vec<Entity>> {
+        self.db.search_entities(query, entity_type).await
     }
 
     /// Get relationships for an entity
-    pub fn get_relationships(&self, entity_id: &str) -> Result<Vec<Relationship>> {
-        self.db.get_relationships_for(entity_id)
+    pub async fn get_relationships(&self, entity_id: &str) -> Result<Vec<Relationship>> {
+        self.db.get_relationships_for(entity_id).await
     }
 
     /// Store a conversation
-    pub fn store_conversation(
+    pub async fn store_conversation(
         &self,
         channel: &str,
         sender: &str,
         content: &str,
         metadata: Option<JsonValue>,
     ) -> Result<String> {
-        self.db.insert_conversation(channel, sender, content, metadata)
+        self.db.insert_conversation(channel, sender, content, metadata).await
     }
 
     /// Get recent conversations
-    pub fn get_conversations(&self, channel: Option<&str>, limit: usize) -> Result<Vec<crate::sqlite::Conversation>> {
-        self.db.get_recent_conversations(channel, limit)
+    pub async fn get_conversations(&self, channel: Option<&str>, limit: usize) -> Result<Vec<crate::sqlite::Conversation>> {
+        self.db.get_recent_conversations(channel, limit).await
     }
 
     /// Create a watcher
-    pub fn create_watcher(
+    pub async fn create_watcher(
         &self,
         kind: &str,
         config: JsonValue,
         action: &str,
         reply_channel: &str,
     ) -> Result<String> {
-        self.db.insert_watcher(kind, config, action, reply_channel)
+        self.db.insert_watcher(kind, config, action, reply_channel).await
     }
 
     /// Get active watchers
-    pub fn get_active_watchers(&self) -> Result<Vec<crate::sqlite::Watcher>> {
-        self.db.get_active_watchers()
+    pub async fn get_active_watchers(&self) -> Result<Vec<crate::sqlite::Watcher>> {
+        self.db.get_active_watchers().await
     }
 
     /// Update watcher status
-    pub fn update_watcher(&self, id: &str, active: bool) -> Result<()> {
-        self.db.update_watcher_active(id, active)
+    pub async fn update_watcher(&self, id: &str, active: bool) -> Result<()> {
+        self.db.update_watcher_active(id, active).await
     }
 
     /// Delete a watcher
-    pub fn delete_watcher(&self, id: &str) -> Result<()> {
-        self.db.delete_watcher(id)
+    pub async fn delete_watcher(&self, id: &str) -> Result<()> {
+        self.db.delete_watcher(id).await
     }
 
     /// Reindex all entities in Tantivy
-    pub fn reindex(&self) -> Result<()> {
+    pub async fn reindex(&self) -> Result<()> {
         info!("Reindexing all entities");
-        self.index.reindex_all(&self.db)
+        let entities = self.db.get_all_entities().await?;
+        self.index.reindex_all_from_entities(&entities)
     }
 
     /// Get all entities
-    pub fn get_all_entities(&self) -> Result<Vec<Entity>> {
-        self.db.get_all_entities()
+    pub async fn get_all_entities(&self) -> Result<Vec<Entity>> {
+        self.db.get_all_entities().await
     }
 
     /// Get a reference to the underlying database
@@ -281,8 +286,8 @@ impl KnowledgeGraph {
     }
 
     /// Clean up old conversations (keep only last N days)
-    pub fn cleanup_old_conversations(&self, retain_days: u32) -> Result<usize> {
-        self.db.cleanup_old_conversations(retain_days)
+    pub async fn cleanup_old_conversations(&self, retain_days: u32) -> Result<usize> {
+        self.db.cleanup_old_conversations(retain_days).await
     }
 }
 
@@ -291,8 +296,8 @@ mod tests {
     use super::*;
     use std::env;
 
-    #[test]
-    fn test_add_and_search_entity() -> Result<()> {
+    #[tokio::test]
+    async fn test_add_and_search_entity() -> Result<()> {
         let temp_dir = env::temp_dir();
         let db_path = temp_dir.join("test_graph.db");
         let index_path = temp_dir.join("test_graph_index");
@@ -307,7 +312,7 @@ mod tests {
             "Rust programming language",
             "concept",
             Some(serde_json::json!({"description": "Systems programming language"})),
-        )?;
+        ).await?;
 
         // Search
         let results = graph.search("Rust", 10)?;
@@ -319,8 +324,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_link_entities() -> Result<()> {
+    #[tokio::test]
+    async fn test_link_entities() -> Result<()> {
         let temp_dir = env::temp_dir();
         let db_path = temp_dir.join("test_graph_link.db");
         let index_path = temp_dir.join("test_graph_link_index");
@@ -331,15 +336,15 @@ mod tests {
         let graph = KnowledgeGraph::new(&db_path, &index_path)?;
 
         // Add entities
-        let rust_id = graph.add_entity("Rust", "language", None)?;
-        let systems_id = graph.add_entity("Systems Programming", "domain", None)?;
+        let rust_id = graph.add_entity("Rust", "language", None).await?;
+        let systems_id = graph.add_entity("Systems Programming", "domain", None).await?;
 
         // Link them
-        let rel_id = graph.link_entities(&rust_id, &systems_id, "used_for", None)?;
+        let rel_id = graph.link_entities(&rust_id, &systems_id, "used_for", None).await?;
         assert!(!rel_id.is_empty());
 
         // Get context
-        let context = graph.get_context_for(&rust_id)?;
+        let context = graph.get_context_for(&rust_id).await?;
         assert_eq!(context.entity.id, rust_id);
         assert_eq!(context.relationships.len(), 1);
         assert_eq!(context.related_entities.len(), 1);
@@ -349,8 +354,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_remember_and_recall() -> Result<()> {
+    #[tokio::test]
+    async fn test_remember_and_recall() -> Result<()> {
         let temp_dir = env::temp_dir();
         let db_path = temp_dir.join("test_graph_memory.db");
         let index_path = temp_dir.join("test_graph_memory_index");
@@ -365,11 +370,11 @@ mod tests {
             "Rust is a systems programming language focused on safety and performance",
             "fact",
             Some("test_channel"),
-        )?;
+        ).await?;
         assert!(!id.is_empty());
 
         // Recall it
-        let contexts = graph.recall("Rust systems programming", 10)?;
+        let contexts = graph.recall("Rust systems programming", 10).await?;
         assert!(!contexts.is_empty());
 
         let _ = std::fs::remove_file(&db_path);
@@ -377,8 +382,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_watcher_operations() -> Result<()> {
+    #[tokio::test]
+    async fn test_watcher_operations() -> Result<()> {
         let temp_dir = env::temp_dir();
         let db_path = temp_dir.join("test_graph_watcher.db");
         let index_path = temp_dir.join("test_graph_watcher_index");
@@ -390,20 +395,20 @@ mod tests {
 
         // Create watcher
         let config = serde_json::json!({"path": "/test/path", "pattern": "*.rs"});
-        let watcher_id = graph.create_watcher("file", config, "notify", "test_channel")?;
+        let watcher_id = graph.create_watcher("file", config, "notify", "test_channel").await?;
         assert!(!watcher_id.is_empty());
 
         // Get active watchers
-        let watchers = graph.get_active_watchers()?;
+        let watchers = graph.get_active_watchers().await?;
         assert_eq!(watchers.len(), 1);
 
         // Deactivate watcher
-        graph.update_watcher(&watcher_id, false)?;
-        let watchers = graph.get_active_watchers()?;
+        graph.update_watcher(&watcher_id, false).await?;
+        let watchers = graph.get_active_watchers().await?;
         assert_eq!(watchers.len(), 0);
 
         // Delete watcher
-        graph.delete_watcher(&watcher_id)?;
+        graph.delete_watcher(&watcher_id).await?;
 
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_dir_all(&index_path);

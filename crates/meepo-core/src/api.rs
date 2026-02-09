@@ -113,7 +113,7 @@ impl ApiClient {
         Ok(api_response)
     }
 
-    /// Run the full tool use loop until completion
+    /// Run the full tool use loop until completion (with 5-minute overall timeout)
     pub async fn run_tool_loop(
         &self,
         initial_message: &str,
@@ -121,6 +121,23 @@ impl ApiClient {
         tools: &[ToolDefinition],
         tool_executor: &dyn ToolExecutor,
     ) -> Result<String> {
+        tokio::time::timeout(
+            Duration::from_secs(300),
+            self.run_tool_loop_inner(initial_message, system, tools, tool_executor),
+        )
+        .await
+        .map_err(|_| anyhow!("Tool loop timed out after 5 minutes"))?
+    }
+
+    async fn run_tool_loop_inner(
+        &self,
+        initial_message: &str,
+        system: &str,
+        tools: &[ToolDefinition],
+        tool_executor: &dyn ToolExecutor,
+    ) -> Result<String> {
+        const MAX_TOOL_OUTPUT: usize = 100_000;
+
         let mut conversation: Vec<ApiMessage> = vec![
             ApiMessage {
                 role: "user".to_string(),
@@ -162,13 +179,19 @@ impl ApiClient {
 
                             let result = tool_executor.execute(name, input.clone()).await;
 
-                            let result_content = match result {
+                            let mut result_content = match result {
                                 Ok(output) => output,
                                 Err(e) => {
                                     warn!("Tool {} failed: {}", name, e);
                                     format!("Error: {}", e)
                                 }
                             };
+
+                            // Truncate oversized tool outputs to prevent context explosion
+                            if result_content.len() > MAX_TOOL_OUTPUT {
+                                result_content.truncate(MAX_TOOL_OUTPUT);
+                                result_content.push_str("\n[Output truncated]");
+                            }
 
                             tool_results.push(ContentBlock::ToolResult {
                                 tool_use_id: id.clone(),

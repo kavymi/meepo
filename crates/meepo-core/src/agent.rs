@@ -11,6 +11,9 @@ use crate::context::build_system_prompt;
 
 use meepo_knowledge::KnowledgeDb;
 
+/// Maximum context size in bytes to prevent multi-MB context strings.
+const MAX_CONTEXT_SIZE: usize = 100_000;
+
 /// Main agent that handles messages and orchestrates responses
 pub struct Agent {
     api: ApiClient,
@@ -51,7 +54,7 @@ impl Agent {
             &msg.sender,
             &msg.content,
             None,
-        ).context("Failed to store conversation")?;
+        ).await.context("Failed to store conversation")?;
 
         // Load relevant context from knowledge graph
         let context = self.load_context(&msg).await?;
@@ -78,7 +81,7 @@ impl Agent {
             "meepo",
             &response_text,
             None,
-        ).context("Failed to store response")?;
+        ).await.context("Failed to store response")?;
 
         info!("Generated response ({} chars)", response_text.len());
 
@@ -89,65 +92,95 @@ impl Agent {
         })
     }
 
-    /// Load relevant context for the message
+    /// Load relevant context for the message.
+    ///
+    /// Context is capped at [`MAX_CONTEXT_SIZE`] bytes to prevent multi-MB
+    /// strings from being sent to the LLM API. Each major section checks the
+    /// limit and stops early when exceeded.
     async fn load_context(&self, msg: &IncomingMessage) -> Result<String> {
         let mut context = String::new();
+        let mut truncated = false;
 
         // Add recent conversation history from this channel
         let recent = self.db.get_recent_conversations(
             Some(&msg.channel.to_string()),
             10,
-        ).context("Failed to load recent conversations")?;
+        ).await.context("Failed to load recent conversations")?;
 
         if !recent.is_empty() {
             context.push_str("## Recent Conversation\n\n");
             for conv in recent.iter().rev() {
                 context.push_str(&format!("{}: {}\n", conv.sender, conv.content));
+                if context.len() > MAX_CONTEXT_SIZE {
+                    truncated = true;
+                    break;
+                }
             }
             context.push_str("\n");
         }
 
         // Search for relevant entities mentioned in the message
         // Simple keyword extraction - split on whitespace and search each word
-        let keywords: Vec<&str> = msg.content
-            .split_whitespace()
-            .filter(|word| word.len() > 3)
-            .take(5)
-            .collect();
+        if !truncated {
+            let keywords: Vec<&str> = msg.content
+                .split_whitespace()
+                .filter(|word| word.len() > 3)
+                .take(5)
+                .collect();
 
-        if !keywords.is_empty() {
-            context.push_str("## Relevant Knowledge\n\n");
+            if !keywords.is_empty() {
+                context.push_str("## Relevant Knowledge\n\n");
 
-            for keyword in keywords {
-                if let Ok(entities) = self.db.search_entities(keyword, None) {
-                    for entity in entities.iter().take(3) {
-                        context.push_str(&format!(
-                            "- {} ({})",
-                            entity.name, entity.entity_type
-                        ));
-                        if let Some(metadata) = &entity.metadata {
-                            context.push_str(&format!(": {}", metadata));
-                        }
-                        context.push('\n');
+                for keyword in keywords {
+                    // Early termination: skip remaining keywords if context is already large
+                    if context.len() > MAX_CONTEXT_SIZE {
+                        truncated = true;
+                        break;
                     }
-                }
-            }
-            context.push('\n');
-        }
 
-        // Add metadata about the sender if available
-        if let Ok(sender_entities) = self.db.search_entities(&msg.sender, Some("person")) {
-            if let Some(sender_info) = sender_entities.first() {
-                context.push_str("## About the Sender\n\n");
-                context.push_str(&format!("Name: {}\n", sender_info.name));
-                if let Some(metadata) = &sender_info.metadata {
-                    context.push_str(&format!("Info: {}\n", metadata));
+                    if let Ok(entities) = self.db.search_entities(keyword, None).await {
+                        for entity in entities.iter().take(3) {
+                            context.push_str(&format!(
+                                "- {} ({})",
+                                entity.name, entity.entity_type
+                            ));
+                            if let Some(metadata) = &entity.metadata {
+                                context.push_str(&format!(": {}", metadata));
+                            }
+                            context.push('\n');
+                        }
+                    }
                 }
                 context.push('\n');
             }
         }
 
-        debug!("Loaded context ({} chars)", context.len());
+        // Add metadata about the sender if available
+        if !truncated {
+            if let Ok(sender_entities) = self.db.search_entities(&msg.sender, Some("person")).await {
+                if let Some(sender_info) = sender_entities.first() {
+                    context.push_str("## About the Sender\n\n");
+                    context.push_str(&format!("Name: {}\n", sender_info.name));
+                    if let Some(metadata) = &sender_info.metadata {
+                        context.push_str(&format!("Info: {}\n", metadata));
+                    }
+                    context.push('\n');
+                }
+            }
+        }
+
+        // Final truncation guard: hard-cap the string if it still exceeds the limit
+        if context.len() > MAX_CONTEXT_SIZE {
+            context.truncate(MAX_CONTEXT_SIZE);
+            context.push_str("\n[Context truncated]");
+            truncated = true;
+        }
+
+        if truncated {
+            debug!("Loaded context ({} chars, truncated)", context.len());
+        } else {
+            debug!("Loaded context ({} chars)", context.len());
+        }
 
         Ok(context)
     }

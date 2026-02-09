@@ -8,20 +8,16 @@ use tracing::debug;
 
 use super::{ToolHandler, json_schema};
 
-/// Validate that a path is within one of the allowed directories
+/// Validate that a path is within one of the allowed directories.
+/// Uses canonicalize() to resolve symlinks and ".." — the canonical path
+/// must start with one of the pre-canonicalized allowed directories.
 fn validate_allowed_path(path: &str, allowed_dirs: &[PathBuf]) -> Result<PathBuf> {
-    if path.contains("..") {
-        return Err(anyhow::anyhow!("Path contains '..' which is not allowed"));
-    }
-
     let expanded = shellexpand(path);
     let canonical = expanded.canonicalize()
         .with_context(|| format!("Path does not exist: {}", expanded.display()))?;
 
     for allowed in allowed_dirs {
-        let allowed_canonical = allowed.canonicalize()
-            .unwrap_or_else(|_| allowed.clone());
-        if canonical.starts_with(&allowed_canonical) {
+        if canonical.starts_with(allowed) {
             return Ok(canonical);
         }
     }
@@ -50,7 +46,10 @@ pub struct ListDirectoryTool {
 impl ListDirectoryTool {
     pub fn new(allowed_dirs: Vec<String>) -> Self {
         Self {
-            allowed_dirs: allowed_dirs.iter().map(|d| shellexpand(d)).collect(),
+            allowed_dirs: allowed_dirs.iter().map(|d| {
+                let expanded = shellexpand(d);
+                expanded.canonicalize().unwrap_or(expanded)
+            }).collect(),
         }
     }
 }
@@ -188,7 +187,10 @@ pub struct SearchFilesTool {
 impl SearchFilesTool {
     pub fn new(allowed_dirs: Vec<String>) -> Self {
         Self {
-            allowed_dirs: allowed_dirs.iter().map(|d| shellexpand(d)).collect(),
+            allowed_dirs: allowed_dirs.iter().map(|d| {
+                let expanded = shellexpand(d);
+                expanded.canonicalize().unwrap_or(expanded)
+            }).collect(),
         }
     }
 }
@@ -265,8 +267,10 @@ impl ToolHandler for SearchFilesTool {
                 query, validated_path.display(), files_scanned));
         }
 
-        let header = format!("Found {} matches in {} ({} files scanned):\n",
-            results.len(), validated_path.display(), files_scanned);
+        let truncated = results.len() >= max_results || files_scanned >= max_files;
+        let header = format!("Found {} matches in {} ({} files scanned){}:\n",
+            results.len(), validated_path.display(), files_scanned,
+            if truncated { " [results truncated]" } else { "" });
         Ok(format!("{}{}", header, results.join("\n")))
     }
 }
@@ -316,6 +320,13 @@ fn search_dir_recursive(
                     .map(|p| p.matches(&name))
                     .unwrap_or(false)
                 {
+                    continue;
+                }
+            }
+
+            // Skip large files (> 10MB) to prevent OOM
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() > 10 * 1024 * 1024 {
                     continue;
                 }
             }

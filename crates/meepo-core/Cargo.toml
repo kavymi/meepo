@@ -19,6 +19,8 @@ async-trait = { workspace = true }
 dirs = { workspace = true }
 url = { workspace = true }
 glob = { workspace = true }
+arboard = { workspace = true }
+open = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

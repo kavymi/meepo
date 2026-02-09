@@ -11,7 +11,7 @@ use tantivy::{
 };
 use tracing::{debug, info};
 
-use crate::sqlite::KnowledgeDb;
+use crate::sqlite::Entity;
 
 /// Search result with score and snippet
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,11 +178,10 @@ impl TantivyIndex {
         Ok(())
     }
 
-    /// Reindex all entities from the database
-    pub fn reindex_all(&self, db: &KnowledgeDb) -> Result<()> {
+    /// Reindex all entities from a pre-fetched entity list
+    pub fn reindex_all_from_entities(&self, entities: &[Entity]) -> Result<()> {
         info!("Reindexing all entities");
 
-        let entities = db.get_all_entities()?;
         let mut writer = self.get_writer()?;
 
         // Delete all documents
@@ -190,14 +189,14 @@ impl TantivyIndex {
 
         let entity_count = entities.len();
         // Index all entities
-        for entity in &entities {
+        for entity in entities {
             let content = format!(
                 "{} {} {}",
                 entity.name,
                 entity.entity_type,
                 entity.metadata
                     .as_ref()
-                    .map(|m| m.to_string())
+                    .map(|m: &serde_json::Value| m.to_string())
                     .unwrap_or_default()
             );
 

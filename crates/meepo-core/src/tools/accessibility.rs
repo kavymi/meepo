@@ -115,12 +115,13 @@ impl ToolHandler for ClickElementTool {
             .and_then(|v| v.as_str())
             .unwrap_or("button");
 
-        // Validate element_type against allowlist (case-insensitive)
-        if !VALID_ELEMENT_TYPES.iter().any(|&valid| valid.eq_ignore_ascii_case(element_type)) {
-            return Err(anyhow::anyhow!("Invalid element type: {}", element_type));
-        }
+        // Validate element_type against allowlist and normalize to canonical lowercase form
+        let element_type_normalized = VALID_ELEMENT_TYPES
+            .iter()
+            .find(|&&valid| valid.eq_ignore_ascii_case(element_type))
+            .ok_or_else(|| anyhow::anyhow!("Invalid element type: {}", element_type))?;
 
-        debug!("Clicking {} element: {}", element_type, element_name);
+        debug!("Clicking {} element: {}", element_type_normalized, element_name);
 
         // Sanitize input to prevent AppleScript injection
         let safe_element_name = sanitize_applescript_string(element_name);
@@ -137,7 +138,7 @@ tell application "System Events"
         return "Error: " & errMsg
     end try
 end tell
-"#, element_type, safe_element_name);
+"#, element_type_normalized, safe_element_name);
 
         let output = tokio::time::timeout(
             Duration::from_secs(30),
@@ -190,6 +191,10 @@ impl ToolHandler for TypeTextTool {
         let text = input.get("text")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'text' parameter"))?;
+
+        if text.len() > 50_000 {
+            return Err(anyhow::anyhow!("Text too long ({} chars, max 50,000)", text.len()));
+        }
 
         debug!("Typing text ({} chars)", text.len());
 

@@ -22,8 +22,8 @@ mod tests {
     use super::*;
     use anyhow::Result;
 
-    #[test]
-    fn test_basic_integration() -> Result<()> {
+    #[tokio::test]
+    async fn test_basic_integration() -> Result<()> {
         let temp_dir = std::env::temp_dir();
         let db_path = temp_dir.join("test_knowledge.db");
         let tantivy_path = temp_dir.join("test_tantivy_index");
@@ -35,7 +35,7 @@ mod tests {
         let graph = KnowledgeGraph::new(&db_path, &tantivy_path)?;
 
         // Test adding an entity
-        let entity_id = graph.add_entity("test_entity", "concept", None)?;
+        let entity_id = graph.add_entity("test_entity", "concept", None).await?;
         assert!(!entity_id.is_empty());
 
         // Test search

@@ -43,7 +43,7 @@ pub struct SearchResponse {
 }
 
 /// Request body for the Tavily search API
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct SearchRequest {
     api_key: String,
     query: String,
@@ -51,11 +51,31 @@ struct SearchRequest {
     include_answer: bool,
 }
 
+impl std::fmt::Debug for SearchRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchRequest")
+            .field("api_key", &"[REDACTED]")
+            .field("query", &self.query)
+            .field("max_results", &self.max_results)
+            .field("include_answer", &self.include_answer)
+            .finish()
+    }
+}
+
 /// Request body for the Tavily extract API
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct ExtractRequest {
     api_key: String,
     urls: Vec<String>,
+}
+
+impl std::fmt::Debug for ExtractRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtractRequest")
+            .field("api_key", &"[REDACTED]")
+            .field("urls", &self.urls)
+            .finish()
+    }
 }
 
 /// A single result from the Tavily extract API

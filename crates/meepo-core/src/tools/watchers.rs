@@ -87,10 +87,14 @@ impl ToolHandler for CreateWatcherTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'reply_channel' parameter"))?;
 
+        if action.len() > 10_000 {
+            return Err(anyhow::anyhow!("Action description too long ({} chars, max 10,000)", action.len()));
+        }
+
         debug!("Creating watcher: {} -> {}", kind, action);
 
         // Store in database
-        let watcher_id = self.db.insert_watcher(kind, config.clone(), action, reply_channel)
+        let watcher_id = self.db.insert_watcher(kind, config.clone(), action, reply_channel).await
             .context("Failed to create watcher in database")?;
 
         // Send command to scheduler (include ID so the runner uses the same one)
@@ -136,7 +140,7 @@ impl ToolHandler for ListWatchersTool {
     async fn execute(&self, _input: Value) -> Result<String> {
         debug!("Listing active watchers");
 
-        let watchers = self.db.get_active_watchers()
+        let watchers = self.db.get_active_watchers().await
             .context("Failed to get active watchers")?;
 
         if watchers.is_empty() {
@@ -199,7 +203,7 @@ impl ToolHandler for CancelWatcherTool {
         debug!("Canceling watcher: {}", watcher_id);
 
         // Deactivate in database
-        self.db.update_watcher_active(watcher_id, false)
+        self.db.update_watcher_active(watcher_id, false).await
             .context("Failed to deactivate watcher")?;
 
         // Send cancel command to scheduler

@@ -21,6 +21,7 @@ use chrono::Utc;
 use tokio::sync::{Mutex, RwLock};
 
 const MAX_MESSAGE_CHANNELS: usize = 1000;
+const MAX_MESSAGE_SIZE: usize = 10_240;
 
 /// Type key for storing the incoming message sender in Serenity's TypeMap
 struct MessageSender;
@@ -98,6 +99,17 @@ impl EventHandler for DiscordHandler {
         // Get the message sender
         let tx = data.get::<MessageSender>().expect("MessageSender not initialized").clone();
         drop(data); // Release the lock
+
+        // Check message size limit
+        if msg.content.len() > MAX_MESSAGE_SIZE {
+            warn!(
+                "Dropping oversized Discord message from {} ({} bytes, limit {} bytes)",
+                msg.author.name,
+                msg.content.len(),
+                MAX_MESSAGE_SIZE,
+            );
+            return;
+        }
 
         // Convert to IncomingMessage
         let incoming = IncomingMessage {
