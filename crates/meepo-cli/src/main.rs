@@ -154,6 +154,19 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     ).with_max_tokens(cfg.agent.max_tokens);
     info!("Anthropic API client initialized (model: {})", cfg.agent.default_model);
 
+    // Initialize Tavily client (optional — web search works only if API key is set)
+    let tavily_client = cfg.providers.tavily
+        .as_ref()
+        .map(|t| shellexpand_str(&t.api_key))
+        .filter(|key| !key.is_empty())
+        .map(|key| Arc::new(meepo_core::tavily::TavilyClient::new(key)));
+
+    if tavily_client.is_some() {
+        info!("Tavily client initialized (web search enabled)");
+    } else {
+        info!("Tavily API key not set — web search disabled, browse_url uses raw fetch");
+    }
+
     // Initialize watcher command channel (needed for tool registration)
     let (watcher_command_tx, mut watcher_command_rx) = tokio::sync::mpsc::channel::<meepo_core::tools::watchers::WatcherCommand>(100);
 
@@ -179,7 +192,16 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::system::RunCommandTool));
     registry.register(Arc::new(meepo_core::tools::system::ReadFileTool));
     registry.register(Arc::new(meepo_core::tools::system::WriteFileTool));
-    registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::new()));
+    // BrowseUrlTool with optional Tavily extract
+    if let Some(ref tavily) = tavily_client {
+        registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::with_tavily(tavily.clone())));
+    } else {
+        registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::new()));
+    }
+    // Register web_search tool if Tavily is available
+    if let Some(ref tavily) = tavily_client {
+        registry.register(Arc::new(meepo_core::tools::search::WebSearchTool::new(tavily.clone())));
+    }
     registry.register(Arc::new(meepo_core::tools::watchers::CreateWatcherTool::new(db.clone(), watcher_command_tx.clone())));
     registry.register(Arc::new(meepo_core::tools::watchers::ListWatchersTool::new(db.clone())));
     registry.register(Arc::new(meepo_core::tools::watchers::CancelWatcherTool::new(db.clone(), watcher_command_tx.clone())));
