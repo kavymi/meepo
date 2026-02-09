@@ -108,21 +108,21 @@ jobs:
 
           sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Formula/meepo.rb
 
-          # Update ARM SHA (first PLACEHOLDER/sha256 after arm?)
-          # Use python for reliable multi-line replacement
-          python3 - <<PYEOF
-          import re
+          # Update SHA256 values using env vars passed to python
+          export ARM_SHA X64_SHA
+          python3 - <<'PYEOF'
+          import os, re
+          arm_sha = os.environ["ARM_SHA"]
+          x64_sha = os.environ["X64_SHA"]
           with open("Formula/meepo.rb") as f:
               content = f.read()
-          # Replace first sha256 after arm? block
           content = re.sub(
               r'(Hardware::CPU\.arm\?.*?sha256 )"[^"]*"',
-              f'\\1"{ARM_SHA}"',
+              f'\\1"{arm_sha}"',
               content, count=1, flags=re.DOTALL)
-          # Replace second sha256 (x64)
           content = re.sub(
               r'(url.*darwin-x64.*?\n\s*sha256 )"[^"]*"',
-              f'\\1"{X64_SHA}"',
+              f'\\1"{x64_sha}"',
               content, count=1, flags=re.DOTALL)
           with open("Formula/meepo.rb", "w") as f:
               f.write(content)
