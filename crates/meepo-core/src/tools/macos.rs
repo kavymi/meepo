@@ -40,6 +40,14 @@ impl ToolHandler for ReadEmailsTool {
                 "limit": {
                     "type": "number",
                     "description": "Number of emails to retrieve (default: 10, max: 50)"
+                },
+                "mailbox": {
+                    "type": "string",
+                    "description": "Mailbox to read from (default: 'inbox'). Options: inbox, sent, drafts, trash"
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Optional search term to filter by subject or sender"
                 }
             }),
             vec![],
@@ -51,18 +59,43 @@ impl ToolHandler for ReadEmailsTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(10)
             .min(50);
+        let mailbox = input.get("mailbox")
+            .and_then(|v| v.as_str())
+            .unwrap_or("inbox");
+        let search = input.get("search")
+            .and_then(|v| v.as_str());
 
-        debug!("Reading {} emails from Mail.app", limit);
+        debug!("Reading {} emails from Mail.app ({})", limit, mailbox);
+
+        let safe_mailbox = match mailbox.to_lowercase().as_str() {
+            "inbox" => "inbox",
+            "sent" => "sent mailbox",
+            "drafts" => "drafts",
+            "trash" => "trash",
+            _ => "inbox",
+        };
+
+        let filter_clause = if let Some(term) = search {
+            let safe_term = sanitize_applescript_string(term);
+            format!(r#" whose (subject contains "{}" or sender contains "{}")"#, safe_term, safe_term)
+        } else {
+            String::new()
+        };
 
         let script = format!(r#"
 tell application "Mail"
     try
-        set msgs to messages 1 thru {} of inbox
+        set msgs to (messages 1 thru {} of {}{}))
         set output to ""
         repeat with m in msgs
+            set msgBody to content of m
+            if length of msgBody > 500 then
+                set msgBody to text 1 thru 500 of msgBody
+            end if
             set output to output & "From: " & (sender of m) & "\n"
             set output to output & "Subject: " & (subject of m) & "\n"
             set output to output & "Date: " & (date received of m as string) & "\n"
+            set output to output & "Preview: " & msgBody & "\n"
             set output to output & "---\n"
         end repeat
         return output
@@ -70,7 +103,7 @@ tell application "Mail"
         return "Error: " & errMsg
     end try
 end tell
-"#, limit);
+"#, limit, safe_mailbox, filter_clause);
 
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
@@ -84,8 +117,7 @@ end tell
         .context("Failed to execute osascript")?;
 
         if output.status.success() {
-            let result = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(result)
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             let error = String::from_utf8_lossy(&output.stderr).to_string();
             warn!("Failed to read emails: {}", error);
@@ -195,6 +227,14 @@ impl ToolHandler for SendEmailTool {
                 "body": {
                     "type": "string",
                     "description": "Email body content"
+                },
+                "cc": {
+                    "type": "string",
+                    "description": "Optional CC recipient email address"
+                },
+                "in_reply_to": {
+                    "type": "string",
+                    "description": "Optional subject line of email to reply to (enables threading)"
                 }
             }),
             vec!["to", "subject", "body"],
@@ -211,20 +251,55 @@ impl ToolHandler for SendEmailTool {
         let body = input.get("body")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
+        let cc = input.get("cc").and_then(|v| v.as_str());
+        let in_reply_to = input.get("in_reply_to").and_then(|v| v.as_str());
 
-        debug!("Sending email to: {}", to);
-
-        // Sanitize inputs to prevent AppleScript injection
         let safe_to = sanitize_applescript_string(to);
         let safe_subject = sanitize_applescript_string(subject);
         let safe_body = sanitize_applescript_string(body);
 
-        let script = format!(r#"
+        let script = if let Some(reply_subject) = in_reply_to {
+            let safe_reply_subject = sanitize_applescript_string(reply_subject);
+            debug!("Replying to email with subject: {}", reply_subject);
+            format!(r#"
+tell application "Mail"
+    try
+        set targetMsgs to (every message of inbox whose subject contains "{}")
+        if (count of targetMsgs) > 0 then
+            set originalMsg to item 1 of targetMsgs
+            set replyMsg to reply originalMsg with opening window
+            set content of replyMsg to "{}"
+            send replyMsg
+            return "Reply sent (threaded)"
+        else
+            set newMessage to make new outgoing message with properties {{subject:"{}", content:"{}", visible:true}}
+            tell newMessage
+                make new to recipient at end of to recipients with properties {{address:"{}"}}
+                send
+            end tell
+            return "Email sent (no original found for threading)"
+        end if
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#, safe_reply_subject, safe_body, safe_subject, safe_body, safe_to)
+        } else {
+            debug!("Sending new email to: {}", to);
+            let cc_block = if let Some(cc_addr) = cc {
+                let safe_cc = sanitize_applescript_string(cc_addr);
+                format!(r#"
+                make new cc recipient at end of cc recipients with properties {{address:"{}"}}"#, safe_cc)
+            } else {
+                String::new()
+            };
+
+            format!(r#"
 tell application "Mail"
     try
         set newMessage to make new outgoing message with properties {{subject:"{}", content:"{}", visible:true}}
         tell newMessage
-            make new to recipient at end of to recipients with properties {{address:"{}"}}
+            make new to recipient at end of to recipients with properties {{address:"{}"}}{}
             send
         end tell
         return "Email sent successfully"
@@ -232,7 +307,8 @@ tell application "Mail"
         return "Error: " & errMsg
     end try
 end tell
-"#, safe_subject, safe_body, safe_to);
+"#, safe_subject, safe_body, safe_to, cc_block)
+        };
 
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
@@ -246,8 +322,7 @@ end tell
         .context("Failed to execute osascript")?;
 
         if output.status.success() {
-            let result = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(result)
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             let error = String::from_utf8_lossy(&output.stderr).to_string();
             warn!("Failed to send email: {}", error);
