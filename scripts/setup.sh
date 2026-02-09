@@ -279,9 +279,9 @@ if ask_yn "Enable Discord?"; then
 
     # Update config.toml
     sed -i '' 's/^\[channels\.discord\]$/[channels.discord]/' "$CONFIG_FILE"
-    sed -i '' '/^\[channels\.discord\]$/,/^\[/{s/^enabled = false/enabled = true/}' "$CONFIG_FILE"
+    sed -i '' '/^\[channels\.discord\]$/,/^\[/{s/^enabled = false/enabled = true/;}' "$CONFIG_FILE"
     if [ -n "$DISCORD_USER" ]; then
-        sed -i '' "/^\[channels\.discord\]$/,/^\[/{s/^allowed_users = \[\]/allowed_users = [\"$DISCORD_USER\"]/}" "$CONFIG_FILE"
+        sed -i '' "/^\[channels\.discord\]$/,/^\[/{s/^allowed_users = \[\]/allowed_users = [\"$DISCORD_USER\"]/;}" "$CONFIG_FILE"
     fi
 
     print_ok "Discord enabled in config"
@@ -311,7 +311,7 @@ if ask_yn "Enable Slack?"; then
         fi
     fi
 
-    sed -i '' '/^\[channels\.slack\]$/,/^\[/{s/^enabled = false/enabled = true/}' "$CONFIG_FILE"
+    sed -i '' '/^\[channels\.slack\]$/,/^\[/{s/^enabled = false/enabled = true/;}' "$CONFIG_FILE"
     print_ok "Slack enabled in config"
 fi
 
@@ -328,16 +328,16 @@ if ask_yn "Enable iMessage?"; then
     CONTACTS=$(ask_value "Allowed contacts (comma-separated phones/emails)" "")
     PREFIX=$(ask_value "Trigger prefix" "/d")
 
-    sed -i '' '/^\[channels\.imessage\]$/,/^\[/{s/^enabled = false/enabled = true/}' "$CONFIG_FILE"
+    sed -i '' '/^\[channels\.imessage\]$/,/^\[/{s/^enabled = false/enabled = true/;}' "$CONFIG_FILE"
 
     if [ -n "$CONTACTS" ]; then
         # Convert comma-separated to TOML array
         TOML_CONTACTS=$(echo "$CONTACTS" | sed 's/[[:space:]]*,[[:space:]]*/", "/g' | sed 's/^/["/' | sed 's/$/"]/')
-        sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^allowed_contacts = \[\]|allowed_contacts = $TOML_CONTACTS|}" "$CONFIG_FILE"
+        sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^allowed_contacts = \[\]|allowed_contacts = $TOML_CONTACTS|;}" "$CONFIG_FILE"
     fi
 
     if [ "$PREFIX" != "/d" ]; then
-        sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^trigger_prefix = \"/d\"|trigger_prefix = \"$PREFIX\"|}" "$CONFIG_FILE"
+        sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^trigger_prefix = \"/d\"|trigger_prefix = \"$PREFIX\"|;}" "$CONFIG_FILE"
     fi
 
     print_ok "iMessage enabled in config"
