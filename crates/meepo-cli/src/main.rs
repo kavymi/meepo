@@ -337,6 +337,19 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     // Clipboard and app launcher are cross-platform (arboard + open crates)
     registry.register(Arc::new(meepo_core::tools::macos::OpenAppTool::new()));
     registry.register(Arc::new(meepo_core::tools::macos::GetClipboardTool::new()));
+    // macOS-only tools: Reminders, Notes, Notifications, Screen Capture, Music, Contacts
+    #[cfg(target_os = "macos")]
+    {
+        registry.register(Arc::new(meepo_core::tools::macos::ListRemindersTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::CreateReminderTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::ListNotesTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::CreateNoteTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::SendNotificationTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::ScreenCaptureTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::GetCurrentTrackTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::MusicControlTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
+    }
     registry.register(Arc::new(meepo_core::tools::code::WriteCodeTool));
     registry.register(Arc::new(meepo_core::tools::code::MakePrTool));
     registry.register(Arc::new(meepo_core::tools::code::ReviewPrTool));

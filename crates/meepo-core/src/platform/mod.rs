@@ -46,6 +46,45 @@ pub trait UiAutomation: Send + Sync {
     async fn type_text(&self, text: &str) -> Result<String>;
 }
 
+/// Reminders provider for reading and creating reminders
+#[async_trait]
+pub trait RemindersProvider: Send + Sync {
+    async fn list_reminders(&self, list_name: Option<&str>) -> Result<String>;
+    async fn create_reminder(&self, name: &str, list_name: Option<&str>, due_date: Option<&str>, notes: Option<&str>) -> Result<String>;
+}
+
+/// Notes provider for reading and creating notes
+#[async_trait]
+pub trait NotesProvider: Send + Sync {
+    async fn list_notes(&self, folder: Option<&str>, limit: u64) -> Result<String>;
+    async fn create_note(&self, title: &str, body: &str, folder: Option<&str>) -> Result<String>;
+}
+
+/// Notification provider for sending system notifications
+#[async_trait]
+pub trait NotificationProvider: Send + Sync {
+    async fn send_notification(&self, title: &str, message: &str, sound: Option<&str>) -> Result<String>;
+}
+
+/// Screen capture provider
+#[async_trait]
+pub trait ScreenCaptureProvider: Send + Sync {
+    async fn capture_screen(&self, path: Option<&str>) -> Result<String>;
+}
+
+/// Music control provider (Apple Music / Spotify)
+#[async_trait]
+pub trait MusicProvider: Send + Sync {
+    async fn get_current_track(&self) -> Result<String>;
+    async fn control_playback(&self, action: &str) -> Result<String>;
+}
+
+/// Contacts provider for searching contacts
+#[async_trait]
+pub trait ContactsProvider: Send + Sync {
+    async fn search_contacts(&self, query: &str) -> Result<String>;
+}
+
 /// Create platform email provider
 pub fn create_email_provider() -> Box<dyn EmailProvider> {
     #[cfg(target_os = "macos")]
@@ -84,6 +123,54 @@ pub fn create_ui_automation() -> Box<dyn UiAutomation> {
     { Box::new(windows::WindowsUiAutomation) }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     { panic!("UI automation not available on this platform") }
+}
+
+/// Create platform reminders provider (macOS only)
+pub fn create_reminders_provider() -> Box<dyn RemindersProvider> {
+    #[cfg(target_os = "macos")]
+    { Box::new(macos::MacOsRemindersProvider) }
+    #[cfg(not(target_os = "macos"))]
+    { panic!("Reminders provider only available on macOS") }
+}
+
+/// Create platform notes provider (macOS only)
+pub fn create_notes_provider() -> Box<dyn NotesProvider> {
+    #[cfg(target_os = "macos")]
+    { Box::new(macos::MacOsNotesProvider) }
+    #[cfg(not(target_os = "macos"))]
+    { panic!("Notes provider only available on macOS") }
+}
+
+/// Create platform notification provider (macOS only)
+pub fn create_notification_provider() -> Box<dyn NotificationProvider> {
+    #[cfg(target_os = "macos")]
+    { Box::new(macos::MacOsNotificationProvider) }
+    #[cfg(not(target_os = "macos"))]
+    { panic!("Notification provider only available on macOS") }
+}
+
+/// Create platform screen capture provider (macOS only)
+pub fn create_screen_capture_provider() -> Box<dyn ScreenCaptureProvider> {
+    #[cfg(target_os = "macos")]
+    { Box::new(macos::MacOsScreenCaptureProvider) }
+    #[cfg(not(target_os = "macos"))]
+    { panic!("Screen capture provider only available on macOS") }
+}
+
+/// Create platform music provider (macOS only)
+pub fn create_music_provider() -> Box<dyn MusicProvider> {
+    #[cfg(target_os = "macos")]
+    { Box::new(macos::MacOsMusicProvider) }
+    #[cfg(not(target_os = "macos"))]
+    { panic!("Music provider only available on macOS") }
+}
+
+/// Create platform contacts provider (macOS only)
+pub fn create_contacts_provider() -> Box<dyn ContactsProvider> {
+    #[cfg(target_os = "macos")]
+    { Box::new(macos::MacOsContactsProvider) }
+    #[cfg(not(target_os = "macos"))]
+    { panic!("Contacts provider only available on macOS") }
 }
 
 /// Cross-platform clipboard using `arboard` crate
@@ -137,5 +224,16 @@ mod tests {
         let _email = create_email_provider();
         let _calendar = create_calendar_provider();
         let _ui = create_ui_automation();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_macos_providers_create() {
+        let _reminders = create_reminders_provider();
+        let _notes = create_notes_provider();
+        let _notification = create_notification_provider();
+        let _screen = create_screen_capture_provider();
+        let _music = create_music_provider();
+        let _contacts = create_contacts_provider();
     }
 }

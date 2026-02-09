@@ -5,7 +5,7 @@ use anyhow::{Result, Context};
 use tokio::process::Command;
 use tracing::{debug, warn};
 
-use super::{EmailProvider, CalendarProvider, UiAutomation};
+use super::{EmailProvider, CalendarProvider, UiAutomation, RemindersProvider, NotesProvider, NotificationProvider, ScreenCaptureProvider, MusicProvider, ContactsProvider};
 
 /// Sanitize a string for safe use in AppleScript
 pub fn sanitize_applescript_string(input: &str) -> String {
@@ -263,6 +263,307 @@ tell application "System Events"
     end try
 end tell
 "#, safe_text.replace('\n', "\" & return & \""));
+        run_applescript(&script).await
+    }
+}
+
+pub struct MacOsRemindersProvider;
+
+#[async_trait]
+impl RemindersProvider for MacOsRemindersProvider {
+    async fn list_reminders(&self, list_name: Option<&str>) -> Result<String> {
+        let list_clause = if let Some(name) = list_name {
+            let safe = sanitize_applescript_string(name);
+            format!(r#"list "{}""#, safe)
+        } else {
+            "default list".to_string()
+        };
+        debug!("Listing reminders from {}", list_clause);
+        let script = format!(r#"
+tell application "Reminders"
+    try
+        set theList to {}
+        set output to "List: " & (name of theList) & "\n---\n"
+        set theReminders to (reminders of theList whose completed is false)
+        repeat with r in theReminders
+            set output to output & "- " & (name of r) & "\n"
+            try
+                set d to due date of r
+                set output to output & "  Due: " & (d as string) & "\n"
+            end try
+            try
+                set n to body of r
+                if n is not missing value and n is not "" then
+                    set output to output & "  Notes: " & n & "\n"
+                end if
+            end try
+        end repeat
+        if (count of theReminders) = 0 then
+            set output to output & "(no incomplete reminders)\n"
+        end if
+        return output
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#, list_clause);
+        run_applescript(&script).await
+    }
+
+    async fn create_reminder(&self, name: &str, list_name: Option<&str>, due_date: Option<&str>, notes: Option<&str>) -> Result<String> {
+        let safe_name = sanitize_applescript_string(name);
+        let list_clause = if let Some(ln) = list_name {
+            let safe = sanitize_applescript_string(ln);
+            format!(r#"list "{}""#, safe)
+        } else {
+            "default list".to_string()
+        };
+        let props = {
+            let mut p = format!(r#"{{name:"{}""#, safe_name);
+            if let Some(notes_text) = notes {
+                let safe_notes = sanitize_applescript_string(notes_text);
+                p.push_str(&format!(r#", body:"{}""#, safe_notes));
+            }
+            p.push('}');
+            p
+        };
+        let due_clause = if let Some(due) = due_date {
+            let safe_due = sanitize_applescript_string(due);
+            format!(r#"
+            set due date of newReminder to date "{}""#, safe_due)
+        } else {
+            String::new()
+        };
+        debug!("Creating reminder: {}", name);
+        let script = format!(r#"
+tell application "Reminders"
+    try
+        set newReminder to make new reminder at end of {} with properties {}{}
+        return "Reminder created: " & (name of newReminder)
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#, list_clause, props, due_clause);
+        run_applescript(&script).await
+    }
+}
+
+pub struct MacOsNotesProvider;
+
+#[async_trait]
+impl NotesProvider for MacOsNotesProvider {
+    async fn list_notes(&self, folder: Option<&str>, limit: u64) -> Result<String> {
+        let limit = limit.min(50);
+        let folder_clause = if let Some(f) = folder {
+            let safe = sanitize_applescript_string(f);
+            format!(r#"notes of folder "{}""#, safe)
+        } else {
+            "notes".to_string()
+        };
+        debug!("Listing {} notes", limit);
+        let script = format!(r#"
+tell application "Notes"
+    try
+        set allNotes to {}
+        set maxCount to {}
+        if (count of allNotes) < maxCount then
+            set maxCount to (count of allNotes)
+        end if
+        set output to ""
+        repeat with i from 1 to maxCount
+            set n to item i of allNotes
+            set output to output & "Title: " & (name of n) & "\n"
+            set output to output & "Date: " & (modification date of n as string) & "\n"
+            set noteBody to plaintext of n
+            if length of noteBody > 200 then
+                set noteBody to text 1 thru 200 of noteBody
+            end if
+            set output to output & "Preview: " & noteBody & "\n---\n"
+        end repeat
+        if maxCount = 0 then
+            set output to "(no notes found)\n"
+        end if
+        return output
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#, folder_clause, limit);
+        run_applescript(&script).await
+    }
+
+    async fn create_note(&self, title: &str, body: &str, folder: Option<&str>) -> Result<String> {
+        let safe_title = sanitize_applescript_string(title);
+        let safe_body = sanitize_applescript_string(body);
+        let html_body = format!("<h1>{}</h1><br>{}", safe_title, safe_body.replace('\n', "<br>"));
+        let folder_clause = if let Some(f) = folder {
+            let safe = sanitize_applescript_string(f);
+            format!(r#" in folder "{}""#, safe)
+        } else {
+            String::new()
+        };
+        debug!("Creating note: {}", title);
+        let script = format!(r#"
+tell application "Notes"
+    try
+        make new note{} with properties {{name:"{}", body:"{}"}}
+        return "Note created: {}"
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#, folder_clause, safe_title, html_body, safe_title);
+        run_applescript(&script).await
+    }
+}
+
+pub struct MacOsNotificationProvider;
+
+#[async_trait]
+impl NotificationProvider for MacOsNotificationProvider {
+    async fn send_notification(&self, title: &str, message: &str, sound: Option<&str>) -> Result<String> {
+        let safe_title = sanitize_applescript_string(title);
+        let safe_message = sanitize_applescript_string(message);
+        let sound_clause = if let Some(s) = sound {
+            let safe_sound = sanitize_applescript_string(s);
+            format!(r#" sound name "{}""#, safe_sound)
+        } else {
+            r#" sound name "default""#.to_string()
+        };
+        debug!("Sending notification: {}", title);
+        let script = format!(
+            r#"display notification "{}" with title "{}"{}"#,
+            safe_message, safe_title, sound_clause
+        );
+        run_applescript(&script).await?;
+        Ok("Notification sent".to_string())
+    }
+}
+
+pub struct MacOsScreenCaptureProvider;
+
+#[async_trait]
+impl ScreenCaptureProvider for MacOsScreenCaptureProvider {
+    async fn capture_screen(&self, path: Option<&str>) -> Result<String> {
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let output_path = path
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| format!("/tmp/meepo-screenshot-{}.png", timestamp));
+
+        debug!("Capturing screen to {}", output_path);
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            Command::new("screencapture")
+                .arg("-x") // silent (no shutter sound)
+                .arg(&output_path)
+                .output()
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Screen capture timed out"))?
+        .context("Failed to run screencapture")?;
+
+        if output.status.success() {
+            Ok(format!("Screenshot saved to {}", output_path))
+        } else {
+            let error = String::from_utf8_lossy(&output.stderr);
+            Err(anyhow::anyhow!("Screen capture failed: {}", error))
+        }
+    }
+}
+
+pub struct MacOsMusicProvider;
+
+#[async_trait]
+impl MusicProvider for MacOsMusicProvider {
+    async fn get_current_track(&self) -> Result<String> {
+        debug!("Getting current track from Music.app");
+        let script = r#"
+tell application "Music"
+    try
+        if player state is not stopped then
+            set trackName to name of current track
+            set trackArtist to artist of current track
+            set trackAlbum to album of current track
+            set trackDuration to duration of current track
+            set playerPos to player position
+            set output to "Track: " & trackName & "\n"
+            set output to output & "Artist: " & trackArtist & "\n"
+            set output to output & "Album: " & trackAlbum & "\n"
+            set output to output & "State: " & (player state as string) & "\n"
+            set output to output & "Position: " & (playerPos as integer) & "s / " & (trackDuration as integer) & "s"
+            return output
+        else
+            return "No track playing"
+        end if
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#;
+        run_applescript(script).await
+    }
+
+    async fn control_playback(&self, action: &str) -> Result<String> {
+        let command = match action.to_lowercase().as_str() {
+            "play" => "play",
+            "pause" => "pause",
+            "stop" => "stop",
+            "next" | "skip" => "next track",
+            "previous" | "prev" | "back" => "previous track",
+            _ => return Err(anyhow::anyhow!("Invalid action: {}. Use: play, pause, stop, next, previous", action)),
+        };
+        debug!("Music control: {}", command);
+        let script = format!(r#"
+tell application "Music"
+    try
+        {}
+        return "OK: {}"
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#, command, command);
+        run_applescript(&script).await
+    }
+}
+
+pub struct MacOsContactsProvider;
+
+#[async_trait]
+impl ContactsProvider for MacOsContactsProvider {
+    async fn search_contacts(&self, query: &str) -> Result<String> {
+        let safe_query = sanitize_applescript_string(query);
+        debug!("Searching contacts for: {}", query);
+        let script = format!(r#"
+tell application "Contacts"
+    try
+        set results to (every person whose name contains "{}")
+        set output to ""
+        set maxResults to 20
+        if (count of results) < maxResults then
+            set maxResults to (count of results)
+        end if
+        repeat with i from 1 to maxResults
+            set p to item i of results
+            set output to output & "Name: " & (name of p) & "\n"
+            repeat with e in (emails of p)
+                set output to output & "  Email: " & (value of e) & "\n"
+            end repeat
+            repeat with ph in (phones of p)
+                set output to output & "  Phone: " & (value of ph) & "\n"
+            end repeat
+            set output to output & "---\n"
+        end repeat
+        if maxResults = 0 then
+            return "No contacts found matching '{}'"
+        end if
+        return output
+    on error errMsg
+        return "Error: " & errMsg
+    end try
+end tell
+"#, safe_query, safe_query);
         run_applescript(&script).await
     }
 }
