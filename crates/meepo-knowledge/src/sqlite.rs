@@ -58,6 +58,22 @@ pub struct Watcher {
     pub created_at: DateTime<Utc>,
 }
 
+/// Autonomous goal tracked by the agent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Goal {
+    pub id: String,
+    pub description: String,
+    pub status: String,          // active|paused|completed|failed
+    pub priority: i32,           // 1 (low) to 5 (critical)
+    pub success_criteria: Option<String>,
+    pub strategy: Option<String>,
+    pub check_interval_secs: i64,
+    pub last_checked_at: Option<DateTime<Utc>>,
+    pub source_channel: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// SQLite database wrapper (thread-safe via Arc<Mutex>)
 pub struct KnowledgeDb {
     conn: Arc<Mutex<Connection>>,
@@ -156,6 +172,28 @@ impl KnowledgeDb {
         )?;
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_watchers_active ON watchers(active)",
+            [],
+        )?;
+
+        // Create goals table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS goals (
+                id TEXT PRIMARY KEY,
+                description TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                priority INTEGER NOT NULL DEFAULT 3,
+                success_criteria TEXT,
+                strategy TEXT,
+                check_interval_secs INTEGER NOT NULL DEFAULT 1800,
+                last_checked_at TEXT,
+                source_channel TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)",
             [],
         )?;
 
@@ -663,6 +701,153 @@ impl KnowledgeDb {
         .context("spawn_blocking task panicked")?
     }
 
+    /// Insert a new goal
+    pub async fn insert_goal(
+        &self,
+        description: &str,
+        priority: i32,
+        check_interval_secs: i64,
+        success_criteria: Option<&str>,
+        source_channel: Option<&str>,
+    ) -> Result<String> {
+        let conn = Arc::clone(&self.conn);
+        let description = description.to_owned();
+        let success_criteria = success_criteria.map(|s| s.to_owned());
+        let source_channel = source_channel.map(|s| s.to_owned());
+
+        tokio::task::spawn_blocking(move || {
+            let id = Uuid::new_v4().to_string();
+            let now = Utc::now();
+            let conn = conn.lock().unwrap_or_else(|poisoned| {
+                warn!("Database mutex was poisoned, recovering");
+                poisoned.into_inner()
+            });
+            conn.execute(
+                "INSERT INTO goals (id, description, status, priority, success_criteria, check_interval_secs, source_channel, created_at, updated_at)
+                 VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![&id, &description, priority, success_criteria, check_interval_secs, source_channel, now.to_rfc3339(), now.to_rfc3339()],
+            )?;
+            debug!("Inserted goal: {} ({})", description, id);
+            Ok(id)
+        })
+        .await
+        .context("spawn_blocking task panicked")?
+    }
+
+    /// Get active goals that are due for checking
+    pub async fn get_due_goals(&self) -> Result<Vec<Goal>> {
+        let conn = Arc::clone(&self.conn);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock().unwrap_or_else(|poisoned| {
+                warn!("Database mutex was poisoned, recovering");
+                poisoned.into_inner()
+            });
+            let mut stmt = conn.prepare(
+                "SELECT id, description, status, priority, success_criteria, strategy,
+                        check_interval_secs, last_checked_at, source_channel, created_at, updated_at
+                 FROM goals
+                 WHERE status = 'active'
+                   AND (last_checked_at IS NULL
+                        OR strftime('%s', 'now') - strftime('%s', last_checked_at) >= check_interval_secs)
+                 ORDER BY priority DESC, created_at ASC",
+            )?;
+
+            let goals = stmt
+                .query_map([], Self::row_to_goal)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(goals)
+        })
+        .await
+        .context("spawn_blocking task panicked")?
+    }
+
+    /// Get all active goals
+    pub async fn get_active_goals(&self) -> Result<Vec<Goal>> {
+        let conn = Arc::clone(&self.conn);
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock().unwrap_or_else(|poisoned| {
+                warn!("Database mutex was poisoned, recovering");
+                poisoned.into_inner()
+            });
+            let mut stmt = conn.prepare(
+                "SELECT id, description, status, priority, success_criteria, strategy,
+                        check_interval_secs, last_checked_at, source_channel, created_at, updated_at
+                 FROM goals WHERE status = 'active'
+                 ORDER BY priority DESC, created_at ASC",
+            )?;
+            let goals = stmt
+                .query_map([], Self::row_to_goal)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(goals)
+        })
+        .await
+        .context("spawn_blocking task panicked")?
+    }
+
+    /// Update goal status
+    pub async fn update_goal_status(&self, id: &str, status: &str) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        let id = id.to_owned();
+        let status = status.to_owned();
+
+        tokio::task::spawn_blocking(move || {
+            let now = Utc::now();
+            let conn = conn.lock().unwrap_or_else(|poisoned| {
+                warn!("Database mutex was poisoned, recovering");
+                poisoned.into_inner()
+            });
+            conn.execute(
+                "UPDATE goals SET status = ?1, updated_at = ?2 WHERE id = ?3",
+                params![&status, now.to_rfc3339(), &id],
+            )?;
+            Ok(())
+        })
+        .await
+        .context("spawn_blocking task panicked")?
+    }
+
+    /// Update goal strategy and mark as checked
+    pub async fn update_goal_checked(&self, id: &str, strategy: Option<&str>) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        let id = id.to_owned();
+        let strategy = strategy.map(|s| s.to_owned());
+
+        tokio::task::spawn_blocking(move || {
+            let now = Utc::now();
+            let conn = conn.lock().unwrap_or_else(|poisoned| {
+                warn!("Database mutex was poisoned, recovering");
+                poisoned.into_inner()
+            });
+            conn.execute(
+                "UPDATE goals SET last_checked_at = ?1, strategy = COALESCE(?2, strategy), updated_at = ?3 WHERE id = ?4",
+                params![now.to_rfc3339(), strategy, now.to_rfc3339(), &id],
+            )?;
+            Ok(())
+        })
+        .await
+        .context("spawn_blocking task panicked")?
+    }
+
+    /// Helper to convert row to Goal
+    fn row_to_goal(row: &rusqlite::Row) -> rusqlite::Result<Goal> {
+        Ok(Goal {
+            id: row.get(0)?,
+            description: row.get(1)?,
+            status: row.get(2)?,
+            priority: row.get(3)?,
+            success_criteria: row.get(4)?,
+            strategy: row.get(5)?,
+            check_interval_secs: row.get(6)?,
+            last_checked_at: row.get::<_, Option<String>>(7)?
+                .and_then(|s| s.parse().ok()),
+            source_channel: row.get(8)?,
+            created_at: row.get::<_, String>(9)?.parse().unwrap_or_else(|_| Utc::now()),
+            updated_at: row.get::<_, String>(10)?.parse().unwrap_or_else(|_| Utc::now()),
+        })
+    }
+
     /// Clean up old conversations (keep only last N days)
     pub async fn cleanup_old_conversations(&self, retain_days: u32) -> Result<usize> {
         let conn = Arc::clone(&self.conn);
@@ -733,6 +918,41 @@ mod tests {
         // Get relationships
         let rels = db.get_relationships_for(&source_id).await?;
         assert_eq!(rels.len(), 1);
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_goal_operations() -> Result<()> {
+        let temp_path = env::temp_dir().join("test_goals.db");
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        // Insert goal
+        let id = db.insert_goal("Review PRs daily", 3, 3600, Some("All PRs reviewed"), Some("discord")).await?;
+        assert!(!id.is_empty());
+
+        // Get active goals
+        let goals = db.get_active_goals().await?;
+        assert_eq!(goals.len(), 1);
+        assert_eq!(goals[0].description, "Review PRs daily");
+
+        // Get due goals (should be due immediately since last_checked_at is NULL)
+        let due = db.get_due_goals().await?;
+        assert_eq!(due.len(), 1);
+
+        // Mark as checked
+        db.update_goal_checked(&id, Some("Check GitHub PRs tool")).await?;
+
+        // Should no longer be due (just checked, interval is 3600s)
+        let due = db.get_due_goals().await?;
+        assert_eq!(due.len(), 0);
+
+        // Update status
+        db.update_goal_status(&id, "completed").await?;
+        let active = db.get_active_goals().await?;
+        assert_eq!(active.len(), 0);
 
         let _ = std::fs::remove_file(&temp_path);
         Ok(())
