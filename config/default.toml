@@ -1,177 +1,131 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║                    Meepo Configuration                         ║
-# ║                                                                ║
-# ║  Location: ~/.meepo/config.toml                                ║
-# ║  Env vars: Use ${VAR_NAME} syntax (expanded at load time)      ║
-# ║  Paths:    Use ~/ for home directory expansion                  ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# ── Meepo Configuration ──────────────────────────────────────────
+# Location: ~/.meepo/config.toml
+# Env vars: ${VAR_NAME} expanded at load time  |  Paths: ~/ for home
 
 
-# ── Agent Settings ────────────────────────────────────────────────
-# Controls which Claude model to use and response limits.
+# ── Agent ────────────────────────────────────────────────────────
 
 [agent]
-default_model = "claude-opus-4-6"       # Options: claude-opus-4-6, claude-sonnet-4-5-20250929
-max_tokens = 8192                        # Max tokens per response (higher = longer responses)
-system_prompt_file = "SOUL.md"           # Agent personality file (in workspace dir)
-memory_file = "MEMORY.md"               # Persistent memory file (in workspace dir)
+default_model = "claude-opus-4-6"       # or claude-sonnet-4-5-20250929
+max_tokens = 8192
+system_prompt_file = "SOUL.md"          # in workspace dir
+memory_file = "MEMORY.md"
 
 
-# ── API Provider ──────────────────────────────────────────────────
-# REQUIRED: Your Anthropic API key. Everything needs this.
-#
-# Get your key at: https://console.anthropic.com/settings/keys
-#   1. Sign up / log in at console.anthropic.com
-#   2. Go to Settings → API Keys
-#   3. Click "Create Key"
-#   4. Copy the key (starts with sk-ant-)
-#
-# Set it as an environment variable (recommended):
-#   export ANTHROPIC_API_KEY="sk-ant-..."
-#
-# Or paste it directly below (not recommended — keeps secrets out of files):
-#   api_key = "sk-ant-..."
+# ── Anthropic (required) ────────────────────────────────────────
+# Get key → https://console.anthropic.com/settings/keys
+# export ANTHROPIC_API_KEY="sk-ant-..."
 
 [providers.anthropic]
 api_key = "${ANTHROPIC_API_KEY}"
 base_url = "https://api.anthropic.com"
 
-# ── Tavily Search API (Optional) ────────────────────────────────
-# Enables web search and clean URL content extraction.
-#
-# Get your key at: https://tavily.com
-#   1. Sign up at tavily.com
-#   2. Copy your API key from the dashboard
-#
-# Set it as an environment variable:
-#   export TAVILY_API_KEY="tvly-..."
+# ── Tavily (optional — web search) ──────────────────────────────
+# Get key → https://app.tavily.com/home  (free tier, no card)
+# export TAVILY_API_KEY="tvly-..."
 
 [providers.tavily]
 api_key = "${TAVILY_API_KEY}"
 
 
-# ── Discord Channel ───────────────────────────────────────────────
-# Talk to Meepo via Discord DMs. Requires a Discord bot.
-#
-# Setup:
-#   1. Go to https://discord.com/developers/applications
-#   2. Click "New Application" → name it "Meepo"
-#   3. Go to Bot → click "Reset Token" → copy the token
-#   4. Enable these Privileged Gateway Intents:
-#      ✓ MESSAGE CONTENT INTENT
-#      ✓ (DIRECT MESSAGES is on by default)
-#   5. Go to OAuth2 → URL Generator:
-#      - Scopes: bot
-#      - Bot Permissions: Send Messages, Read Message History
-#      - Copy the URL and open it to invite the bot to your server
-#   6. Get your Discord user ID:
-#      - Enable Developer Mode: User Settings → Advanced → Developer Mode
-#      - Right-click your name → "Copy User ID"
-#
-# Set the token as an environment variable:
-#   export DISCORD_BOT_TOKEN="your-token-here"
+# ── Discord ──────────────────────────────────────────────────────
+# 1. https://discord.com/developers/applications → New App → Bot → Reset Token
+# 2. Enable MESSAGE CONTENT INTENT
+# 3. OAuth2 → scope: bot → Send Messages → invite to server
+# export DISCORD_BOT_TOKEN="..."
 
 [channels.discord]
-enabled = false                          # Set to true to enable
-token = "${DISCORD_BOT_TOKEN}"           # Bot token from step 3
-allowed_users = []                       # Your Discord user ID(s), e.g. ["123456789012345678"]
+enabled = false
+token = "${DISCORD_BOT_TOKEN}"
+allowed_users = []                      # e.g. ["123456789012345678"]
 
-
-# ── Slack Channel ─────────────────────────────────────────────────
-# Talk to Meepo via Slack DMs. Uses polling (no Socket Mode needed).
-#
-# Setup:
-#   1. Go to https://api.slack.com/apps
-#   2. Click "Create New App" → "From scratch"
-#   3. Go to OAuth & Permissions → add these Bot Token Scopes:
-#      - chat:write
-#      - channels:read
-#      - im:history
-#      - im:read
-#      - users:read
-#   4. Click "Install to Workspace" → authorize
-#   5. Copy the "Bot User OAuth Token" (starts with xoxb-)
-#
-# Set the token as an environment variable:
-#   export SLACK_BOT_TOKEN="xoxb-..."
+# ── Slack ────────────────────────────────────────────────────────
+# 1. https://api.slack.com/apps → Create New App → From scratch
+# 2. OAuth & Permissions → scopes: chat:write, channels:read, im:history, im:read, users:read
+# 3. Install to Workspace → copy Bot User OAuth Token
+# export SLACK_BOT_TOKEN="xoxb-..."
 
 [channels.slack]
-enabled = false                          # Set to true to enable
-bot_token = "${SLACK_BOT_TOKEN}"         # Bot token from step 5
-poll_interval_secs = 3                   # How often to check for new messages (seconds)
+enabled = false
+bot_token = "${SLACK_BOT_TOKEN}"
+poll_interval_secs = 3
 
-
-# ── iMessage Channel ──────────────────────────────────────────────
-# Talk to Meepo via iMessage. No API key needed — uses macOS directly.
-#
-# Requirements:
-#   - macOS with Messages app signed into iMessage
-#   - Full Disk Access for your terminal app:
-#     System Settings → Privacy & Security → Full Disk Access → add Terminal/iTerm
-#
-# How it works:
-#   - Meepo reads ~/Library/Messages/chat.db (read-only) for incoming messages
-#   - Only processes messages starting with the trigger prefix (default: /d)
-#   - Sends replies via AppleScript through Messages.app
-#
-# Example: Text "/d What's on my calendar?" to get a response.
+# ── iMessage ─────────────────────────────────────────────────────
+# No API key needed — uses macOS Messages.app directly.
+# Requires: Full Disk Access for your terminal app.
+#   System Settings → Privacy & Security → Full Disk Access → toggle ON
+# Messages starting with trigger_prefix are processed; replies via AppleScript.
 
 [channels.imessage]
+enabled = false
+poll_interval_secs = 3
+trigger_prefix = "/d"
+allowed_contacts = []                   # e.g. ["+15551234567", "me@icloud.com"]
+
+# ── Email Channel ────────────────────────────────────────────────
+# Talk to Meepo via email through Mail.app. Works with any email
+# account configured in Mail.app (Gmail, iCloud, etc.).
+#
+# How it works:
+#   - Meepo polls Mail.app for unread emails with the subject prefix
+#   - Only emails whose subject starts with the prefix are processed
+#   - Replies are sent as threaded replies to the original email
+#
+# Requirements:
+#   - macOS Mail.app with at least one email account configured
+#   - Automation permissions for your terminal app:
+#     System Settings → Privacy & Security → Automation → Terminal → Mail
+#
+# Example: Send an email with subject "[meepo] What's on my calendar?"
+
+[channels.email]
 enabled = false                          # Set to true to enable
-poll_interval_secs = 3                   # How often to check for new messages
-trigger_prefix = "/d"                    # Messages must start with this to be processed
-allowed_contacts = []                    # Phone numbers or emails, e.g. ["+15551234567", "me@icloud.com"]
+poll_interval_secs = 10                  # How often to check for new emails
+subject_prefix = "[meepo]"              # Emails must have this subject prefix
 
 
-# ── Knowledge Graph ───────────────────────────────────────────────
-# Persistent storage for entities, relationships, and conversations.
-# These are created automatically — no setup needed.
+# ── Knowledge Graph ──────────────────────────────────────────────
 
 [knowledge]
-db_path = "~/.meepo/knowledge.db"        # SQLite database
-tantivy_path = "~/.meepo/tantivy_index"  # Full-text search index
+db_path = "~/.meepo/knowledge.db"
+tantivy_path = "~/.meepo/tantivy_index"
 
 
-# ── Watchers ──────────────────────────────────────────────────────
-# Background monitors for email, calendar, GitHub, files, and cron tasks.
+# ── Watchers ─────────────────────────────────────────────────────
 
 [watchers]
-max_concurrent = 50                      # Max watchers running at once
-min_poll_interval_secs = 30              # Minimum polling interval (prevents API spam)
-active_hours = { start = "08:00", end = "23:00" }  # Only run during these hours (24h format)
+max_concurrent = 50
+min_poll_interval_secs = 30
+active_hours = { start = "08:00", end = "23:00" }
 
 
-# ── Code Integration ──────────────────────────────────────────────
-# Tools for writing code and managing PRs. Requires claude and gh CLIs.
-#
-# Install if needed:
-#   brew install gh           # GitHub CLI
-#   npm install -g @anthropic-ai/claude-code  # Claude CLI
+# ── Code Integration ────────────────────────────────────────────
+# Optional: brew install gh  |  npm i -g @anthropic-ai/claude-code
 
 [code]
-claude_code_path = "claude"              # Path to Claude Code CLI binary
-gh_path = "gh"                           # Path to GitHub CLI binary
-default_workspace = "~/Coding"           # Default directory for code operations
+claude_code_path = "claude"
+gh_path = "gh"
+default_workspace = "~/Coding"
 
 
-# ── Memory / Workspace ────────────────────────────────────────────
-# Where SOUL.md and MEMORY.md live. Created by `meepo init`.
+# ── Memory / Workspace ──────────────────────────────────────────
 
 [memory]
 workspace = "~/.meepo/workspace"
 
+# ── Filesystem Access ────────────────────────────────────────────
+# Directories the agent can browse and search.
+# The agent can list files, read contents, and search within these dirs.
 
-# =============================================================================
-# Sub-Agent Orchestrator
-# =============================================================================
+[filesystem]
+allowed_directories = ["~/Coding"]       # Directories the agent can access
+
+
+# ── Sub-Agent Orchestrator ───────────────────────────────────────
+
 [orchestrator]
-# Maximum sub-tasks running concurrently within a single delegation
 max_concurrent_subtasks = 5
-# Maximum total sub-tasks per single delegate_tasks call
 max_subtasks_per_request = 10
-# Timeout per sub-task in parallel mode (seconds)
 parallel_timeout_secs = 120
-# Timeout per sub-task in background mode (seconds)
 background_timeout_secs = 600
-# Maximum background task groups running simultaneously
 max_background_groups = 3

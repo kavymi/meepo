@@ -194,6 +194,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::system::RunCommandTool));
     registry.register(Arc::new(meepo_core::tools::system::ReadFileTool));
     registry.register(Arc::new(meepo_core::tools::system::WriteFileTool));
+    // Filesystem access tools
+    registry.register(Arc::new(meepo_core::tools::filesystem::ListDirectoryTool::new(
+        cfg.filesystem.allowed_directories.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::filesystem::SearchFilesTool::new(
+        cfg.filesystem.allowed_directories.clone(),
+    )));
     // BrowseUrlTool with optional Tavily extract
     if let Some(ref tavily) = tavily_client {
         registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::with_tavily(tavily.clone())));
@@ -305,6 +312,16 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         );
         bus.register(Box::new(slack));
         info!("Slack channel registered");
+    }
+
+    // Register Email channel if enabled
+    if cfg.channels.email.enabled {
+        let email = meepo_channels::email::EmailChannel::new(
+            std::time::Duration::from_secs(cfg.channels.email.poll_interval_secs),
+            cfg.channels.email.subject_prefix.clone(),
+        );
+        bus.register(Box::new(email));
+        info!("Email channel registered");
     }
 
     // Start all channels

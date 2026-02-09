@@ -12,6 +12,8 @@ pub struct MeepoConfig {
     pub watchers: WatchersConfig,
     pub code: CodeConfig,
     pub memory: MemoryConfig,
+    #[serde(default)]
+    pub filesystem: FilesystemConfig,
     #[serde(default = "default_orchestrator_config")]
     pub orchestrator: OrchestratorConfig,
 }
@@ -63,6 +65,8 @@ pub struct ChannelsConfig {
     pub discord: DiscordConfig,
     pub slack: SlackConfig,
     pub imessage: IMessageConfig,
+    #[serde(default)]
+    pub email: EmailConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +103,34 @@ pub struct IMessageConfig {
 
 fn default_poll_interval() -> u64 {
     3
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_email_poll_interval")]
+    pub poll_interval_secs: u64,
+    #[serde(default = "default_subject_prefix")]
+    pub subject_prefix: String,
+}
+
+fn default_email_poll_interval() -> u64 {
+    10
+}
+
+fn default_subject_prefix() -> String {
+    "[meepo]".to_string()
+}
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            poll_interval_secs: default_email_poll_interval(),
+            subject_prefix: default_subject_prefix(),
+        }
+    }
 }
 
 fn default_slack_poll_interval() -> u64 {
@@ -163,6 +195,24 @@ fn default_workspace() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
     pub workspace: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilesystemConfig {
+    #[serde(default = "default_allowed_directories")]
+    pub allowed_directories: Vec<String>,
+}
+
+fn default_allowed_directories() -> Vec<String> {
+    vec!["~/Coding".to_string()]
+}
+
+impl Default for FilesystemConfig {
+    fn default() -> Self {
+        Self {
+            allowed_directories: default_allowed_directories(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
