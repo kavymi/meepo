@@ -97,7 +97,6 @@ allowed_users = []                       # Your Discord user ID(s), e.g. ["12345
 
 [channels.slack]
 enabled = false                          # Set to true to enable
-app_token = "${SLACK_APP_TOKEN}"         # Optional (not needed for polling mode)
 bot_token = "${SLACK_BOT_TOKEN}"         # Bot token from step 5
 poll_interval_secs = 3                   # How often to check for new messages (seconds)
 

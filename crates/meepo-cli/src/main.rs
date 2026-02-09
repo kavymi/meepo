@@ -140,18 +140,20 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
 
     // Load SOUL and MEMORY
     let workspace = shellexpand(&cfg.memory.workspace);
-    let soul = meepo_knowledge::load_soul(&workspace.join("SOUL.md"))
+    let soul = meepo_knowledge::load_soul(&workspace.join(&cfg.agent.system_prompt_file))
         .unwrap_or_else(|_| "You are Meepo, a helpful AI assistant.".to_string());
-    let memory = meepo_knowledge::load_memory(&workspace.join("MEMORY.md"))
+    let memory = meepo_knowledge::load_memory(&workspace.join(&cfg.agent.memory_file))
         .unwrap_or_default();
     info!("Loaded SOUL ({} chars) and MEMORY ({} chars)", soul.len(), memory.len());
 
     // Initialize API client
     let api_key = shellexpand_str(&cfg.providers.anthropic.api_key);
+    let base_url = shellexpand_str(&cfg.providers.anthropic.base_url);
     let api = meepo_core::api::ApiClient::new(
         api_key,
         Some(cfg.agent.default_model.clone()),
-    ).with_max_tokens(cfg.agent.max_tokens);
+    ).with_max_tokens(cfg.agent.max_tokens)
+     .with_base_url(base_url);
     info!("Anthropic API client initialized (model: {})", cfg.agent.default_model);
 
     // Initialize Tavily client (optional — web search works only if API key is set)
@@ -481,16 +483,18 @@ async fn cmd_ask(config_path: &Option<PathBuf>, message: &str) -> Result<()> {
     let cfg = MeepoConfig::load(config_path)?;
 
     let api_key = shellexpand_str(&cfg.providers.anthropic.api_key);
+    let base_url = shellexpand_str(&cfg.providers.anthropic.base_url);
     let api = meepo_core::api::ApiClient::new(
         api_key,
         Some(cfg.agent.default_model.clone()),
-    ).with_max_tokens(cfg.agent.max_tokens);
+    ).with_max_tokens(cfg.agent.max_tokens)
+     .with_base_url(base_url);
 
     // Load context
     let workspace = shellexpand(&cfg.memory.workspace);
-    let soul = meepo_knowledge::load_soul(&workspace.join("SOUL.md"))
+    let soul = meepo_knowledge::load_soul(&workspace.join(&cfg.agent.system_prompt_file))
         .unwrap_or_else(|_| "You are Meepo, a helpful AI assistant.".to_string());
-    let memory = meepo_knowledge::load_memory(&workspace.join("MEMORY.md"))
+    let memory = meepo_knowledge::load_memory(&workspace.join(&cfg.agent.memory_file))
         .unwrap_or_default();
 
     let system = format!("{}\n\n## Current Memory\n{}", soul, memory);

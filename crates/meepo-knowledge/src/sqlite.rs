@@ -266,7 +266,7 @@ impl KnowledgeDb {
         Ok(entities)
     }
 
-    /// Get all entities
+    /// Get all entities (capped to prevent OOM on large databases)
     pub fn get_all_entities(&self) -> Result<Vec<Entity>> {
         let conn = self.conn.lock().unwrap_or_else(|poisoned| {
             warn!("Database mutex was poisoned, recovering");
@@ -275,7 +275,8 @@ impl KnowledgeDb {
         let mut stmt = conn.prepare(
             "SELECT id, name, entity_type, metadata, created_at, updated_at
              FROM entities
-             ORDER BY updated_at DESC"
+             ORDER BY updated_at DESC
+             LIMIT 50000"
         )?;
 
         let entities = stmt

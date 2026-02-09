@@ -156,9 +156,10 @@ impl KnowledgeGraph {
     ) -> Result<String> {
         debug!("Remembering: {} ({})", content, entity_type);
 
-        // Create entity with content as name
-        let name = if content.len() > 100 {
-            format!("{}...", &content[..97])
+        // Create entity with content as name (char-safe to avoid slicing mid-UTF-8)
+        let name = if content.chars().count() > 100 {
+            let truncated: String = content.chars().take(97).collect();
+            format!("{}...", truncated)
         } else {
             content.to_string()
         };

@@ -63,6 +63,12 @@ impl ApiClient {
         self
     }
 
+    /// Set a custom base URL (e.g. for proxies or regional endpoints)
+    pub fn with_base_url(mut self, base_url: String) -> Self {
+        self.base_url = base_url;
+        self
+    }
+
     /// Make a single chat request to Claude API
     pub async fn chat(
         &self,

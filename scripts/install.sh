@@ -37,7 +37,7 @@ mkdir -p "$LOG_DIR"
 ENV_ENTRIES="        <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$HOME/.cargo/bin</string>"
 
-for VAR_NAME in ANTHROPIC_API_KEY TAVILY_API_KEY DISCORD_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN; do
+for VAR_NAME in ANTHROPIC_API_KEY TAVILY_API_KEY DISCORD_BOT_TOKEN SLACK_BOT_TOKEN; do
     VAR_VALUE="${!VAR_NAME:-}"
     if [ -n "$VAR_VALUE" ]; then
         ENV_ENTRIES="$ENV_ENTRIES
@@ -80,7 +80,7 @@ echo "Created launchd plist at $PLIST_PATH"
 # Show which env vars were captured
 echo ""
 echo "Environment variables captured in plist:"
-for VAR_NAME in ANTHROPIC_API_KEY TAVILY_API_KEY DISCORD_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN; do
+for VAR_NAME in ANTHROPIC_API_KEY TAVILY_API_KEY DISCORD_BOT_TOKEN SLACK_BOT_TOKEN; do
     if [ -n "${!VAR_NAME:-}" ]; then
         echo "  ✓ $VAR_NAME"
     else

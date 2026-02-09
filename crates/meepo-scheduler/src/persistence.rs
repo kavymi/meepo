@@ -16,8 +16,10 @@ use tracing::{debug, info, warn};
 pub fn init_watcher_tables(conn: &Connection) -> Result<()> {
     debug!("Initializing watcher tables");
 
+    // Use scheduler_watchers to avoid collision with meepo-knowledge's watchers table
+    // (both crates share the same SQLite file)
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS watchers (
+        "CREATE TABLE IF NOT EXISTS scheduler_watchers (
             id TEXT PRIMARY KEY,
             kind_json TEXT NOT NULL,
             action TEXT NOT NULL,
@@ -27,16 +29,16 @@ pub fn init_watcher_tables(conn: &Connection) -> Result<()> {
         )",
         [],
     )
-    .context("Failed to create watchers table")?;
+    .context("Failed to create scheduler_watchers table")?;
 
     // Index for querying active watchers
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_watchers_active ON watchers(active)",
+        "CREATE INDEX IF NOT EXISTS idx_sched_watchers_active ON scheduler_watchers(active)",
         [],
     )
-    .context("Failed to create watchers active index")?;
+    .context("Failed to create scheduler_watchers active index")?;
 
-    // Table for tracking watcher events (optional, for audit trail)
+    // Table for tracking watcher events (audit trail)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS watcher_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +46,7 @@ pub fn init_watcher_tables(conn: &Connection) -> Result<()> {
             kind TEXT NOT NULL,
             payload_json TEXT NOT NULL,
             timestamp TEXT NOT NULL,
-            FOREIGN KEY (watcher_id) REFERENCES watchers(id) ON DELETE CASCADE
+            FOREIGN KEY (watcher_id) REFERENCES scheduler_watchers(id) ON DELETE CASCADE
         )",
         [],
     )
@@ -77,7 +79,7 @@ pub fn save_watcher(conn: &Connection, watcher: &Watcher) -> Result<()> {
     let created_at = watcher.created_at.to_rfc3339();
 
     conn.execute(
-        "INSERT INTO watchers (id, kind_json, action, reply_channel, active, created_at)
+        "INSERT INTO scheduler_watchers (id, kind_json, action, reply_channel, active, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT(id) DO UPDATE SET
             kind_json = excluded.kind_json,
@@ -102,7 +104,7 @@ pub fn save_watcher(conn: &Connection, watcher: &Watcher) -> Result<()> {
 /// Get all active watchers from the database
 pub fn get_active_watchers(conn: &Connection) -> Result<Vec<Watcher>> {
     let mut stmt = conn
-        .prepare("SELECT id, kind_json, action, reply_channel, active, created_at FROM watchers WHERE active = 1")
+        .prepare("SELECT id, kind_json, action, reply_channel, active, created_at FROM scheduler_watchers WHERE active = 1")
         .context("Failed to prepare query for active watchers")?;
 
     let watchers: Vec<Watcher> = stmt
@@ -160,7 +162,7 @@ pub fn get_active_watchers(conn: &Connection) -> Result<Vec<Watcher>> {
 /// Get a specific watcher by ID
 pub fn get_watcher_by_id(conn: &Connection, id: &str) -> Result<Option<Watcher>> {
     let mut stmt = conn
-        .prepare("SELECT id, kind_json, action, reply_channel, active, created_at FROM watchers WHERE id = ?1")
+        .prepare("SELECT id, kind_json, action, reply_channel, active, created_at FROM scheduler_watchers WHERE id = ?1")
         .context("Failed to prepare query for watcher by ID")?;
 
     let result = stmt.query_row(params![id], |row| {
@@ -204,7 +206,7 @@ pub fn get_watcher_by_id(conn: &Connection, id: &str) -> Result<Option<Watcher>>
 pub fn deactivate_watcher(conn: &Connection, id: &str) -> Result<bool> {
     let rows_affected = conn
         .execute(
-            "UPDATE watchers SET active = 0 WHERE id = ?1",
+            "UPDATE scheduler_watchers SET active = 0 WHERE id = ?1",
             params![id],
         )
         .context("Failed to deactivate watcher")?;
@@ -223,7 +225,7 @@ pub fn deactivate_watcher(conn: &Connection, id: &str) -> Result<bool> {
 /// This also deletes all associated events due to the CASCADE constraint.
 pub fn delete_watcher(conn: &Connection, id: &str) -> Result<bool> {
     let rows_affected = conn
-        .execute("DELETE FROM watchers WHERE id = ?1", params![id])
+        .execute("DELETE FROM scheduler_watchers WHERE id = ?1", params![id])
         .context("Failed to delete watcher")?;
 
     if rows_affected > 0 {

@@ -80,8 +80,6 @@ pub struct SlackConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
-    pub app_token: String,
-    #[serde(default)]
     pub bot_token: String,
     #[serde(default = "default_slack_poll_interval")]
     pub poll_interval_secs: u64,
@@ -234,10 +232,6 @@ impl MeepoConfig {
 
         if !config.channels.slack.bot_token.is_empty() && !config.channels.slack.bot_token.contains("${") {
             warn!("Slack bot token is hardcoded in config file. For security, use environment variables: bot_token = \"${{SLACK_BOT_TOKEN}}\"");
-        }
-
-        if !config.channels.slack.app_token.is_empty() && !config.channels.slack.app_token.contains("${") {
-            warn!("Slack app token is hardcoded in config file. For security, use environment variables: app_token = \"${{SLACK_APP_TOKEN}}\"");
         }
 
         Ok(config)

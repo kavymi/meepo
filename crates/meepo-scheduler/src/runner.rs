@@ -661,9 +661,10 @@ end tell
                 }
                 state.seen_hashes.put(hash, ());
 
-                // Truncate body for the event
-                let body_preview = if email_body.len() > 500 {
-                    format!("{}...", &email_body[..497])
+                // Truncate body for the event (char-safe to avoid slicing mid-UTF-8)
+                let body_preview = if email_body.chars().count() > 500 {
+                    let truncated: String = email_body.chars().take(497).collect();
+                    format!("{}...", truncated)
                 } else {
                     email_body
                 };
@@ -804,9 +805,11 @@ end tell
                     .unwrap_or("")
                     .to_string();
 
-                // Skip if we've already seen this event
+                // Skip if we've already seen this event (compare as u64 since GitHub IDs are numeric strings)
                 if let Some(last_id) = &state.last_github_event_id {
-                    if event_id <= *last_id {
+                    let current: u64 = event_id.parse().unwrap_or(0);
+                    let last: u64 = last_id.parse().unwrap_or(0);
+                    if current <= last {
                         continue;
                     }
                 }
