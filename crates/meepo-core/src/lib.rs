@@ -11,6 +11,7 @@ pub mod agent;
 pub mod api;
 pub mod context;
 pub mod orchestrator;
+pub mod tavily;
 pub mod tools;
 pub mod types;
 
