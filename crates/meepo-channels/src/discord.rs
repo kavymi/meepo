@@ -7,6 +7,7 @@ use serenity::{
     model::prelude::*,
     prelude::*,
     model::gateway::Ready,
+    gateway::GatewayError,
 };
 use tokio::sync::mpsc;
 use std::sync::Arc;
@@ -164,6 +165,21 @@ impl DiscordChannel {
     }
 }
 
+/// Check if a serenity error represents a fatal gateway condition that should not be retried
+fn is_fatal_gateway_error(err: &serenity::Error) -> bool {
+    match err {
+        serenity::Error::Gateway(gateway_err) => matches!(
+            gateway_err,
+            GatewayError::InvalidAuthentication
+                | GatewayError::NoAuthentication
+                | GatewayError::InvalidShardData
+                | GatewayError::DisallowedGatewayIntents
+                | GatewayError::InvalidGatewayIntents
+        ),
+        _ => false,
+    }
+}
+
 #[async_trait]
 impl MessageChannel for DiscordChannel {
     async fn start(&self, tx: mpsc::Sender<IncomingMessage>) -> Result<()> {
@@ -199,6 +215,11 @@ impl MessageChannel for DiscordChannel {
                 {
                     Ok(c) => c,
                     Err(e) => {
+                        if is_fatal_gateway_error(&e) {
+                            error!("Discord fatal error (will not retry): {}", e);
+                            error!("Check your DISCORD_BOT_TOKEN and bot settings at https://discord.com/developers/applications");
+                            break;
+                        }
                         error!("Failed to create Discord client: {}", e);
                         warn!("Retrying in {:?}...", backoff);
                         tokio::time::sleep(backoff).await;
@@ -232,6 +253,11 @@ impl MessageChannel for DiscordChannel {
                         break;
                     }
                     Err(e) => {
+                        if is_fatal_gateway_error(&e) {
+                            error!("Discord fatal error (will not retry): {}", e);
+                            error!("Check your DISCORD_BOT_TOKEN and bot settings at https://discord.com/developers/applications");
+                            break;
+                        }
                         error!("Discord client error: {}", e);
                         warn!("Retrying in {:?}...", backoff);
                         tokio::time::sleep(backoff).await;
