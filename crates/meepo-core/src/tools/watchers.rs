@@ -14,6 +14,7 @@ use super::{ToolHandler, json_schema};
 #[derive(Debug, Clone)]
 pub enum WatcherCommand {
     Create {
+        id: String,
         kind: String,
         config: Value,
         action: String,
@@ -92,8 +93,9 @@ impl ToolHandler for CreateWatcherTool {
         let watcher_id = self.db.insert_watcher(kind, config.clone(), action, reply_channel)
             .context("Failed to create watcher in database")?;
 
-        // Send command to scheduler
+        // Send command to scheduler (include ID so the runner uses the same one)
         self.command_tx.send(WatcherCommand::Create {
+            id: watcher_id.clone(),
             kind: kind.to_string(),
             config,
             action: action.to_string(),

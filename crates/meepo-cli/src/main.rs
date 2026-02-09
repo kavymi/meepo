@@ -254,11 +254,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         meepo_scheduler::runner::WatcherRunner::new(watcher_event_tx),
     ));
 
-    // Load persisted watchers
+    // Initialize scheduler database (kept alive for runtime persistence)
+    let sched_db = Arc::new(std::sync::Mutex::new(rusqlite::Connection::open(&db_path)?));
     {
-        let sched_db = rusqlite::Connection::open(&db_path)?;
-        meepo_scheduler::persistence::init_watcher_tables(&sched_db)?;
-        let watchers = meepo_scheduler::persistence::get_active_watchers(&sched_db)?;
+        let conn = sched_db.lock().unwrap();
+        meepo_scheduler::persistence::init_watcher_tables(&conn)?;
+        let watchers = meepo_scheduler::persistence::get_active_watchers(&conn)?;
+        drop(conn); // release lock before async runner.lock()
         let runner = watcher_runner.lock().await;
         for w in watchers {
             if let Err(e) = runner.start_watcher(w.clone()).await {
@@ -354,26 +356,46 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 cmd = watcher_command_rx.recv() => {
                     if let Some(command) = cmd {
                         let runner = watcher_runner_clone.clone();
+                        let sched_db = sched_db.clone();
                         tokio::spawn(async move {
                             use meepo_core::tools::watchers::WatcherCommand;
                             match command {
-                                WatcherCommand::Create { kind: _, config, action, reply_channel } => {
-                                    let watcher = meepo_scheduler::watcher::Watcher::new(
-                                        match serde_json::from_value(config) {
-                                            Ok(k) => k,
-                                            Err(e) => {
-                                                error!("Failed to deserialize watcher kind: {}", e);
-                                                return;
-                                            }
-                                        },
+                                WatcherCommand::Create { id, kind: _, config, action, reply_channel } => {
+                                    let watcher_kind = match serde_json::from_value(config) {
+                                        Ok(k) => k,
+                                        Err(e) => {
+                                            error!("Failed to deserialize watcher kind: {}", e);
+                                            return;
+                                        }
+                                    };
+                                    let watcher = meepo_scheduler::watcher::Watcher {
+                                        id,
+                                        kind: watcher_kind,
                                         action,
                                         reply_channel,
-                                    );
+                                        active: true,
+                                        created_at: chrono::Utc::now(),
+                                    };
+
+                                    // Persist to scheduler DB for restart recovery
+                                    if let Ok(conn) = sched_db.lock() {
+                                        if let Err(e) = meepo_scheduler::persistence::save_watcher(&conn, &watcher) {
+                                            error!("Failed to persist watcher {}: {}", watcher.id, e);
+                                        }
+                                    }
+
                                     if let Err(e) = runner.lock().await.start_watcher(watcher).await {
                                         error!("Failed to start watcher: {}", e);
                                     }
                                 }
                                 WatcherCommand::Cancel { id } => {
+                                    // Deactivate in scheduler DB
+                                    if let Ok(conn) = sched_db.lock() {
+                                        if let Err(e) = meepo_scheduler::persistence::deactivate_watcher(&conn, &id) {
+                                            error!("Failed to deactivate watcher {} in scheduler DB: {}", id, e);
+                                        }
+                                    }
+
                                     if let Err(e) = runner.lock().await.stop_watcher(&id).await {
                                         error!("Failed to stop watcher {}: {}", id, e);
                                     }
