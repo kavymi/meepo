@@ -18,6 +18,7 @@ uuid = { workspace = true }
 async-trait = { workspace = true }
 dirs = { workspace = true }
 url = { workspace = true }
+glob = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
