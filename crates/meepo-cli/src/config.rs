@@ -18,6 +18,12 @@ pub struct MeepoConfig {
     pub orchestrator: OrchestratorConfig,
     #[serde(default = "default_autonomy_config")]
     pub autonomy: AutonomyConfig,
+    #[serde(default)]
+    pub mcp: McpConfig,
+    #[serde(default)]
+    pub a2a: A2aConfig,
+    #[serde(default)]
+    pub skills: SkillsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,6 +284,113 @@ fn default_autonomy_config() -> AutonomyConfig {
         preference_decay_days: default_preference_decay_days(),
         min_confidence_to_act: default_min_confidence(),
         max_tokens_per_tick: default_max_tokens_per_tick(),
+    }
+}
+
+// ── MCP Config ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpConfig {
+    #[serde(default)]
+    pub server: McpServerConfig,
+    #[serde(default)]
+    pub clients: Vec<McpClientEntry>,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            server: McpServerConfig::default(),
+            clients: vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub exposed_tools: Vec<String>,
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            exposed_tools: vec![],
+        }
+    }
+}
+
+fn default_true() -> bool { true }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpClientEntry {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<(String, String)>,
+}
+
+// ── A2A Config ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct A2aConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_a2a_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub auth_token: String,
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub agents: Vec<A2aAgentEntry>,
+}
+
+fn default_a2a_port() -> u16 { 8081 }
+
+impl Default for A2aConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_a2a_port(),
+            auth_token: String::new(),
+            allowed_tools: vec![],
+            agents: vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct A2aAgentEntry {
+    pub name: String,
+    pub url: String,
+    #[serde(default)]
+    pub token: String,
+}
+
+// ── Skills Config ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_skills_dir")]
+    pub dir: String,
+}
+
+fn default_skills_dir() -> String { "~/.meepo/skills".to_string() }
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dir: default_skills_dir(),
+        }
     }
 }
 

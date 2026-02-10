@@ -12,6 +12,8 @@ meepo-core = { path = "../meepo-core" }
 meepo-channels = { path = "../meepo-channels" }
 meepo-knowledge = { path = "../meepo-knowledge" }
 meepo-scheduler = { path = "../meepo-scheduler" }
+meepo-mcp = { path = "../meepo-mcp" }
+meepo-a2a = { path = "../meepo-a2a" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 serde = { workspace = true }

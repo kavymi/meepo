@@ -50,6 +50,9 @@ enum Commands {
 
     /// Show current configuration
     Config,
+
+    /// Run as an MCP server (STDIO transport)
+    McpServer,
 }
 
 #[tokio::main]
@@ -73,6 +76,7 @@ async fn main() -> Result<()> {
         Commands::Start => cmd_start(&cli.config).await,
         Commands::Stop => cmd_stop().await,
         Commands::Ask { message } => cmd_ask(&cli.config, &message).await,
+        Commands::McpServer => cmd_mcp_server(&cli.config).await,
     }
 }
 
@@ -445,13 +449,70 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     ));
     info!("Registered delegate_tasks tool (total: {} tools)", registry.len());
 
+    // ── Phase 2: MCP Clients — connect to external MCP servers ──
+    for client_cfg in &cfg.mcp.clients {
+        let mcp_config = meepo_mcp::McpClientConfig {
+            name: client_cfg.name.clone(),
+            command: shellexpand_str(&client_cfg.command),
+            args: client_cfg.args.iter().map(|a| shellexpand_str(a)).collect(),
+            env: client_cfg.env.iter().map(|(k, v)| (k.clone(), shellexpand_str(v))).collect(),
+        };
+
+        match meepo_mcp::McpClient::connect(mcp_config).await {
+            Ok(client) => {
+                match client.discover_tools().await {
+                    Ok(tools) => {
+                        let count = tools.len();
+                        for tool in tools {
+                            registry.register(tool);
+                        }
+                        info!("MCP client '{}': registered {} tools", client_cfg.name, count);
+                    }
+                    Err(e) => warn!("MCP client '{}': failed to discover tools: {}", client_cfg.name, e),
+                }
+            }
+            Err(e) => warn!("MCP client '{}': failed to connect: {}", client_cfg.name, e),
+        }
+    }
+
+    // ── Phase 3: A2A — register delegate_to_agent tool ──────────
+    if cfg.a2a.enabled {
+        let peers: Vec<meepo_a2a::PeerAgentConfig> = cfg.a2a.agents.iter().map(|a| {
+            meepo_a2a::PeerAgentConfig {
+                name: a.name.clone(),
+                url: shellexpand_str(&a.url),
+                token: if a.token.is_empty() { None } else { Some(shellexpand_str(&a.token)) },
+            }
+        }).collect();
+
+        registry.register(Arc::new(meepo_a2a::DelegateToAgentTool::new(peers)));
+        info!("A2A: registered delegate_to_agent tool ({} peer agents)", cfg.a2a.agents.len());
+    }
+
+    // ── Phase 4: Skills — load SKILL.md files as tools ──────────
+    if cfg.skills.enabled {
+        let skills_dir = shellexpand(&cfg.skills.dir);
+        match meepo_core::skills::load_skills(&skills_dir) {
+            Ok(skill_tools) => {
+                let count = skill_tools.len();
+                for tool in skill_tools {
+                    registry.register(tool);
+                }
+                info!("Skills: loaded {} tools from {}", count, skills_dir.display());
+            }
+            Err(e) => warn!("Skills: failed to load from {}: {}", skills_dir.display(), e),
+        }
+    }
+
+    info!("Total tools registered: {}", registry.len());
+
     // Initialize agent
     let registry = Arc::new(registry);
     assert!(registry_slot.set(registry.clone()).is_ok(), "registry slot already set");
 
     let agent = Arc::new(meepo_core::agent::Agent::new(
         api,
-        registry,
+        registry.clone(),
         soul,
         memory,
         db.clone(),
@@ -705,7 +766,7 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     };
 
     let auto_loop = meepo_core::autonomy::AutonomousLoop::new(
-        agent,
+        agent.clone(),
         db.clone(),
         autonomy_config,
         loop_msg_rx,
@@ -718,6 +779,46 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     let loop_task = tokio::spawn(async move {
         auto_loop.run(cancel_clone6).await;
     });
+
+    // ── Phase 3: A2A Server ─────────────────────────────────────
+    if cfg.a2a.enabled {
+        let a2a_card = meepo_a2a::AgentCard {
+            name: "meepo".to_string(),
+            description: "Personal AI agent with macOS integration, code tools, and web search".to_string(),
+            url: format!("http://localhost:{}", cfg.a2a.port),
+            capabilities: vec![
+                "file_operations".to_string(),
+                "web_research".to_string(),
+                "email".to_string(),
+                "calendar".to_string(),
+                "code_review".to_string(),
+            ],
+            authentication: meepo_a2a::AuthConfig {
+                schemes: if cfg.a2a.auth_token.is_empty() { vec![] } else { vec!["bearer".to_string()] },
+            },
+        };
+
+        let auth_token = {
+            let t = shellexpand_str(&cfg.a2a.auth_token);
+            if t.is_empty() { None } else { Some(t) }
+        };
+
+        let a2a_server = Arc::new(meepo_a2a::A2aServer::new(
+            agent.clone(),
+            registry.clone(),
+            a2a_card,
+            auth_token,
+            cfg.a2a.allowed_tools.clone(),
+        ));
+
+        let a2a_port = cfg.a2a.port;
+        tokio::spawn(async move {
+            if let Err(e) = a2a_server.serve(a2a_port).await {
+                error!("A2A server error: {}", e);
+            }
+        });
+        info!("A2A server started on port {}", cfg.a2a.port);
+    }
 
     // Wait for shutdown signal
     signal::ctrl_c().await?;
@@ -809,6 +910,106 @@ async fn cmd_ask(config_path: &Option<PathBuf>, message: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
+    let cfg = MeepoConfig::load(config_path)?;
+
+    // Build tool registry (same tools as cmd_start, minus channels/bus/orchestrator)
+    let db_path = shellexpand(&cfg.knowledge.db_path);
+    let tantivy_path = shellexpand(&cfg.knowledge.tantivy_path);
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::create_dir_all(&tantivy_path)?;
+
+    let knowledge_graph = Arc::new(
+        meepo_knowledge::KnowledgeGraph::new(&db_path, &tantivy_path)
+            .context("Failed to initialize knowledge graph")?,
+    );
+    let db = knowledge_graph.db();
+
+    // Tavily client (optional)
+    let tavily_client = cfg.providers.tavily
+        .as_ref()
+        .map(|t| shellexpand_str(&t.api_key))
+        .filter(|key| !key.is_empty())
+        .map(|key| Arc::new(meepo_core::tavily::TavilyClient::new(key)));
+
+    // Watcher command channel (needed for tool registration even in MCP mode)
+    let (watcher_command_tx, _watcher_command_rx) = tokio::sync::mpsc::channel::<meepo_core::tools::watchers::WatcherCommand>(100);
+
+    let mut registry = meepo_core::tools::ToolRegistry::new();
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        registry.register(Arc::new(meepo_core::tools::macos::ReadEmailsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::ReadCalendarTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::SendEmailTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::CreateEventTool::new()));
+        registry.register(Arc::new(meepo_core::tools::accessibility::ReadScreenTool::new()));
+        registry.register(Arc::new(meepo_core::tools::accessibility::ClickElementTool::new()));
+        registry.register(Arc::new(meepo_core::tools::accessibility::TypeTextTool::new()));
+    }
+    registry.register(Arc::new(meepo_core::tools::macos::OpenAppTool::new()));
+    registry.register(Arc::new(meepo_core::tools::macos::GetClipboardTool::new()));
+    #[cfg(target_os = "macos")]
+    {
+        registry.register(Arc::new(meepo_core::tools::macos::ListRemindersTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::CreateReminderTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::ListNotesTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::CreateNoteTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::SendNotificationTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::ScreenCaptureTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::GetCurrentTrackTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::MusicControlTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
+    }
+    registry.register(Arc::new(meepo_core::tools::code::WriteCodeTool));
+    registry.register(Arc::new(meepo_core::tools::code::MakePrTool));
+    registry.register(Arc::new(meepo_core::tools::code::ReviewPrTool));
+    registry.register(Arc::new(meepo_core::tools::memory::RememberTool::new(db.clone())));
+    registry.register(Arc::new(meepo_core::tools::memory::RecallTool::new(db.clone())));
+    registry.register(Arc::new(meepo_core::tools::memory::SearchKnowledgeTool::with_graph(knowledge_graph.clone())));
+    registry.register(Arc::new(meepo_core::tools::memory::LinkEntitiesTool::new(db.clone())));
+    registry.register(Arc::new(meepo_core::tools::system::RunCommandTool));
+    registry.register(Arc::new(meepo_core::tools::system::ReadFileTool));
+    registry.register(Arc::new(meepo_core::tools::system::WriteFileTool));
+    registry.register(Arc::new(meepo_core::tools::filesystem::ListDirectoryTool::new(
+        cfg.filesystem.allowed_directories.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::filesystem::SearchFilesTool::new(
+        cfg.filesystem.allowed_directories.clone(),
+    )));
+    if let Some(ref tavily) = tavily_client {
+        registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::with_tavily(tavily.clone())));
+        registry.register(Arc::new(meepo_core::tools::search::WebSearchTool::new(tavily.clone())));
+    } else {
+        registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::new()));
+    }
+    registry.register(Arc::new(meepo_core::tools::watchers::CreateWatcherTool::new(db.clone(), watcher_command_tx.clone())));
+    registry.register(Arc::new(meepo_core::tools::watchers::ListWatchersTool::new(db.clone())));
+    registry.register(Arc::new(meepo_core::tools::watchers::CancelWatcherTool::new(db.clone(), watcher_command_tx.clone())));
+
+    // Load skills if enabled
+    if cfg.skills.enabled {
+        let skills_dir = shellexpand(&cfg.skills.dir);
+        if let Ok(skill_tools) = meepo_core::skills::load_skills(&skills_dir) {
+            for tool in skill_tools {
+                registry.register(tool);
+            }
+        }
+    }
+
+    let registry = Arc::new(registry);
+    info!("MCP server: {} tools available", registry.len());
+
+    // Create MCP adapter and server
+    let adapter = meepo_mcp::McpToolAdapter::new(registry);
+    let server = meepo_mcp::McpServer::new(adapter);
+
+    // Serve over STDIO
+    server.serve_stdio().await
 }
 
 // Utility: expand ~ and env vars in paths

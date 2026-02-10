@@ -13,6 +13,7 @@ pub mod autonomy;
 pub mod context;
 pub mod orchestrator;
 pub mod platform;
+pub mod skills;
 pub mod tavily;
 pub mod tools;
 pub mod types;
