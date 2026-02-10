@@ -219,6 +219,7 @@ BINARY_PATH="$REPO_DIR/target/release/meepo"
 if [ -f "$BINARY_PATH" ]; then
     print_ok "Binary exists at $BINARY_PATH"
     if ask_yn "Rebuild?"; then
+<<<<<<< Updated upstream
         echo -e "  ${DIM}Building...${NC}"
         (cd "$REPO_DIR" && cargo build --release 2>&1 | tail -1)
         print_ok "Build complete"
@@ -227,6 +228,20 @@ else
     echo -e "  ${DIM}First build — this takes ~2 minutes...${NC}"
     (cd "$REPO_DIR" && cargo build --release 2>&1 | tail -1)
     print_ok "Built $BINARY_PATH"
+=======
+        echo "  Building (this takes ~2 minutes)..."
+        echo ""
+        (cd "$REPO_DIR" && cargo build --release)
+        echo ""
+        print_ok "Build complete"
+    fi
+else
+    echo "  Building (this takes ~2 minutes on first build)..."
+    echo ""
+    (cd "$REPO_DIR" && cargo build --release)
+    echo ""
+    print_ok "Build complete: $BINARY_PATH"
+>>>>>>> Stashed changes
 fi
 
 # ── Step 3: Config ──────────────────────────────────────────────
@@ -380,6 +395,7 @@ if ask_yn "Enable iMessage?"; then
     echo -e "  ${BOLD}Requires:${NC} Full Disk Access for your terminal app."
     print_url "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
 
+<<<<<<< Updated upstream
     if ask_yn "Open System Settings → Full Disk Access?"; then
         open_url "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
         print_dim "Opened System Settings — toggle ON for your terminal"
@@ -388,6 +404,9 @@ if ask_yn "Enable iMessage?"; then
     echo ""
     CONTACTS=$(ask_value "Allowed contacts (comma-separated phones/emails, or Enter for all)" "")
     PREFIX=$(ask_value "Trigger prefix" "/d")
+=======
+    CONTACTS=$(ask_value "Allowed contacts (comma-separated phones/emails)" "")
+>>>>>>> Stashed changes
 
     sed -i '' '/^\[channels\.imessage\]$/,/^\[/{s/^enabled = false/enabled = true/;}' "$CONFIG_FILE"
 
@@ -396,11 +415,15 @@ if ask_yn "Enable iMessage?"; then
         sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^allowed_contacts = \[\]|allowed_contacts = $TOML_CONTACTS|;}" "$CONFIG_FILE"
     fi
 
+<<<<<<< Updated upstream
     if [ "$PREFIX" != "/d" ]; then
         sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^trigger_prefix = \"/d\"|trigger_prefix = \"$PREFIX\"|;}" "$CONFIG_FILE"
     fi
 
     print_ok "iMessage enabled"
+=======
+    print_ok "iMessage enabled in config"
+>>>>>>> Stashed changes
 fi
 
 # ── Step 7: Verify ──────────────────────────────────────────────

@@ -138,10 +138,20 @@ impl ToolHandler for RunCommandTool {
 
         // Allowlist of safe commands
         const ALLOWED_COMMANDS: &[&str] = &[
+            // Read-only / informational
             "ls", "cat", "head", "tail", "wc", "echo", "date", "whoami", "uname",
             "pwd", "which", "file", "stat", "du", "df", "uptime", "ps", "env",
             "printenv", "hostname", "id", "groups", "grep", "find", "sort", "uniq",
             "cut", "awk", "sed", "tr", "basename", "dirname", "realpath", "readlink",
+            // File operations
+            "mkdir", "cp", "mv", "touch", "ln", "chmod", "tar", "zip", "unzip", "gzip",
+            // Networking
+            "curl", "wget", "ping", "dig", "nslookup",
+            // Development tools
+            "git", "python3", "python", "node", "npm", "npx", "cargo", "go", "ruby",
+            "pip", "pip3", "make", "cmake", "brew",
+            // macOS utilities
+            "open", "osascript", "defaults", "pbcopy", "pbpaste", "say",
         ];
 
         // Extract the first command word (before spaces, pipes, semicolons, etc.)
@@ -627,9 +637,9 @@ mod tests {
     #[tokio::test]
     async fn test_run_command_blocks_not_allowlisted() {
         let tool = RunCommandTool;
-        // curl is not in the allowlist
+        // nc (netcat) is not in the allowlist
         let result = tool.execute(serde_json::json!({
-            "command": "curl http://example.com"
+            "command": "nc -l 1234"
         })).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not in the allowlist"));

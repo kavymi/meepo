@@ -23,7 +23,6 @@ const MAX_MESSAGE_SIZE: usize = 10_240;
 /// iMessage channel adapter
 pub struct IMessageChannel {
     poll_interval: Duration,
-    trigger_prefix: String,
     allowed_contacts: Vec<String>,
     db_path: PathBuf,
     last_rowid: Arc<RwLock<Option<i64>>>,
@@ -37,12 +36,10 @@ impl IMessageChannel {
     ///
     /// # Arguments
     /// * `poll_interval` - How often to poll the iMessage database
-    /// * `trigger_prefix` - Prefix required for messages to be processed (e.g., "!")
     /// * `allowed_contacts` - List of phone numbers/emails allowed to send messages
     /// * `db_path` - Optional custom path to chat.db (defaults to ~/Library/Messages/chat.db)
     pub fn new(
         poll_interval: Duration,
-        trigger_prefix: String,
         allowed_contacts: Vec<String>,
         db_path: Option<PathBuf>,
     ) -> Self {
@@ -54,7 +51,6 @@ impl IMessageChannel {
 
         Self {
             poll_interval,
-            trigger_prefix,
             allowed_contacts,
             db_path,
             last_rowid: Arc::new(RwLock::new(None)),
@@ -141,20 +137,13 @@ impl IMessageChannel {
                 // Update last_rowid
                 new_last_rowid = new_last_rowid.max(rowid);
 
-                // Check if message starts with trigger prefix
-                if !text.starts_with(&self.trigger_prefix) {
-                    debug!("Skipping message without trigger prefix: {}", text);
-                    continue;
-                }
-
                 // Check if contact is allowed
                 if !self.is_allowed_contact(&handle) {
                     warn!("Ignoring message from unauthorized contact: {}", handle);
                     continue;
                 }
 
-                // Remove trigger prefix from content
-                let content = text.trim_start_matches(&self.trigger_prefix).trim().to_string();
+                let content = text.trim().to_string();
 
                 // Check message size limit
                 if content.len() > MAX_MESSAGE_SIZE {
@@ -265,8 +254,6 @@ impl MessageChannel for IMessageChannel {
         info!("Starting iMessage channel adapter");
         info!("Database path: {:?}", self.db_path);
         info!("Poll interval: {:?}", self.poll_interval);
-        info!("Trigger prefix: {}", self.trigger_prefix);
-
         // Verify database exists
         if !self.db_path.exists() {
             return Err(anyhow!("iMessage database not found at {:?}", self.db_path));
@@ -282,7 +269,6 @@ impl MessageChannel for IMessageChannel {
         let poll_interval = self.poll_interval;
         let last_rowid = self.last_rowid.clone();
         let db_path = self.db_path.clone();
-        let trigger_prefix = self.trigger_prefix.clone();
         let allowed_contacts = self.allowed_contacts.clone();
         let message_senders = self.message_senders.clone();
         let rate_limiter = self.rate_limiter.clone();
@@ -290,7 +276,6 @@ impl MessageChannel for IMessageChannel {
         // Create a new channel instance for the task
         let channel = IMessageChannel {
             poll_interval,
-            trigger_prefix,
             allowed_contacts,
             db_path,
             last_rowid,
@@ -370,7 +355,6 @@ mod tests {
     async fn test_message_sender_tracking() {
         let channel = IMessageChannel::new(
             Duration::from_secs(3),
-            "/d".to_string(),
             vec!["+1-555-123-4567".to_string()],
             None,
         );
@@ -394,7 +378,6 @@ mod tests {
     async fn test_message_sender_lru_eviction() {
         let channel = IMessageChannel::new(
             Duration::from_secs(3),
-            "/d".to_string(),
             vec![],
             None,
         );
@@ -427,7 +410,6 @@ mod tests {
     fn test_is_allowed_contact() {
         let channel = IMessageChannel::new(
             Duration::from_secs(3),
-            "/d".to_string(),
             vec!["+1-555-123-4567".to_string(), "user@test.com".to_string()],
             None,
         );
@@ -441,7 +423,6 @@ mod tests {
     fn test_is_allowed_empty_list() {
         let channel = IMessageChannel::new(
             Duration::from_secs(3),
-            "/d".to_string(),
             vec![],
             None,
         );
@@ -464,7 +445,6 @@ mod tests {
     fn test_channel_type() {
         let channel = IMessageChannel::new(
             Duration::from_secs(3),
-            "/d".to_string(),
             vec![],
             None,
         );

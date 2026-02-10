@@ -189,19 +189,39 @@ impl ClipboardProvider for CrossPlatformClipboard {
     }
 }
 
-/// Cross-platform app launcher using `open` crate
+/// Cross-platform app launcher
 pub struct CrossPlatformAppLauncher;
 
 #[async_trait]
 impl AppLauncher for CrossPlatformAppLauncher {
     async fn open_app(&self, app_name: &str) -> Result<String> {
         let name = app_name.to_string();
-        tokio::task::spawn_blocking(move || {
-            open::that(&name)
-                .map_err(|e| anyhow::anyhow!("Failed to open {}: {}", name, e))?;
-            Ok(format!("Successfully opened {}", name))
-        })
-        .await?
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS, use `open -a` to launch apps by name
+            let output = tokio::process::Command::new("open")
+                .arg("-a")
+                .arg(&name)
+                .output()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to launch {}: {}", name, e))?;
+
+            if output.status.success() {
+                Ok(format!("Successfully opened {}", name))
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(anyhow::anyhow!("Failed to open {}: {}", name, stderr.trim()))
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            tokio::task::spawn_blocking(move || {
+                open::that(&name)
+                    .map_err(|e| anyhow::anyhow!("Failed to open {}: {}", name, e))?;
+                Ok(format!("Successfully opened {}", name))
+            })
+            .await?
+        }
     }
 }
 

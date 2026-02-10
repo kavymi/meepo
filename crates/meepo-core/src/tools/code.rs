@@ -56,9 +56,8 @@ impl ToolHandler for WriteCodeTool {
             Duration::from_secs(300),
             Command::new("claude")
                 .arg("--print")
-                .arg("--workspace")
-                .arg(workspace)
                 .arg(task)
+                .current_dir(workspace)
                 .output()
         )
         .await
@@ -223,9 +222,8 @@ impl ToolHandler for MakePrTool {
             Duration::from_secs(300),
             Command::new("claude")
                 .arg("--print")
-                .arg("--workspace")
-                .arg(repo)
                 .arg(task)
+                .current_dir(repo)
                 .output()
         )
         .await

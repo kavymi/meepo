@@ -103,8 +103,6 @@ pub struct IMessageConfig {
     pub enabled: bool,
     #[serde(default = "default_poll_interval")]
     pub poll_interval_secs: u64,
-    #[serde(default = "default_trigger_prefix")]
-    pub trigger_prefix: String,
     #[serde(default)]
     pub allowed_contacts: Vec<String>,
 }
@@ -143,10 +141,6 @@ impl Default for EmailConfig {
 
 fn default_slack_poll_interval() -> u64 {
     3
-}
-
-fn default_trigger_prefix() -> String {
-    "/d".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

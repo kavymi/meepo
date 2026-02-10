@@ -558,7 +558,6 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     if cfg.channels.imessage.enabled {
         let imessage = meepo_channels::imessage::IMessageChannel::new(
             std::time::Duration::from_secs(cfg.channels.imessage.poll_interval_secs),
-            cfg.channels.imessage.trigger_prefix.clone(),
             cfg.channels.imessage.allowed_contacts.clone(),
             None,
         );
@@ -698,8 +697,33 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                         tokio::spawn(async move {
                             use meepo_core::tools::watchers::WatcherCommand;
                             match command {
-                                WatcherCommand::Create { id, kind: _, config, action, reply_channel } => {
-                                    let watcher_kind = match serde_json::from_value(config) {
+                                WatcherCommand::Create { id, kind, config, action, reply_channel } => {
+                                    // Map the tool's kind string to WatcherKind's serde tag variant name
+                                    let type_tag = match kind.as_str() {
+                                        "email" => "EmailWatch",
+                                        "calendar" => "CalendarWatch",
+                                        "github" => "GitHubWatch",
+                                        "file" => "FileWatch",
+                                        "message" => "MessageWatch",
+                                        "scheduled" | "time" => "Scheduled",
+                                        "oneshot" => "OneShot",
+                                        other => {
+                                            error!("Unknown watcher kind: {}", other);
+                                            return;
+                                        }
+                                    };
+                                    // Inject the "type" tag into config for serde deserialization
+                                    let config_with_type = match config {
+                                        serde_json::Value::Object(mut map) => {
+                                            map.insert("type".to_string(), serde_json::Value::String(type_tag.to_string()));
+                                            serde_json::Value::Object(map)
+                                        }
+                                        _ => {
+                                            error!("Watcher config is not a JSON object");
+                                            return;
+                                        }
+                                    };
+                                    let watcher_kind: meepo_scheduler::watcher::WatcherKind = match serde_json::from_value(config_with_type) {
                                         Ok(k) => k,
                                         Err(e) => {
                                             error!("Failed to deserialize watcher kind: {}", e);

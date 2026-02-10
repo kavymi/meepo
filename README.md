@@ -134,14 +134,13 @@ Requires a Slack app with `chat:write`, `channels:read`, and `im:history` scopes
 ```toml
 [channels.imessage]
 enabled = true
-trigger_prefix = "/d"
 allowed_contacts = ["+15551234567", "user@icloud.com"]
 poll_interval_secs = 3
 ```
 
 No API key needed. Requires macOS with **Full Disk Access** granted to your terminal (System Settings > Privacy & Security > Full Disk Access). Not available on Windows.
 
-Messages must start with the trigger prefix (default `/d`). Example: `/d What's on my calendar?`
+All messages from allowed contacts are processed. Example: text "What's on my calendar?" to get a response.
 
 ### 5. Run
 
@@ -196,7 +195,6 @@ poll_interval_secs = 3                 # How often to check for messages
 
 [channels.imessage]
 enabled = false
-trigger_prefix = "/d"                  # Messages must start with this
 allowed_contacts = []                  # Phone numbers or emails
 poll_interval_secs = 3
 
@@ -272,7 +270,6 @@ scripts\uninstall.ps1   # Remove
 
 **iMessage not receiving messages**
 - Grant Full Disk Access to your terminal: System Settings > Privacy & Security > Full Disk Access
-- Messages must start with the trigger prefix (default `/d`)
 - Check `allowed_contacts` in config includes the sender's phone/email
 
 **`web_search` tool not available**
