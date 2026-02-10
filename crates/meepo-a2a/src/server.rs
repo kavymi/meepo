@@ -23,30 +23,24 @@ use crate::protocol::*;
 /// A2A server state
 pub struct A2aServer {
     agent: Arc<Agent>,
-    #[allow(dead_code)]
-    registry: Arc<ToolRegistry>,
     card: AgentCard,
     auth_token: Option<String>,
     tasks: Arc<Mutex<HashMap<String, TaskResponse>>>,
-    #[allow(dead_code)]
-    allowed_tools: Vec<String>,
 }
 
 impl A2aServer {
     pub fn new(
         agent: Arc<Agent>,
-        registry: Arc<ToolRegistry>,
+        _registry: Arc<ToolRegistry>,
         card: AgentCard,
         auth_token: Option<String>,
-        allowed_tools: Vec<String>,
+        _allowed_tools: Vec<String>,
     ) -> Self {
         Self {
             agent,
-            registry,
             card,
             auth_token,
             tasks: Arc::new(Mutex::new(HashMap::new())),
-            allowed_tools,
         }
     }
 

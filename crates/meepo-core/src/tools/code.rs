@@ -160,7 +160,6 @@ impl ToolHandler for MakePrTool {
 
         debug!("Original branch: {}", original_branch);
 
-        let mut branch_created = false;
         let mut branch_pushed = false;
 
         // Clone values for the cleanup closure
@@ -215,7 +214,7 @@ impl ToolHandler for MakePrTool {
             let error = String::from_utf8_lossy(&create_branch.stderr).to_string();
             return Err(anyhow::anyhow!("Failed to create branch: {}", error));
         }
-        branch_created = true;
+        let branch_created = true;
 
         // Execute task with Claude Code
         let code_output = tokio::time::timeout(

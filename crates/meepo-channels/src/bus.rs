@@ -161,9 +161,6 @@ mod tests {
             }
         }
 
-        fn was_sent(&self) -> bool {
-            self.sent.load(Ordering::SeqCst)
-        }
     }
 
     #[async_trait]

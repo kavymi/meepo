@@ -27,8 +27,6 @@ pub struct SearchResult {
 /// Tantivy search index wrapper
 pub struct TantivyIndex {
     index: Index,
-    #[allow(dead_code)]
-    schema: Schema,
     id_field: Field,
     content_field: Field,
     entity_type_field: Field,
@@ -62,7 +60,6 @@ impl TantivyIndex {
 
         Ok(Self {
             index,
-            schema,
             id_field,
             content_field,
             entity_type_field,

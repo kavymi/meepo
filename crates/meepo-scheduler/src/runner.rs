@@ -189,27 +189,6 @@ impl WatcherRunner {
         crate::persistence::cleanup_old_events(conn, retain_days)
     }
 
-    /// Check if we're within active hours
-    fn is_within_active_hours(&self) -> bool {
-        if !self.config.enforce_active_hours {
-            return true;
-        }
-
-        let Some((start, end)) = self.config.active_hours else {
-            return true;
-        };
-
-        let now = Utc::now().time();
-
-        if start < end {
-            // Normal case: e.g., 9:00 - 17:00
-            now >= start && now <= end
-        } else {
-            // Overnight case: e.g., 22:00 - 06:00
-            now >= start || now <= end
-        }
-    }
-
     /// Spawn a polling-based watcher task
     async fn spawn_polling_watcher(
         &self,
