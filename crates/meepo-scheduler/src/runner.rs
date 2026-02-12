@@ -6,18 +6,18 @@
 use crate::watcher::{Watcher, WatcherEvent, WatcherKind};
 use anyhow::{Context, Result};
 use chrono::{NaiveTime, Utc};
-use std::str::FromStr;
+use lru::LruCache;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use lru::LruCache;
 use tokio::process::Command;
-use tokio::sync::{mpsc, RwLock};
-use tokio::time::{sleep_until, Instant};
+use tokio::sync::{RwLock, mpsc};
+use tokio::time::{Instant, sleep_until};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -99,7 +99,11 @@ impl WatcherRunner {
             return Ok(());
         }
 
-        info!("Starting watcher: {} ({})", watcher.id, watcher.description());
+        info!(
+            "Starting watcher: {} ({})",
+            watcher.id,
+            watcher.description()
+        );
 
         // Create cancellation token for this watcher
         let token = CancellationToken::new();
@@ -223,19 +227,19 @@ impl WatcherRunner {
                     }
                     _ = interval.tick() => {
                         // Check active hours
-                        if config.enforce_active_hours {
-                            if let Some((start, end)) = config.active_hours {
-                                let now = Utc::now().time();
-                                let is_active = if start < end {
-                                    now >= start && now <= end
-                                } else {
-                                    now >= start || now <= end
-                                };
+                        if config.enforce_active_hours
+                            && let Some((start, end)) = config.active_hours
+                        {
+                            let now = Utc::now().time();
+                            let is_active = if start < end {
+                                now >= start && now <= end
+                            } else {
+                                now >= start || now <= end
+                            };
 
-                                if !is_active {
-                                    debug!("Watcher {} paused outside active hours", watcher.id);
-                                    continue;
-                                }
+                            if !is_active {
+                                debug!("Watcher {} paused outside active hours", watcher.id);
+                                continue;
                             }
                         }
 
@@ -250,7 +254,10 @@ impl WatcherRunner {
             // Clean up - idempotent, entry may already be removed by stop_watcher()
             let mut tasks = active_tasks.write().await;
             if tasks.remove(&watcher.id).is_some() {
-                debug!("Polling watcher {} cleaned up from active tasks", watcher.id);
+                debug!(
+                    "Polling watcher {} cleaned up from active tasks",
+                    watcher.id
+                );
             }
             drop(tasks);
             debug!("Polling watcher {} task ended", watcher.id);
@@ -422,7 +429,10 @@ impl WatcherRunner {
             // Clean up - idempotent, entry may already be removed by stop_watcher()
             let mut tasks = active_tasks.write().await;
             if tasks.remove(&watcher_id).is_some() {
-                debug!("Scheduled watcher {} cleaned up from active tasks", watcher_id);
+                debug!(
+                    "Scheduled watcher {} cleaned up from active tasks",
+                    watcher_id
+                );
             }
             drop(tasks);
             debug!("Scheduled watcher {} task ended", watcher_id);
@@ -464,12 +474,17 @@ impl WatcherRunner {
                 // Clean up - idempotent, entry may already be removed by stop_watcher()
                 let mut tasks = active_tasks.write().await;
                 if tasks.remove(&watcher_id).is_some() {
-                    debug!("One-shot watcher {} cleaned up from active tasks (immediate execution)", watcher_id);
+                    debug!(
+                        "One-shot watcher {} cleaned up from active tasks (immediate execution)",
+                        watcher_id
+                    );
                 }
                 return;
             }
 
-            let duration = (target_time - now).to_std().unwrap_or(Duration::from_secs(0));
+            let duration = (target_time - now)
+                .to_std()
+                .unwrap_or(Duration::from_secs(0));
             let wake_time = Instant::now() + duration;
 
             info!(
@@ -502,7 +517,10 @@ impl WatcherRunner {
             // Clean up - idempotent, entry may already be removed by stop_watcher()
             let mut tasks = active_tasks.write().await;
             if tasks.remove(&watcher_id).is_some() {
-                debug!("One-shot watcher {} cleaned up from active tasks", watcher_id);
+                debug!(
+                    "One-shot watcher {} cleaned up from active tasks",
+                    watcher_id
+                );
             }
             drop(tasks);
             debug!("One-shot watcher {} task ended", watcher_id);
@@ -550,7 +568,10 @@ async fn poll_watcher(
             #[cfg(not(target_os = "macos"))]
             {
                 let _ = (from, subject_contains, event_tx, state);
-                warn!("Email watcher {} skipped — AppleScript polling is macOS-only", watcher.id);
+                warn!(
+                    "Email watcher {} skipped — AppleScript polling is macOS-only",
+                    watcher.id
+                );
                 return Ok(());
             }
 
@@ -582,13 +603,12 @@ end tell
 
                 let output = tokio::time::timeout(
                     std::time::Duration::from_secs(30),
-                    Command::new("osascript")
-                        .arg("-e")
-                        .arg(script)
-                        .output()
+                    Command::new("osascript").arg("-e").arg(script).output(),
                 )
                 .await
-                .map_err(|_| anyhow::anyhow!("AppleScript execution timed out after 30 seconds"))??;
+                .map_err(|_| {
+                    anyhow::anyhow!("AppleScript execution timed out after 30 seconds")
+                })??;
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -621,15 +641,19 @@ end tell
                     }
 
                     // Filter by criteria
-                    if let Some(filter_from) = from {
-                        if !email_from.to_lowercase().contains(&filter_from.to_lowercase()) {
-                            continue;
-                        }
+                    if let Some(filter_from) = from
+                        && !email_from
+                            .to_lowercase()
+                            .contains(&filter_from.to_lowercase())
+                    {
+                        continue;
                     }
-                    if let Some(filter_subject) = subject_contains {
-                        if !email_subject.to_lowercase().contains(&filter_subject.to_lowercase()) {
-                            continue;
-                        }
+                    if let Some(filter_subject) = subject_contains
+                        && !email_subject
+                            .to_lowercase()
+                            .contains(&filter_subject.to_lowercase())
+                    {
+                        continue;
                     }
 
                     // Dedup - check if we've seen this before
@@ -667,7 +691,10 @@ end tell
             #[cfg(not(target_os = "macos"))]
             {
                 let _ = (lookahead_hours, event_tx, state);
-                warn!("Calendar watcher {} skipped — AppleScript polling is macOS-only", watcher.id);
+                warn!(
+                    "Calendar watcher {} skipped — AppleScript polling is macOS-only",
+                    watcher.id
+                );
                 return Ok(());
             }
 
@@ -704,13 +731,12 @@ end tell
 
                 let output = tokio::time::timeout(
                     std::time::Duration::from_secs(30),
-                    Command::new("osascript")
-                        .arg("-e")
-                        .arg(&script)
-                        .output()
+                    Command::new("osascript").arg("-e").arg(&script).output(),
                 )
                 .await
-                .map_err(|_| anyhow::anyhow!("AppleScript execution timed out after 30 seconds"))??;
+                .map_err(|_| {
+                    anyhow::anyhow!("AppleScript execution timed out after 30 seconds")
+                })??;
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -756,7 +782,12 @@ end tell
                 }
             }
         }
-        WatcherKind::GitHubWatch { repo, events, github_token, .. } => {
+        WatcherKind::GitHubWatch {
+            repo,
+            events,
+            github_token,
+            ..
+        } => {
             debug!(
                 "Polling GitHub watcher {} (repo: {}, events: {:?})",
                 watcher.id, repo, events
@@ -811,19 +842,16 @@ end tell
                 // Filter by requested event types (if specified)
                 if !events.is_empty() {
                     let type_lower = event_type.to_lowercase();
-                    let matches = events.iter().any(|e| {
-                        type_lower.contains(&e.to_lowercase())
-                    });
+                    let matches = events
+                        .iter()
+                        .any(|e| type_lower.contains(&e.to_lowercase()));
                     if !matches {
                         continue;
                     }
                 }
 
-                let watcher_event = WatcherEvent::github(
-                    watcher.id.clone(),
-                    event_type,
-                    gh_event.clone(),
-                );
+                let watcher_event =
+                    WatcherEvent::github(watcher.id.clone(), event_type, gh_event.clone());
 
                 if let Err(e) = event_tx.send(watcher_event) {
                     error!("Failed to send GitHub event: {}", e);
@@ -831,17 +859,14 @@ end tell
             }
 
             // Update last seen event ID (first event in the array is the newest)
-            if let Some(first) = events_array.first() {
-                if let Some(id) = first.get("id").and_then(|v| v.as_str()) {
-                    state.last_github_event_id = Some(id.to_string());
-                }
+            if let Some(first) = events_array.first()
+                && let Some(id) = first.get("id").and_then(|v| v.as_str())
+            {
+                state.last_github_event_id = Some(id.to_string());
             }
         }
         _ => {
-            warn!(
-                "poll_watcher called on non-polling watcher: {}",
-                watcher.id
-            );
+            warn!("poll_watcher called on non-polling watcher: {}", watcher.id);
         }
     }
 

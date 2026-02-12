@@ -2,7 +2,7 @@
 //!
 //! Reads JSON-RPC requests from stdin, dispatches to handler, writes responses to stdout.
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, info, warn};
@@ -42,11 +42,8 @@ impl McpServer {
                 Ok(r) => r,
                 Err(e) => {
                     warn!("Invalid JSON-RPC request: {}", e);
-                    let err_response = JsonRpcResponse::error(
-                        Value::Null,
-                        -32700,
-                        format!("Parse error: {}", e),
-                    );
+                    let err_response =
+                        JsonRpcResponse::error(Value::Null, -32700, format!("Parse error: {}", e));
                     write_response(&mut stdout, &err_response).await?;
                     continue;
                 }
@@ -72,7 +69,9 @@ impl McpServer {
                 let result = InitializeResult {
                     protocol_version: "2024-11-05".to_string(),
                     capabilities: ServerCapabilities {
-                        tools: ToolsCapability { list_changed: false },
+                        tools: ToolsCapability {
+                            list_changed: false,
+                        },
                     },
                     server_info: ServerInfo {
                         name: "meepo".to_string(),
@@ -100,10 +99,14 @@ impl McpServer {
             }
 
             "tools/call" => {
-                let name = request.params.get("name")
+                let name = request
+                    .params
+                    .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let arguments = request.params.get("arguments")
+                let arguments = request
+                    .params
+                    .get("arguments")
                     .cloned()
                     .unwrap_or(serde_json::json!({}));
 
@@ -123,9 +126,7 @@ impl McpServer {
                 ))
             }
 
-            "ping" => {
-                Some(JsonRpcResponse::success(id, serde_json::json!({})))
-            }
+            "ping" => Some(JsonRpcResponse::success(id, serde_json::json!({}))),
 
             _ => {
                 warn!("MCP unknown method: {}", request.method);
@@ -149,8 +150,7 @@ async fn write_response<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     response: &JsonRpcResponse,
 ) -> Result<()> {
-    let json = serde_json::to_string(response)
-        .context("Failed to serialize response")?;
+    let json = serde_json::to_string(response).context("Failed to serialize response")?;
     debug!("MCP sending: {}", &json[..json.len().min(200)]);
     writer.write_all(json.as_bytes()).await?;
     writer.write_all(b"\n").await?;
@@ -161,8 +161,8 @@ async fn write_response<W: AsyncWriteExt + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use meepo_core::tools::ToolRegistry;
+    use std::sync::Arc;
 
     fn make_server() -> McpServer {
         let registry = Arc::new(ToolRegistry::new());

@@ -4,19 +4,19 @@
 //! User messages are just one input among many — the agent also processes
 //! watcher events, evaluates goals, and takes proactive actions.
 
-pub mod goals;
-pub mod user_model;
 pub mod action_log;
+pub mod goals;
 pub mod planner;
+pub mod user_model;
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Notify};
-use tracing::{info, error, debug};
+use tokio::sync::{Notify, mpsc};
+use tracing::{debug, error, info};
 
 use crate::agent::Agent;
 use crate::notifications::{NotificationService, NotifyEvent};
-use crate::types::{IncomingMessage, MessageKind, OutgoingMessage, ChannelType};
+use crate::types::{ChannelType, IncomingMessage, MessageKind, OutgoingMessage};
 use meepo_knowledge::KnowledgeDb;
 use meepo_scheduler::WatcherEvent;
 
@@ -60,6 +60,7 @@ pub struct AutonomousLoop {
 }
 
 impl AutonomousLoop {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         agent: Arc<Agent>,
         db: Arc<KnowledgeDb>,
@@ -90,7 +91,10 @@ impl AutonomousLoop {
 
     /// Run the autonomous loop until cancelled
     pub async fn run(mut self, cancel: tokio_util::sync::CancellationToken) {
-        info!("Autonomous loop started (tick interval: {}s)", self.config.tick_interval_secs);
+        info!(
+            "Autonomous loop started (tick interval: {}s)",
+            self.config.tick_interval_secs
+        );
 
         let tick_duration = Duration::from_secs(self.config.tick_interval_secs);
 
@@ -198,10 +202,12 @@ impl AutonomousLoop {
             }
             Err(e) => {
                 error!("Agent error: {}", e);
-                self.notifier.notify(NotifyEvent::Error {
-                    context: format!("Processing message from {} on {}", sender, channel),
-                    error: e.to_string(),
-                }).await;
+                self.notifier
+                    .notify(NotifyEvent::Error {
+                        context: format!("Processing message from {} on {}", sender, channel),
+                        error: e.to_string(),
+                    })
+                    .await;
             }
         }
     }
@@ -209,21 +215,23 @@ impl AutonomousLoop {
     /// Handle a watcher event — look up the watcher's reply_channel and action,
     /// then route the agent's response to the correct channel.
     async fn handle_watcher_event(&self, event: WatcherEvent) {
-        info!("Processing watcher event: {} from {}", event.kind, event.watcher_id);
+        info!(
+            "Processing watcher event: {} from {}",
+            event.kind, event.watcher_id
+        );
 
         // Notify user that a watcher triggered
-        self.notifier.notify(NotifyEvent::WatcherTriggered {
-            watcher_id: event.watcher_id.clone(),
-            kind: event.kind.clone(),
-            payload: event.payload.to_string(),
-        }).await;
+        self.notifier
+            .notify(NotifyEvent::WatcherTriggered {
+                watcher_id: event.watcher_id.clone(),
+                kind: event.kind.clone(),
+                payload: event.payload.to_string(),
+            })
+            .await;
 
         // Look up the watcher to get reply_channel and action
         let (reply_channel, action) = match self.db.get_watcher(&event.watcher_id).await {
-            Ok(Some(w)) => (
-                ChannelType::from_string(&w.reply_channel),
-                w.action,
-            ),
+            Ok(Some(w)) => (ChannelType::from_string(&w.reply_channel), w.action),
             Ok(None) => {
                 error!("Watcher {} not found in database", event.watcher_id);
                 (ChannelType::Internal, String::new())
@@ -262,10 +270,15 @@ impl AutonomousLoop {
             }
             Err(e) => {
                 error!("Failed to handle watcher event: {}", e);
-                self.notifier.notify(NotifyEvent::Error {
-                    context: format!("Handling watcher event {} from {}", event.kind, event.watcher_id),
-                    error: e.to_string(),
-                }).await;
+                self.notifier
+                    .notify(NotifyEvent::Error {
+                        context: format!(
+                            "Handling watcher event {} from {}",
+                            event.kind, event.watcher_id
+                        ),
+                        error: e.to_string(),
+                    })
+                    .await;
             }
         }
     }
@@ -285,7 +298,13 @@ mod tests {
         let db = Arc::new(KnowledgeDb::new(&db_path).unwrap());
         let api = ApiClient::new("test-key".to_string(), None);
         let tools = Arc::new(ToolRegistry::new());
-        let agent = Arc::new(Agent::new(api, tools, "test soul".into(), "test memory".into(), db.clone()));
+        let agent = Arc::new(Agent::new(
+            api,
+            tools,
+            "test soul".into(),
+            "test memory".into(),
+            db.clone(),
+        ));
         (agent, db, temp_dir)
     }
 
@@ -299,9 +318,19 @@ mod tests {
         let notifier = NotificationService::disabled(resp_tx.clone());
 
         let mut loop_ = AutonomousLoop::new(
-            agent, db,
-            AutonomyConfig { enabled: true, tick_interval_secs: 30, max_goals: 50, send_acknowledgments: true },
-            msg_rx, watcher_rx, resp_tx, notifier, wake,
+            agent,
+            db,
+            AutonomyConfig {
+                enabled: true,
+                tick_interval_secs: 30,
+                max_goals: 50,
+                send_acknowledgments: true,
+            },
+            msg_rx,
+            watcher_rx,
+            resp_tx,
+            notifier,
+            wake,
         );
 
         let inputs = loop_.drain_inputs();
@@ -318,18 +347,31 @@ mod tests {
         let notifier = NotificationService::disabled(resp_tx.clone());
 
         // Send a message before creating the loop
-        msg_tx.send(IncomingMessage {
-            id: "test-1".into(),
-            sender: "user".into(),
-            content: "hello".into(),
-            channel: ChannelType::Discord,
-            timestamp: chrono::Utc::now(),
-        }).await.unwrap();
+        msg_tx
+            .send(IncomingMessage {
+                id: "test-1".into(),
+                sender: "user".into(),
+                content: "hello".into(),
+                channel: ChannelType::Discord,
+                timestamp: chrono::Utc::now(),
+            })
+            .await
+            .unwrap();
 
         let mut loop_ = AutonomousLoop::new(
-            agent, db,
-            AutonomyConfig { enabled: true, tick_interval_secs: 30, max_goals: 50, send_acknowledgments: true },
-            msg_rx, watcher_rx, resp_tx, notifier, wake,
+            agent,
+            db,
+            AutonomyConfig {
+                enabled: true,
+                tick_interval_secs: 30,
+                max_goals: 50,
+                send_acknowledgments: true,
+            },
+            msg_rx,
+            watcher_rx,
+            resp_tx,
+            notifier,
+            wake,
         );
 
         let inputs = loop_.drain_inputs();

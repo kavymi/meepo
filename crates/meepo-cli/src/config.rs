@@ -272,11 +272,21 @@ pub struct OrchestratorConfig {
     pub max_background_groups: usize,
 }
 
-fn default_max_concurrent_subtasks() -> usize { 5 }
-fn default_max_subtasks_per_request() -> usize { 10 }
-fn default_parallel_timeout_secs() -> u64 { 120 }
-fn default_background_timeout_secs() -> u64 { 600 }
-fn default_max_background_groups() -> usize { 3 }
+fn default_max_concurrent_subtasks() -> usize {
+    5
+}
+fn default_max_subtasks_per_request() -> usize {
+    10
+}
+fn default_parallel_timeout_secs() -> u64 {
+    120
+}
+fn default_background_timeout_secs() -> u64 {
+    600
+}
+fn default_max_background_groups() -> usize {
+    3
+}
 
 fn default_orchestrator_config() -> OrchestratorConfig {
     OrchestratorConfig {
@@ -306,13 +316,27 @@ pub struct AutonomyConfig {
     pub send_acknowledgments: bool,
 }
 
-fn default_autonomy_enabled() -> bool { true }
-fn default_tick_interval() -> u64 { 30 }
-fn default_max_goals() -> usize { 50 }
-fn default_preference_decay_days() -> u32 { 30 }
-fn default_min_confidence() -> f64 { 0.5 }
-fn default_max_tokens_per_tick() -> u32 { 4096 }
-fn default_send_acknowledgments() -> bool { true }
+fn default_autonomy_enabled() -> bool {
+    true
+}
+fn default_tick_interval() -> u64 {
+    30
+}
+fn default_max_goals() -> usize {
+    50
+}
+fn default_preference_decay_days() -> u32 {
+    30
+}
+fn default_min_confidence() -> f64 {
+    0.5
+}
+fn default_max_tokens_per_tick() -> u32 {
+    4096
+}
+fn default_send_acknowledgments() -> bool {
+    true
+}
 
 fn default_autonomy_config() -> AutonomyConfig {
     AutonomyConfig {
@@ -328,21 +352,12 @@ fn default_autonomy_config() -> AutonomyConfig {
 
 // ── MCP Config ──────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpConfig {
     #[serde(default)]
     pub server: McpServerConfig,
     #[serde(default)]
     pub clients: Vec<McpClientEntry>,
-}
-
-impl Default for McpConfig {
-    fn default() -> Self {
-        Self {
-            server: McpServerConfig::default(),
-            clients: vec![],
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,7 +377,9 @@ impl Default for McpServerConfig {
     }
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpClientEntry {
@@ -402,7 +419,9 @@ impl std::fmt::Debug for A2aConfig {
     }
 }
 
-fn default_a2a_port() -> u16 { 8081 }
+fn default_a2a_port() -> u16 {
+    8081
+}
 
 impl Default for A2aConfig {
     fn default() -> Self {
@@ -444,7 +463,9 @@ pub struct SkillsConfig {
     pub dir: String,
 }
 
-fn default_skills_dir() -> String { "~/.meepo/skills".to_string() }
+fn default_skills_dir() -> String {
+    "~/.meepo/skills".to_string()
+}
 
 impl Default for SkillsConfig {
     fn default() -> Self {
@@ -465,8 +486,12 @@ pub struct BrowserConfig {
     pub default_browser: String,
 }
 
-fn default_browser_enabled() -> bool { true }
-fn default_browser_name() -> String { "safari".to_string() }
+fn default_browser_enabled() -> bool {
+    true
+}
+fn default_browser_name() -> String {
+    "safari".to_string()
+}
 
 impl Default for BrowserConfig {
     fn default() -> Self {
@@ -512,7 +537,9 @@ pub struct NotificationsConfig {
     pub quiet_hours: Option<QuietHoursConfig>,
 }
 
-fn default_notify_channel() -> String { "imessage".to_string() }
+fn default_notify_channel() -> String {
+    "imessage".to_string()
+}
 
 impl Default for NotificationsConfig {
     fn default() -> Self {
@@ -543,8 +570,12 @@ pub struct DigestConfig {
     pub evening_cron: String,
 }
 
-fn default_morning_cron() -> String { "0 9 * * *".to_string() }
-fn default_evening_cron() -> String { "0 18 * * *".to_string() }
+fn default_morning_cron() -> String {
+    "0 9 * * *".to_string()
+}
+fn default_evening_cron() -> String {
+    "0 18 * * *".to_string()
+}
 
 impl Default for DigestConfig {
     fn default() -> Self {
@@ -569,7 +600,7 @@ fn mask_secret(s: &str) -> String {
         return "(empty)".to_string();
     }
     if s.len() > 7 {
-        format!("{}...{}", &s[..3], &s[s.len()-4..])
+        format!("{}...{}", &s[..3], &s[s.len() - 4..])
     } else {
         "***".to_string()
     }
@@ -598,19 +629,20 @@ impl MeepoConfig {
                     warn!(
                         "Config file {:?} has overly permissive permissions ({:o}). \
                          It may contain secrets — consider running: chmod 600 {:?}",
-                        path, mode & 0o777, path
+                        path,
+                        mode & 0o777,
+                        path
                     );
                 }
             }
         }
 
-        let content = std::fs::read_to_string(&path)
-            .with_context(|| {
-                format!(
-                    "Failed to read config at {}. Run `meepo init` first.",
-                    path.display()
-                )
-            })?;
+        let content = std::fs::read_to_string(&path).with_context(|| {
+            format!(
+                "Failed to read config at {}. Run `meepo init` first.",
+                path.display()
+            )
+        })?;
 
         // Expand environment variables before parsing
         let expanded = expand_env_vars(&content);
@@ -620,15 +652,25 @@ impl MeepoConfig {
 
         // Check for hardcoded API keys and tokens
         if config.providers.anthropic.api_key.starts_with("sk-ant-") {
-            warn!("API key is hardcoded in config file. For security, use environment variables: api_key = \"${{ANTHROPIC_API_KEY}}\"");
+            warn!(
+                "API key is hardcoded in config file. For security, use environment variables: api_key = \"${{ANTHROPIC_API_KEY}}\""
+            );
         }
 
-        if !config.channels.discord.token.is_empty() && !config.channels.discord.token.contains("${") {
-            warn!("Discord token is hardcoded in config file. For security, use environment variables: token = \"${{DISCORD_TOKEN}}\"");
+        if !config.channels.discord.token.is_empty()
+            && !config.channels.discord.token.contains("${")
+        {
+            warn!(
+                "Discord token is hardcoded in config file. For security, use environment variables: token = \"${{DISCORD_TOKEN}}\""
+            );
         }
 
-        if !config.channels.slack.bot_token.is_empty() && !config.channels.slack.bot_token.contains("${") {
-            warn!("Slack bot token is hardcoded in config file. For security, use environment variables: bot_token = \"${{SLACK_BOT_TOKEN}}\"");
+        if !config.channels.slack.bot_token.is_empty()
+            && !config.channels.slack.bot_token.contains("${")
+        {
+            warn!(
+                "Slack bot token is hardcoded in config file. For security, use environment variables: bot_token = \"${{SLACK_BOT_TOKEN}}\""
+            );
         }
 
         Ok(config)
@@ -662,14 +704,22 @@ fn expand_env_vars(s: &str) -> String {
                 let value = if ALLOWED_ENV_VARS.contains(&var_name.as_str()) {
                     std::env::var(&var_name).unwrap_or_default()
                 } else {
-                    warn!("Skipping expansion of unrecognized env var '{}' in config (not in allowlist)", var_name);
+                    warn!(
+                        "Skipping expansion of unrecognized env var '{}' in config (not in allowlist)",
+                        var_name
+                    );
                     // Leave the ${VAR} unexpanded so it's obvious
                     pos = abs_start + end + 1;
                     continue;
                 };
 
                 let value_len = value.len();
-                result = format!("{}{}{}", &result[..abs_start], value, &result[abs_start + end + 1..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..abs_start],
+                    value,
+                    &result[abs_start + end + 1..]
+                );
                 pos = abs_start + value_len; // Skip past the expanded value
             } else {
                 break;

@@ -130,7 +130,9 @@ mod tests {
         let result = InitializeResult {
             protocol_version: "2024-11-05".to_string(),
             capabilities: ServerCapabilities {
-                tools: ToolsCapability { list_changed: false },
+                tools: ToolsCapability {
+                    list_changed: false,
+                },
             },
             server_info: ServerInfo {
                 name: "meepo".to_string(),
@@ -160,10 +162,7 @@ mod tests {
 
     #[test]
     fn test_jsonrpc_response_success() {
-        let resp = JsonRpcResponse::success(
-            serde_json::json!(1),
-            serde_json::json!({"ok": true}),
-        );
+        let resp = JsonRpcResponse::success(serde_json::json!(1), serde_json::json!({"ok": true}));
         assert!(resp.error.is_none());
         assert!(resp.result.is_some());
     }

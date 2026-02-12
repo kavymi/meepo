@@ -1,9 +1,9 @@
 //! Anthropic API client with tool use loop
 
 use anyhow::{Context, Result, anyhow};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use reqwest::Client;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -23,9 +23,11 @@ impl std::fmt::Debug for ApiClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Mask the API key in debug output
         let masked_key = if self.api_key.len() > 7 {
-            format!("{}...{}",
+            format!(
+                "{}...{}",
                 &self.api_key[..3],
-                &self.api_key[self.api_key.len()-4..])
+                &self.api_key[self.api_key.len() - 4..]
+            )
         } else {
             "***".to_string()
         };
@@ -86,9 +88,13 @@ impl ApiClient {
             "tools": tools,
         });
 
-        debug!("Sending request to Anthropic API with {} messages", messages.len());
+        debug!(
+            "Sending request to Anthropic API with {} messages",
+            messages.len()
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -100,15 +106,27 @@ impl ApiClient {
 
         let status = response.status();
         if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!("API request failed with status {}: {}", status, error_text));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow!(
+                "API request failed with status {}: {}",
+                status,
+                error_text
+            ));
         }
 
-        let api_response: ApiResponse = response.json().await
+        let api_response: ApiResponse = response
+            .json()
+            .await
             .context("Failed to parse API response")?;
 
-        debug!("Received response with {} content blocks, stop_reason: {:?}",
-               api_response.content.len(), api_response.stop_reason);
+        debug!(
+            "Received response with {} content blocks, stop_reason: {:?}",
+            api_response.content.len(),
+            api_response.stop_reason
+        );
 
         Ok(api_response)
     }
@@ -138,12 +156,10 @@ impl ApiClient {
     ) -> Result<String> {
         const MAX_TOOL_OUTPUT: usize = 100_000;
 
-        let mut conversation: Vec<ApiMessage> = vec![
-            ApiMessage {
-                role: "user".to_string(),
-                content: MessageContent::Text(initial_message.to_string()),
-            }
-        ];
+        let mut conversation: Vec<ApiMessage> = vec![ApiMessage {
+            role: "user".to_string(),
+            content: MessageContent::Text(initial_message.to_string()),
+        }];
 
         let mut iterations = 0;
         const MAX_ITERATIONS: usize = 10;

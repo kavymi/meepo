@@ -4,9 +4,9 @@
 //! On macOS: AppleScript System Events-based implementations.
 //! On Windows: UI Automation-based implementations.
 
+use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::Result;
 use tracing::debug;
 
 use super::{ToolHandler, json_schema};
@@ -14,16 +14,44 @@ use crate::platform::UiAutomation;
 
 /// Allowlist of valid UI element types
 const VALID_ELEMENT_TYPES: &[&str] = &[
-    "button", "checkbox", "radio button", "text field", "text area",
-    "pop up button", "menu item", "menu button", "slider", "tab group",
-    "table", "outline", "list", "scroll area", "group", "window",
-    "sheet", "toolbar", "static text", "image", "link", "cell", "row",
-    "column", "combo box", "incrementor", "relevance indicator",
+    "button",
+    "checkbox",
+    "radio button",
+    "text field",
+    "text area",
+    "pop up button",
+    "menu item",
+    "menu button",
+    "slider",
+    "tab group",
+    "table",
+    "outline",
+    "list",
+    "scroll area",
+    "group",
+    "window",
+    "sheet",
+    "toolbar",
+    "static text",
+    "image",
+    "link",
+    "cell",
+    "row",
+    "column",
+    "combo box",
+    "incrementor",
+    "relevance indicator",
 ];
 
 /// Read screen information (focused app and window)
 pub struct ReadScreenTool {
     provider: Box<dyn UiAutomation>,
+}
+
+impl Default for ReadScreenTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReadScreenTool {
@@ -57,6 +85,12 @@ impl ToolHandler for ReadScreenTool {
 /// Click UI element by description
 pub struct ClickElementTool {
     provider: Box<dyn UiAutomation>,
+}
+
+impl Default for ClickElementTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ClickElementTool {
@@ -94,10 +128,12 @@ impl ToolHandler for ClickElementTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let element_name = input.get("element_name")
+        let element_name = input
+            .get("element_name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'element_name' parameter"))?;
-        let element_type = input.get("element_type")
+        let element_type = input
+            .get("element_type")
             .and_then(|v| v.as_str())
             .unwrap_or("button");
 
@@ -107,14 +143,25 @@ impl ToolHandler for ClickElementTool {
             .find(|&&valid| valid.eq_ignore_ascii_case(element_type))
             .ok_or_else(|| anyhow::anyhow!("Invalid element type: {}", element_type))?;
 
-        debug!("Clicking {} element: {}", element_type_normalized, element_name);
-        self.provider.click_element(element_name, element_type_normalized).await
+        debug!(
+            "Clicking {} element: {}",
+            element_type_normalized, element_name
+        );
+        self.provider
+            .click_element(element_name, element_type_normalized)
+            .await
     }
 }
 
 /// Type text using keyboard simulation
 pub struct TypeTextTool {
     provider: Box<dyn UiAutomation>,
+}
+
+impl Default for TypeTextTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TypeTextTool {
@@ -148,13 +195,17 @@ impl ToolHandler for TypeTextTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let text = input.get("text")
+        let text = input
+            .get("text")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'text' parameter"))?;
 
         // Input validation: text length limit
         if text.len() > 50_000 {
-            return Err(anyhow::anyhow!("Text too long ({} chars, max 50,000)", text.len()));
+            return Err(anyhow::anyhow!(
+                "Text too long ({} chars, max 50,000)",
+                text.len()
+            ));
         }
 
         debug!("Typing text ({} chars)", text.len());

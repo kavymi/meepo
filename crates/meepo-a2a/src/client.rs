@@ -1,6 +1,6 @@
 //! A2A client — sends tasks to peer agents
 
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use serde_json::Value;
 use tracing::{debug, info};
@@ -19,6 +19,12 @@ pub struct PeerAgentConfig {
 #[derive(Clone)]
 pub struct A2aClient {
     http: Client,
+}
+
+impl Default for A2aClient {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl A2aClient {
@@ -41,17 +47,22 @@ impl A2aClient {
             req = req.bearer_auth(t);
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .with_context(|| format!("Failed to connect to agent at {}", url))?;
 
         if !resp.status().is_success() {
             return Err(anyhow!("Agent card request failed: HTTP {}", resp.status()));
         }
 
-        let card: AgentCard = resp.json().await
-            .context("Failed to parse agent card")?;
+        let card: AgentCard = resp.json().await.context("Failed to parse agent card")?;
 
-        info!("Fetched agent card: {} ({} capabilities)", card.name, card.capabilities.len());
+        info!(
+            "Fetched agent card: {} ({} capabilities)",
+            card.name,
+            card.capabilities.len()
+        );
         Ok(card)
     }
 
@@ -76,17 +87,22 @@ impl A2aClient {
             req = req.bearer_auth(t);
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .with_context(|| format!("Failed to submit task to {}", url))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("Task submission failed: HTTP {} — {}", status, body));
+            return Err(anyhow!(
+                "Task submission failed: HTTP {} — {}",
+                status,
+                body
+            ));
         }
 
-        let task: TaskResponse = resp.json().await
-            .context("Failed to parse task response")?;
+        let task: TaskResponse = resp.json().await.context("Failed to parse task response")?;
 
         info!("Task submitted: {} (status: {})", task.task_id, task.status);
         Ok(task)
@@ -106,11 +122,16 @@ impl A2aClient {
             req = req.bearer_auth(t);
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .with_context(|| format!("Failed to poll task {} at {}", task_id, url))?;
 
         if !resp.status().is_success() {
-            return Err(anyhow!("Task status request failed: HTTP {}", resp.status()));
+            return Err(anyhow!(
+                "Task status request failed: HTTP {}",
+                resp.status()
+            ));
         }
 
         resp.json().await.context("Failed to parse task status")
@@ -130,7 +151,9 @@ impl A2aClient {
             req = req.bearer_auth(t);
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .with_context(|| format!("Failed to cancel task {} at {}", task_id, url))?;
 
         if !resp.status().is_success() {
@@ -156,7 +179,11 @@ impl A2aClient {
 
         loop {
             if tokio::time::Instant::now() > deadline {
-                return Err(anyhow!("Task {} timed out after {:?}", task.task_id, timeout));
+                return Err(anyhow!(
+                    "Task {} timed out after {:?}",
+                    task.task_id,
+                    timeout
+                ));
             }
 
             tokio::time::sleep(poll_interval).await;

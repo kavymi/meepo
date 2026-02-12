@@ -1,8 +1,8 @@
 //! Filesystem access tools for browsing and searching local directories
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::{Result, Context};
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
@@ -13,7 +13,8 @@ use super::{ToolHandler, json_schema};
 /// must start with one of the pre-canonicalized allowed directories.
 fn validate_allowed_path(path: &str, allowed_dirs: &[PathBuf]) -> Result<PathBuf> {
     let expanded = shellexpand(path);
-    let canonical = expanded.canonicalize()
+    let canonical = expanded
+        .canonicalize()
         .with_context(|| format!("Path does not exist: {}", expanded.display()))?;
 
     for allowed in allowed_dirs {
@@ -30,10 +31,10 @@ fn validate_allowed_path(path: &str, allowed_dirs: &[PathBuf]) -> Result<PathBuf
 
 fn shellexpand(s: &str) -> PathBuf {
     let mut result = s.to_string();
-    if result.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            result = format!("{}{}", home.display(), &result[1..]);
-        }
+    if result.starts_with("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        result = format!("{}{}", home.display(), &result[1..]);
     }
     PathBuf::from(result)
 }
@@ -46,10 +47,13 @@ pub struct ListDirectoryTool {
 impl ListDirectoryTool {
     pub fn new(allowed_dirs: Vec<String>) -> Self {
         Self {
-            allowed_dirs: allowed_dirs.iter().map(|d| {
-                let expanded = shellexpand(d);
-                expanded.canonicalize().unwrap_or(expanded)
-            }).collect(),
+            allowed_dirs: allowed_dirs
+                .iter()
+                .map(|d| {
+                    let expanded = shellexpand(d);
+                    expanded.canonicalize().unwrap_or(expanded)
+                })
+                .collect(),
         }
     }
 }
@@ -85,20 +89,29 @@ impl ToolHandler for ListDirectoryTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let path_str = input.get("path")
+        let path_str = input
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-        let recursive = input.get("recursive")
+        let recursive = input
+            .get("recursive")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let pattern = input.get("pattern")
-            .and_then(|v| v.as_str());
+        let pattern = input.get("pattern").and_then(|v| v.as_str());
 
         let validated_path = validate_allowed_path(path_str, &self.allowed_dirs)?;
         debug!("Listing directory: {}", validated_path.display());
 
         let mut entries = Vec::new();
-        list_dir_recursive(&validated_path, &validated_path, recursive, 0, 3, pattern, &mut entries)?;
+        list_dir_recursive(
+            &validated_path,
+            &validated_path,
+            recursive,
+            0,
+            3,
+            pattern,
+            &mut entries,
+        )?;
 
         if entries.is_empty() {
             return Ok("Directory is empty or no files match the pattern.".to_string());
@@ -125,7 +138,8 @@ fn list_dir_recursive(
 
     for entry in dir_entries {
         let path = entry.path();
-        let name = path.strip_prefix(base)
+        let name = path
+            .strip_prefix(base)
             .unwrap_or(&path)
             .display()
             .to_string();
@@ -140,7 +154,15 @@ fn list_dir_recursive(
         if metadata.is_dir() {
             entries.push(format!("{}/ (dir)", name));
             if recursive && depth < max_depth {
-                list_dir_recursive(base, &path, recursive, depth + 1, max_depth, pattern, entries)?;
+                list_dir_recursive(
+                    base,
+                    &path,
+                    recursive,
+                    depth + 1,
+                    max_depth,
+                    pattern,
+                    entries,
+                )?;
             }
         } else {
             // Check pattern if provided
@@ -155,7 +177,8 @@ fn list_dir_recursive(
             }
 
             let size = metadata.len();
-            let modified = metadata.modified()
+            let modified = metadata
+                .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| {
@@ -187,10 +210,13 @@ pub struct SearchFilesTool {
 impl SearchFilesTool {
     pub fn new(allowed_dirs: Vec<String>) -> Self {
         Self {
-            allowed_dirs: allowed_dirs.iter().map(|d| {
-                let expanded = shellexpand(d);
-                expanded.canonicalize().unwrap_or(expanded)
-            }).collect(),
+            allowed_dirs: allowed_dirs
+                .iter()
+                .map(|d| {
+                    let expanded = shellexpand(d);
+                    expanded.canonicalize().unwrap_or(expanded)
+                })
+                .collect(),
         }
     }
 }
@@ -230,21 +256,27 @@ impl ToolHandler for SearchFilesTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let path_str = input.get("path")
+        let path_str = input
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-        let query = input.get("query")
+        let query = input
+            .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
-        let file_pattern = input.get("file_pattern")
-            .and_then(|v| v.as_str());
-        let max_results = input.get("max_results")
+        let file_pattern = input.get("file_pattern").and_then(|v| v.as_str());
+        let max_results = input
+            .get("max_results")
             .and_then(|v| v.as_u64())
             .unwrap_or(20)
             .min(100) as usize;
 
         let validated_path = validate_allowed_path(path_str, &self.allowed_dirs)?;
-        debug!("Searching files in {} for '{}'", validated_path.display(), query);
+        debug!(
+            "Searching files in {} for '{}'",
+            validated_path.display(),
+            query
+        );
 
         let query_lower = query.to_lowercase();
         let mut results = Vec::new();
@@ -263,18 +295,31 @@ impl ToolHandler for SearchFilesTool {
         )?;
 
         if results.is_empty() {
-            return Ok(format!("No matches found for '{}' in {} ({} files scanned)",
-                query, validated_path.display(), files_scanned));
+            return Ok(format!(
+                "No matches found for '{}' in {} ({} files scanned)",
+                query,
+                validated_path.display(),
+                files_scanned
+            ));
         }
 
         let truncated = results.len() >= max_results || files_scanned >= max_files;
-        let header = format!("Found {} matches in {} ({} files scanned){}:\n",
-            results.len(), validated_path.display(), files_scanned,
-            if truncated { " [results truncated]" } else { "" });
+        let header = format!(
+            "Found {} matches in {} ({} files scanned){}:\n",
+            results.len(),
+            validated_path.display(),
+            files_scanned,
+            if truncated {
+                " [results truncated]"
+            } else {
+                ""
+            }
+        );
         Ok(format!("{}{}", header, results.join("\n")))
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn search_dir_recursive(
     base: &Path,
     dir: &Path,
@@ -289,9 +334,7 @@ fn search_dir_recursive(
         return Ok(());
     }
 
-    let mut entries: Vec<_> = std::fs::read_dir(dir)?
-        .filter_map(|e| e.ok())
-        .collect();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
 
     for entry in entries {
@@ -309,26 +352,44 @@ fn search_dir_recursive(
 
         if path.is_dir() {
             // Skip common large directories
-            if matches!(name.as_str(), "node_modules" | "target" | ".git" | "build" | "dist" | "__pycache__" | ".venv" | "venv") {
+            if matches!(
+                name.as_str(),
+                "node_modules"
+                    | "target"
+                    | ".git"
+                    | "build"
+                    | "dist"
+                    | "__pycache__"
+                    | ".venv"
+                    | "venv"
+            ) {
                 continue;
             }
-            search_dir_recursive(base, &path, query, file_pattern, max_results, max_files, files_scanned, results)?;
+            search_dir_recursive(
+                base,
+                &path,
+                query,
+                file_pattern,
+                max_results,
+                max_files,
+                files_scanned,
+                results,
+            )?;
         } else {
             // Check file pattern
-            if let Some(pat) = file_pattern {
-                if !glob::Pattern::new(pat)
+            if let Some(pat) = file_pattern
+                && !glob::Pattern::new(pat)
                     .map(|p| p.matches(&name))
                     .unwrap_or(false)
-                {
-                    continue;
-                }
+            {
+                continue;
             }
 
             // Skip large files (> 10MB) to prevent OOM
-            if let Ok(meta) = entry.metadata() {
-                if meta.len() > 10 * 1024 * 1024 {
-                    continue;
-                }
+            if let Ok(meta) = entry.metadata()
+                && meta.len() > 10 * 1024 * 1024
+            {
+                continue;
             }
 
             // Skip binary files (check first 512 bytes)
@@ -340,7 +401,8 @@ fn search_dir_recursive(
                 }
 
                 if let Ok(text) = String::from_utf8(content) {
-                    let rel_path = path.strip_prefix(base)
+                    let rel_path = path
+                        .strip_prefix(base)
                         .unwrap_or(&path)
                         .display()
                         .to_string();
@@ -350,10 +412,12 @@ fn search_dir_recursive(
                             break;
                         }
                         if line.to_lowercase().contains(query) {
-                            results.push(format!("{}:{}: {}",
+                            results.push(format!(
+                                "{}:{}: {}",
                                 rel_path,
                                 line_num + 1,
-                                line.chars().take(200).collect::<String>()));
+                                line.chars().take(200).collect::<String>()
+                            ));
                         }
                     }
                 }
@@ -387,9 +451,12 @@ mod tests {
         std::fs::create_dir(temp.path().join("subdir")).unwrap();
 
         let tool = ListDirectoryTool::new(vec![temp_path.clone()]);
-        let result = tool.execute(serde_json::json!({
-            "path": temp_path
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "path": temp_path
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("hello.rs"));
         assert!(result.contains("world.txt"));
@@ -405,10 +472,13 @@ mod tests {
         std::fs::write(temp.path().join("world.txt"), "hello world").unwrap();
 
         let tool = ListDirectoryTool::new(vec![temp_path.clone()]);
-        let result = tool.execute(serde_json::json!({
-            "path": temp_path,
-            "pattern": "*.rs"
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "path": temp_path,
+                "pattern": "*.rs"
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("hello.rs"));
         assert!(!result.contains("world.txt"));
@@ -417,18 +487,22 @@ mod tests {
     #[tokio::test]
     async fn test_list_directory_denied() {
         let tool = ListDirectoryTool::new(vec!["~/Coding".to_string()]);
-        let result = tool.execute(serde_json::json!({
-            "path": "/etc"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": "/etc"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_list_directory_path_traversal_blocked() {
         let tool = ListDirectoryTool::new(vec!["~/Coding".to_string()]);
-        let result = tool.execute(serde_json::json!({
-            "path": "~/Coding/../../etc"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": "~/Coding/../../etc"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -443,14 +517,21 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path().to_str().unwrap().to_string();
 
-        std::fs::write(temp.path().join("hello.rs"), "fn main() {\n    println!(\"hello world\");\n}\n").unwrap();
+        std::fs::write(
+            temp.path().join("hello.rs"),
+            "fn main() {\n    println!(\"hello world\");\n}\n",
+        )
+        .unwrap();
         std::fs::write(temp.path().join("other.txt"), "nothing here").unwrap();
 
         let tool = SearchFilesTool::new(vec![temp_path.clone()]);
-        let result = tool.execute(serde_json::json!({
-            "path": temp_path,
-            "query": "println"
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "path": temp_path,
+                "query": "println"
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("hello.rs:2"));
         assert!(result.contains("println"));
@@ -465,11 +546,14 @@ mod tests {
         std::fs::write(temp.path().join("hello.py"), "def main(): pass").unwrap();
 
         let tool = SearchFilesTool::new(vec![temp_path.clone()]);
-        let result = tool.execute(serde_json::json!({
-            "path": temp_path,
-            "query": "main",
-            "file_pattern": "*.rs"
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "path": temp_path,
+                "query": "main",
+                "file_pattern": "*.rs"
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("hello.rs"));
         assert!(!result.contains("hello.py"));
@@ -483,10 +567,13 @@ mod tests {
         std::fs::write(temp.path().join("hello.rs"), "fn main() {}").unwrap();
 
         let tool = SearchFilesTool::new(vec![temp_path.clone()]);
-        let result = tool.execute(serde_json::json!({
-            "path": temp_path,
-            "query": "nonexistent_xyz_pattern"
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "path": temp_path,
+                "query": "nonexistent_xyz_pattern"
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("No matches found"));
     }
@@ -494,10 +581,12 @@ mod tests {
     #[tokio::test]
     async fn test_search_files_denied() {
         let tool = SearchFilesTool::new(vec!["~/Coding".to_string()]);
-        let result = tool.execute(serde_json::json!({
-            "path": "/etc",
-            "query": "test"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": "/etc",
+                "query": "test"
+            }))
+            .await;
         assert!(result.is_err());
     }
 }

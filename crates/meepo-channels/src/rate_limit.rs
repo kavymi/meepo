@@ -42,7 +42,7 @@ impl RateLimiter {
         let now = Instant::now();
         let cutoff = now - self.window_duration;
 
-        let mut entry = self.windows.entry(sender.to_string()).or_insert_with(VecDeque::new);
+        let mut entry = self.windows.entry(sender.to_string()).or_default();
         let window = entry.value_mut();
 
         // Prune expired timestamps

@@ -1,7 +1,7 @@
 //! Shared types for meepo-core
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Incoming message from any channel
 #[derive(Debug, Clone, Serialize, Deserialize)]

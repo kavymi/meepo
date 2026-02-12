@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::path::Path;
@@ -63,14 +63,14 @@ pub struct Watcher {
 pub struct Goal {
     pub id: String,
     pub description: String,
-    pub status: String,          // active|paused|completed|failed
-    pub priority: i32,           // 1 (low) to 5 (critical)
+    pub status: String, // active|paused|completed|failed
+    pub priority: i32,  // 1 (low) to 5 (critical)
     pub success_criteria: Option<String>,
     pub strategy: Option<String>,
     pub check_interval_secs: i64,
     pub last_checked_at: Option<DateTime<Utc>>,
     pub source_channel: Option<String>,
-    pub source: String,          // "user" or "template:<name>"
+    pub source: String, // "user" or "template:<name>"
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -79,10 +79,10 @@ pub struct Goal {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPreference {
     pub id: String,
-    pub category: String,        // communication|schedule|code|workflow
+    pub category: String, // communication|schedule|code|workflow
     pub key: String,
     pub value: JsonValue,
-    pub confidence: f64,         // 0.0 to 1.0
+    pub confidence: f64, // 0.0 to 1.0
     pub learned_from: Option<String>,
     pub last_confirmed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -96,7 +96,7 @@ pub struct ActionLogEntry {
     pub goal_id: Option<String>,
     pub action_type: String,
     pub description: String,
-    pub outcome: String,         // success|failed|pending|unknown
+    pub outcome: String, // success|failed|pending|unknown
     pub user_feedback: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -106,9 +106,9 @@ pub struct ActionLogEntry {
 pub struct BackgroundTask {
     pub id: String,
     pub description: String,
-    pub status: String,           // pending, running, completed, failed, cancelled
+    pub status: String, // pending, running, completed, failed, cancelled
     pub reply_channel: String,
-    pub spawned_by: String,       // "agent" or watcher ID
+    pub spawned_by: String, // "agent" or watcher ID
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub result: Option<String>,
@@ -122,15 +122,17 @@ pub struct KnowledgeDb {
 impl KnowledgeDb {
     /// Initialize database with schema
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let conn = Connection::open(path.as_ref())
-            .context("Failed to open SQLite database")?;
+        let conn = Connection::open(path.as_ref()).context("Failed to open SQLite database")?;
 
         info!("Initializing knowledge database at {:?}", path.as_ref());
 
         // Security note: The knowledge database stores conversation history, entities,
         // goals, and action logs in plaintext. Consider using SQLCipher for encryption
         // if the host machine is shared or the data is sensitive.
-        warn!("Knowledge database is NOT encrypted. Conversation history and agent data are stored in plaintext at {:?}", path.as_ref());
+        warn!(
+            "Knowledge database is NOT encrypted. Conversation history and agent data are stored in plaintext at {:?}",
+            path.as_ref()
+        );
 
         // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -309,7 +311,9 @@ impl KnowledgeDb {
 
         debug!("Database schema initialized successfully");
 
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     /// Insert a new entity
@@ -372,19 +376,27 @@ impl KnowledgeDb {
                         let metadata = metadata_str
                             .map(|s| serde_json::from_str(&s))
                             .transpose()
-                            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                            .map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
                                 3,
                                 rusqlite::types::Type::Text,
                                 Box::new(e),
-                            ))?;
+                            )
+                        })?;
 
                         Ok(Entity {
                             id: row.get(0)?,
                             name: row.get(1)?,
                             entity_type: row.get(2)?,
                             metadata,
-                            created_at: row.get::<_, String>(4)?.parse().unwrap_or_else(|_| Utc::now()),
-                            updated_at: row.get::<_, String>(5)?.parse().unwrap_or_else(|_| Utc::now()),
+                            created_at: row
+                                .get::<_, String>(4)?
+                                .parse()
+                                .unwrap_or_else(|_| Utc::now()),
+                            updated_at: row
+                                .get::<_, String>(5)?
+                                .parse()
+                                .unwrap_or_else(|_| Utc::now()),
                         })
                     },
                 )
@@ -397,7 +409,11 @@ impl KnowledgeDb {
     }
 
     /// Search entities by name or type
-    pub async fn search_entities(&self, query: &str, entity_type: Option<&str>) -> Result<Vec<Entity>> {
+    pub async fn search_entities(
+        &self,
+        query: &str,
+        entity_type: Option<&str>,
+    ) -> Result<Vec<Entity>> {
         let conn = Arc::clone(&self.conn);
         let query = query.to_owned();
         let entity_type = entity_type.map(|s| s.to_owned());
@@ -450,7 +466,7 @@ impl KnowledgeDb {
                 "SELECT id, name, entity_type, metadata, created_at, updated_at
                  FROM entities
                  ORDER BY updated_at DESC
-                 LIMIT 50000"
+                 LIMIT 50000",
             )?;
 
             let entities = stmt
@@ -469,19 +485,27 @@ impl KnowledgeDb {
         let metadata = metadata_str
             .map(|s| serde_json::from_str(&s))
             .transpose()
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            ))?;
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    3,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
 
         Ok(Entity {
             id: row.get(0)?,
             name: row.get(1)?,
             entity_type: row.get(2)?,
             metadata,
-            created_at: row.get::<_, String>(4)?.parse().unwrap_or_else(|_| Utc::now()),
-            updated_at: row.get::<_, String>(5)?.parse().unwrap_or_else(|_| Utc::now()),
+            created_at: row
+                .get::<_, String>(4)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
+            updated_at: row
+                .get::<_, String>(5)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
         })
     }
 
@@ -550,11 +574,13 @@ impl KnowledgeDb {
                     let metadata = metadata_str
                         .map(|s| serde_json::from_str(&s))
                         .transpose()
-                        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                            4,
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        ))?;
+                        .map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
+                        })?;
 
                     Ok(Relationship {
                         id: row.get(0)?,
@@ -562,7 +588,10 @@ impl KnowledgeDb {
                         target_id: row.get(2)?,
                         relation_type: row.get(3)?,
                         metadata,
-                        created_at: row.get::<_, String>(5)?.parse().unwrap_or_else(|_| Utc::now()),
+                        created_at: row
+                            .get::<_, String>(5)?
+                            .parse()
+                            .unwrap_or_else(|_| Utc::now()),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -616,11 +645,13 @@ impl KnowledgeDb {
     }
 
     /// Get recent conversations
-    pub async fn get_recent_conversations(&self, channel: Option<&str>, limit: usize) -> Result<Vec<Conversation>> {
+    pub async fn get_recent_conversations(
+        &self,
+        channel: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Conversation>> {
         let conn = Arc::clone(&self.conn);
         let channel = channel.map(|s| s.to_owned());
-        let limit = limit;
-
         tokio::task::spawn_blocking(move || {
             let conn = conn.lock().unwrap_or_else(|poisoned| {
                 warn!("Database mutex was poisoned, recovering");
@@ -632,7 +663,8 @@ impl KnowledgeDb {
                      FROM conversations
                      WHERE channel = ?1
                      ORDER BY created_at DESC
-                     LIMIT ?2".to_string(),
+                     LIMIT ?2"
+                        .to_string(),
                     vec![ch.to_string(), limit.to_string()],
                 )
             } else {
@@ -640,7 +672,8 @@ impl KnowledgeDb {
                     "SELECT id, channel, sender, content, metadata, created_at
                      FROM conversations
                      ORDER BY created_at DESC
-                     LIMIT ?1".to_string(),
+                     LIMIT ?1"
+                        .to_string(),
                     vec![limit.to_string()],
                 )
             };
@@ -648,7 +681,10 @@ impl KnowledgeDb {
             let mut stmt = conn.prepare(&sql)?;
 
             let conversations = if channel.is_some() {
-                stmt.query_map(params![&params_vec[0], &params_vec[1]], Self::row_to_conversation)?
+                stmt.query_map(
+                    params![&params_vec[0], &params_vec[1]],
+                    Self::row_to_conversation,
+                )?
             } else {
                 stmt.query_map(params![&params_vec[0]], Self::row_to_conversation)?
             }
@@ -666,11 +702,13 @@ impl KnowledgeDb {
         let metadata = metadata_str
             .map(|s| serde_json::from_str(&s))
             .transpose()
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                4,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            ))?;
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    4,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
 
         Ok(Conversation {
             id: row.get(0)?,
@@ -678,7 +716,10 @@ impl KnowledgeDb {
             sender: row.get(2)?,
             content: row.get(3)?,
             metadata,
-            created_at: row.get::<_, String>(5)?.parse().unwrap_or_else(|_| Utc::now()),
+            created_at: row
+                .get::<_, String>(5)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
         })
     }
 
@@ -753,12 +794,9 @@ impl KnowledgeDb {
     /// Helper to convert row to Watcher
     fn row_to_watcher(row: &rusqlite::Row) -> rusqlite::Result<Watcher> {
         let config_str: String = row.get(2)?;
-        let config = serde_json::from_str(&config_str)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                2,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            ))?;
+        let config = serde_json::from_str(&config_str).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+        })?;
 
         Ok(Watcher {
             id: row.get(0)?,
@@ -767,7 +805,10 @@ impl KnowledgeDb {
             action: row.get(3)?,
             reply_channel: row.get(4)?,
             active: row.get::<_, i64>(5)? != 0,
-            created_at: row.get::<_, String>(6)?.parse().unwrap_or_else(|_| Utc::now()),
+            created_at: row
+                .get::<_, String>(6)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
         })
     }
 
@@ -979,10 +1020,7 @@ impl KnowledgeDb {
                 warn!("Database mutex was poisoned, recovering");
                 poisoned.into_inner()
             });
-            let count = conn.execute(
-                "DELETE FROM goals WHERE source = ?1",
-                params![&source],
-            )?;
+            let count = conn.execute("DELETE FROM goals WHERE source = ?1", params![&source])?;
             debug!("Deleted {} goals with source: {}", count, source);
             Ok(count)
         })
@@ -1000,12 +1038,19 @@ impl KnowledgeDb {
             success_criteria: row.get(4)?,
             strategy: row.get(5)?,
             check_interval_secs: row.get(6)?,
-            last_checked_at: row.get::<_, Option<String>>(7)?
+            last_checked_at: row
+                .get::<_, Option<String>>(7)?
                 .and_then(|s| s.parse().ok()),
             source_channel: row.get(8)?,
             source: row.get(9)?,
-            created_at: row.get::<_, String>(10)?.parse().unwrap_or_else(|_| Utc::now()),
-            updated_at: row.get::<_, String>(11)?.parse().unwrap_or_else(|_| Utc::now()),
+            created_at: row
+                .get::<_, String>(10)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
+            updated_at: row
+                .get::<_, String>(11)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
         })
     }
 
@@ -1098,12 +1143,9 @@ impl KnowledgeDb {
     /// Helper to convert row to UserPreference
     fn row_to_preference(row: &rusqlite::Row) -> rusqlite::Result<UserPreference> {
         let value_str: String = row.get(3)?;
-        let value = serde_json::from_str(&value_str)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            ))?;
+        let value = serde_json::from_str(&value_str).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+        })?;
 
         Ok(UserPreference {
             id: row.get(0)?,
@@ -1112,9 +1154,17 @@ impl KnowledgeDb {
             value,
             confidence: row.get(4)?,
             learned_from: row.get(5)?,
-            last_confirmed_at: row.get::<_, Option<String>>(6)?.and_then(|s| s.parse().ok()),
-            created_at: row.get::<_, String>(7)?.parse().unwrap_or_else(|_| Utc::now()),
-            updated_at: row.get::<_, String>(8)?.parse().unwrap_or_else(|_| Utc::now()),
+            last_confirmed_at: row
+                .get::<_, Option<String>>(6)?
+                .and_then(|s| s.parse().ok()),
+            created_at: row
+                .get::<_, String>(7)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
+            updated_at: row
+                .get::<_, String>(8)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
         })
     }
 
@@ -1173,7 +1223,10 @@ impl KnowledgeDb {
                         description: row.get(3)?,
                         outcome: row.get(4)?,
                         user_feedback: row.get(5)?,
-                        created_at: row.get::<_, String>(6)?.parse().unwrap_or_else(|_| Utc::now()),
+                        created_at: row
+                            .get::<_, String>(6)?
+                            .parse()
+                            .unwrap_or_else(|_| Utc::now()),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1318,8 +1371,14 @@ impl KnowledgeDb {
             status: row.get(2)?,
             reply_channel: row.get(3)?,
             spawned_by: row.get(4)?,
-            created_at: row.get::<_, String>(5)?.parse().unwrap_or_else(|_| Utc::now()),
-            updated_at: row.get::<_, String>(6)?.parse().unwrap_or_else(|_| Utc::now()),
+            created_at: row
+                .get::<_, String>(5)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
+            updated_at: row
+                .get::<_, String>(6)?
+                .parse()
+                .unwrap_or_else(|_| Utc::now()),
             result: row.get(7)?,
         })
     }
@@ -1366,7 +1425,9 @@ mod tests {
         let target_id = db.insert_entity("target", "concept", None).await?;
 
         // Create relationship
-        let rel_id = db.insert_relationship(&source_id, &target_id, "relates_to", None).await?;
+        let rel_id = db
+            .insert_relationship(&source_id, &target_id, "relates_to", None)
+            .await?;
         assert!(!rel_id.is_empty());
 
         // Get relationships
@@ -1384,7 +1445,16 @@ mod tests {
         let db = KnowledgeDb::new(&temp_path)?;
 
         // Insert goal with user source
-        let id = db.insert_goal("Review PRs daily", 3, 3600, Some("All PRs reviewed"), Some("discord"), "user").await?;
+        let id = db
+            .insert_goal(
+                "Review PRs daily",
+                3,
+                3600,
+                Some("All PRs reviewed"),
+                Some("discord"),
+                "user",
+            )
+            .await?;
         assert!(!id.is_empty());
 
         // Get active goals
@@ -1398,7 +1468,8 @@ mod tests {
         assert_eq!(due.len(), 1);
 
         // Mark as checked
-        db.update_goal_checked(&id, Some("Check GitHub PRs tool")).await?;
+        db.update_goal_checked(&id, Some("Check GitHub PRs tool"))
+            .await?;
 
         // Should no longer be due (just checked, interval is 3600s)
         let due = db.get_due_goals().await?;
@@ -1410,7 +1481,16 @@ mod tests {
         assert_eq!(active.len(), 0);
 
         // Test template goals and delete by source
-        let _template_id = db.insert_goal("Monitor stocks", 4, 900, None, None, "template:stock-analyst").await?;
+        let _template_id = db
+            .insert_goal(
+                "Monitor stocks",
+                4,
+                900,
+                None,
+                None,
+                "template:stock-analyst",
+            )
+            .await?;
         let active = db.get_active_goals().await?;
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].source, "template:stock-analyst");
@@ -1430,7 +1510,15 @@ mod tests {
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
-        let id = db.upsert_preference("schedule", "morning_summary", serde_json::json!(true), 0.5, Some("user asked 3 times")).await?;
+        let id = db
+            .upsert_preference(
+                "schedule",
+                "morning_summary",
+                serde_json::json!(true),
+                0.5,
+                Some("user asked 3 times"),
+            )
+            .await?;
         assert!(!id.is_empty());
 
         let prefs = db.get_preferences(Some("schedule")).await?;
@@ -1438,7 +1526,15 @@ mod tests {
         assert_eq!(prefs[0].key, "morning_summary");
 
         // Upsert same key updates
-        let id2 = db.upsert_preference("schedule", "morning_summary", serde_json::json!(true), 0.8, None).await?;
+        let id2 = db
+            .upsert_preference(
+                "schedule",
+                "morning_summary",
+                serde_json::json!(true),
+                0.8,
+                None,
+            )
+            .await?;
         assert_eq!(id, id2);
         let prefs = db.get_preferences(None).await?;
         assert_eq!(prefs.len(), 1);
@@ -1454,7 +1550,9 @@ mod tests {
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
-        let id = db.insert_action_log(None, "sent_email", "Sent morning summary", "success").await?;
+        let id = db
+            .insert_action_log(None, "sent_email", "Sent morning summary", "success")
+            .await?;
         assert!(!id.is_empty());
 
         let actions = db.get_recent_actions(10).await?;
@@ -1472,7 +1570,8 @@ mod tests {
         let db = KnowledgeDb::new(&temp_path)?;
 
         // Insert task
-        db.insert_background_task("t-123", "Research competitors", "slack", "agent").await?;
+        db.insert_background_task("t-123", "Research competitors", "slack", "agent")
+            .await?;
 
         // Get active tasks
         let active = db.get_active_background_tasks().await?;
@@ -1486,7 +1585,8 @@ mod tests {
         assert_eq!(active[0].status, "running");
 
         // Complete with result
-        db.update_background_task("t-123", "completed", Some("Found 3 competitors")).await?;
+        db.update_background_task("t-123", "completed", Some("Found 3 competitors"))
+            .await?;
         let active = db.get_active_background_tasks().await?;
         assert_eq!(active.len(), 0);
 

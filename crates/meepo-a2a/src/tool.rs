@@ -62,56 +62,93 @@ impl ToolHandler for DelegateToAgentTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let agent_name = input.get("agent")
+        let agent_name = input
+            .get("agent")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'agent' parameter"))?;
 
-        let task = input.get("task")
+        let task = input
+            .get("task")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?;
 
-        let context = input.get("context").cloned().unwrap_or(serde_json::json!({}));
+        let context = input
+            .get("context")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
         let wait = input.get("wait").and_then(|v| v.as_bool()).unwrap_or(true);
 
         // Resolve agent: look up by name, or treat as URL
-        let (base_url, token) = if agent_name.starts_with("http://") || agent_name.starts_with("https://") {
-            (agent_name.to_string(), None)
-        } else {
-            let peer = self.peers.iter()
-                .find(|p| p.name == agent_name)
-                .ok_or_else(|| anyhow::anyhow!(
-                    "Unknown agent '{}'. Known agents: {}",
-                    agent_name,
-                    self.peers.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")
-                ))?;
-            (peer.url.clone(), peer.token.clone())
-        };
+        let (base_url, token) =
+            if agent_name.starts_with("http://") || agent_name.starts_with("https://") {
+                (agent_name.to_string(), None)
+            } else {
+                let peer = self
+                    .peers
+                    .iter()
+                    .find(|p| p.name == agent_name)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Unknown agent '{}'. Known agents: {}",
+                            agent_name,
+                            self.peers
+                                .iter()
+                                .map(|p| p.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    })?;
+                (peer.url.clone(), peer.token.clone())
+            };
 
-        debug!("Delegating task to agent at {}: {}", base_url, &task[..task.len().min(100)]);
+        debug!(
+            "Delegating task to agent at {}: {}",
+            base_url,
+            &task[..task.len().min(100)]
+        );
 
         // Fetch agent card first (optional, for logging)
-        match self.client.fetch_agent_card(&base_url, token.as_deref()).await {
-            Ok(card) => info!("Agent '{}' capabilities: {:?}", card.name, card.capabilities),
+        match self
+            .client
+            .fetch_agent_card(&base_url, token.as_deref())
+            .await
+        {
+            Ok(card) => info!(
+                "Agent '{}' capabilities: {:?}",
+                card.name, card.capabilities
+            ),
             Err(e) => debug!("Could not fetch agent card: {} (proceeding anyway)", e),
         }
 
         if wait {
-            let result = self.client.submit_and_wait(
-                &base_url,
-                token.as_deref(),
-                task,
-                context,
-                std::time::Duration::from_secs(2),
-                std::time::Duration::from_secs(300),
-            ).await?;
+            let result = self
+                .client
+                .submit_and_wait(
+                    &base_url,
+                    token.as_deref(),
+                    task,
+                    context,
+                    std::time::Duration::from_secs(2),
+                    std::time::Duration::from_secs(300),
+                )
+                .await?;
 
             match result.result {
-                Some(text) => Ok(format!("Agent completed task (status: {}):\n{}", result.status, text)),
+                Some(text) => Ok(format!(
+                    "Agent completed task (status: {}):\n{}",
+                    result.status, text
+                )),
                 None => Ok(format!("Agent finished with status: {}", result.status)),
             }
         } else {
-            let response = self.client.submit_task(&base_url, token.as_deref(), task, context).await?;
-            Ok(format!("Task submitted to agent. Task ID: {} (status: {})", response.task_id, response.status))
+            let response = self
+                .client
+                .submit_task(&base_url, token.as_deref(), task, context)
+                .await?;
+            Ok(format!(
+                "Task submitted to agent. Task ID: {} (status: {})",
+                response.task_id, response.status
+            ))
         }
     }
 }
@@ -133,13 +170,11 @@ mod tests {
 
     #[test]
     fn test_known_peers() {
-        let peers = vec![
-            PeerAgentConfig {
-                name: "openclaw".to_string(),
-                url: "http://localhost:3000".to_string(),
-                token: Some("test".to_string()),
-            },
-        ];
+        let peers = vec![PeerAgentConfig {
+            name: "openclaw".to_string(),
+            url: "http://localhost:3000".to_string(),
+            token: Some("test".to_string()),
+        }];
         let tool = DelegateToAgentTool::new(peers);
         assert_eq!(tool.peers.len(), 1);
     }

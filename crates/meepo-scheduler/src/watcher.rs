@@ -4,8 +4,8 @@
 //! components that monitor various sources (email, calendar, files, etc.)
 //! and emit events when conditions are met.
 
-use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// A watcher monitors a specific source and triggers actions when conditions are met
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +45,11 @@ impl Watcher {
     /// Get a human-readable description of this watcher
     pub fn description(&self) -> String {
         match &self.kind {
-            WatcherKind::EmailWatch { from, subject_contains, interval_secs } => {
+            WatcherKind::EmailWatch {
+                from,
+                subject_contains,
+                interval_secs,
+            } => {
                 let mut desc = format!("Email watcher (every {}s)", interval_secs);
                 if let Some(f) = from {
                     desc.push_str(&format!(" from: {}", f));
@@ -55,11 +59,25 @@ impl Watcher {
                 }
                 desc
             }
-            WatcherKind::CalendarWatch { lookahead_hours, interval_secs } => {
-                format!("Calendar watcher ({}h lookahead, every {}s)", lookahead_hours, interval_secs)
+            WatcherKind::CalendarWatch {
+                lookahead_hours,
+                interval_secs,
+            } => {
+                format!(
+                    "Calendar watcher ({}h lookahead, every {}s)",
+                    lookahead_hours, interval_secs
+                )
             }
-            WatcherKind::GitHubWatch { repo, events, interval_secs, .. } => {
-                format!("GitHub watcher for {} (events: {:?}, every {}s)", repo, events, interval_secs)
+            WatcherKind::GitHubWatch {
+                repo,
+                events,
+                interval_secs,
+                ..
+            } => {
+                format!(
+                    "GitHub watcher for {} (events: {:?}, every {}s)",
+                    repo, events, interval_secs
+                )
             }
             WatcherKind::FileWatch { path } => {
                 format!("File watcher for {}", path)
@@ -153,13 +171,13 @@ impl WatcherKind {
     /// Get the minimum safe polling interval for this watcher type
     pub fn min_interval_secs(&self) -> u64 {
         match self {
-            Self::EmailWatch { .. } => 60,      // Email: minimum 1 minute
-            Self::CalendarWatch { .. } => 300,  // Calendar: minimum 5 minutes
-            Self::GitHubWatch { .. } => 30,     // GitHub: minimum 30 seconds (API rate limits)
-            Self::FileWatch { .. } => 0,        // File: event-driven, no polling
-            Self::MessageWatch { .. } => 0,     // Message: event-driven
-            Self::Scheduled { .. } => 0,        // Scheduled: based on cron
-            Self::OneShot { .. } => 0,          // OneShot: fires once
+            Self::EmailWatch { .. } => 60,     // Email: minimum 1 minute
+            Self::CalendarWatch { .. } => 300, // Calendar: minimum 5 minutes
+            Self::GitHubWatch { .. } => 30,    // GitHub: minimum 30 seconds (API rate limits)
+            Self::FileWatch { .. } => 0,       // File: event-driven, no polling
+            Self::MessageWatch { .. } => 0,    // Message: event-driven
+            Self::Scheduled { .. } => 0,       // Scheduled: based on cron
+            Self::OneShot { .. } => 0,         // OneShot: fires once
         }
     }
 
@@ -173,18 +191,12 @@ impl WatcherKind {
 
     /// Check if this is an event-driven watcher
     pub fn is_event_driven(&self) -> bool {
-        matches!(
-            self,
-            Self::FileWatch { .. } | Self::MessageWatch { .. }
-        )
+        matches!(self, Self::FileWatch { .. } | Self::MessageWatch { .. })
     }
 
     /// Check if this is a scheduled task
     pub fn is_scheduled(&self) -> bool {
-        matches!(
-            self,
-            Self::Scheduled { .. } | Self::OneShot { .. }
-        )
+        matches!(self, Self::Scheduled { .. } | Self::OneShot { .. })
     }
 }
 
@@ -254,11 +266,7 @@ impl WatcherEvent {
 
     /// Create a GitHub event
     pub fn github(watcher_id: String, event_type: String, data: serde_json::Value) -> Self {
-        Self::new(
-            watcher_id,
-            format!("github_{}", event_type),
-            data,
-        )
+        Self::new(watcher_id, format!("github_{}", event_type), data)
     }
 
     /// Create a task execution event

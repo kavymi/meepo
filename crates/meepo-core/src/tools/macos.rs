@@ -4,17 +4,26 @@
 //! On macOS: AppleScript-based implementations.
 //! On Windows: PowerShell/COM-based implementations.
 
+use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::Result;
 use tracing::debug;
 
 use super::{ToolHandler, json_schema};
-use crate::platform::{EmailProvider, CalendarProvider, ClipboardProvider, AppLauncher, RemindersProvider, NotesProvider, NotificationProvider, ScreenCaptureProvider, MusicProvider, ContactsProvider};
+use crate::platform::{
+    AppLauncher, CalendarProvider, ClipboardProvider, ContactsProvider, EmailProvider,
+    MusicProvider, NotesProvider, NotificationProvider, RemindersProvider, ScreenCaptureProvider,
+};
 
 /// Read emails from the default email application
 pub struct ReadEmailsTool {
     provider: Box<dyn EmailProvider>,
+}
+
+impl Default for ReadEmailsTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReadEmailsTool {
@@ -56,15 +65,16 @@ impl ToolHandler for ReadEmailsTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let limit = input.get("limit")
+        let limit = input
+            .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(10)
             .min(50);
-        let mailbox = input.get("mailbox")
+        let mailbox = input
+            .get("mailbox")
             .and_then(|v| v.as_str())
             .unwrap_or("inbox");
-        let search = input.get("search")
-            .and_then(|v| v.as_str());
+        let search = input.get("search").and_then(|v| v.as_str());
 
         debug!("Reading {} emails from {}", limit, mailbox);
         self.provider.read_emails(limit, mailbox, search).await
@@ -74,6 +84,12 @@ impl ToolHandler for ReadEmailsTool {
 /// Read calendar events from the default calendar application
 pub struct ReadCalendarTool {
     provider: Box<dyn CalendarProvider>,
+}
+
+impl Default for ReadCalendarTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReadCalendarTool {
@@ -107,7 +123,8 @@ impl ToolHandler for ReadCalendarTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let days_ahead = input.get("days_ahead")
+        let days_ahead = input
+            .get("days_ahead")
             .and_then(|v| v.as_u64())
             .unwrap_or(1);
 
@@ -119,6 +136,12 @@ impl ToolHandler for ReadCalendarTool {
 /// Send email via the default email application
 pub struct SendEmailTool {
     provider: Box<dyn EmailProvider>,
+}
+
+impl Default for SendEmailTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SendEmailTool {
@@ -168,13 +191,16 @@ impl ToolHandler for SendEmailTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let to = input.get("to")
+        let to = input
+            .get("to")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'to' parameter"))?;
-        let subject = input.get("subject")
+        let subject = input
+            .get("subject")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'subject' parameter"))?;
-        let body = input.get("body")
+        let body = input
+            .get("body")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
         let cc = input.get("cc").and_then(|v| v.as_str());
@@ -182,17 +208,28 @@ impl ToolHandler for SendEmailTool {
 
         // Input validation: body length limit
         if body.len() > 50_000 {
-            return Err(anyhow::anyhow!("Email body too long ({} chars, max 50,000)", body.len()));
+            return Err(anyhow::anyhow!(
+                "Email body too long ({} chars, max 50,000)",
+                body.len()
+            ));
         }
 
         debug!("Sending email to: {}", to);
-        self.provider.send_email(to, subject, body, cc, in_reply_to).await
+        self.provider
+            .send_email(to, subject, body, cc, in_reply_to)
+            .await
     }
 }
 
 /// Create a calendar event in the default calendar application
 pub struct CreateEventTool {
     provider: Box<dyn CalendarProvider>,
+}
+
+impl Default for CreateEventTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CreateEventTool {
@@ -234,24 +271,35 @@ impl ToolHandler for CreateEventTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let summary = input.get("summary")
+        let summary = input
+            .get("summary")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'summary' parameter"))?;
-        let start_time = input.get("start_time")
+        let start_time = input
+            .get("start_time")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'start_time' parameter"))?;
-        let duration = input.get("duration_minutes")
+        let duration = input
+            .get("duration_minutes")
             .and_then(|v| v.as_u64())
             .unwrap_or(60);
 
         debug!("Creating calendar event: {}", summary);
-        self.provider.create_event(summary, start_time, duration).await
+        self.provider
+            .create_event(summary, start_time, duration)
+            .await
     }
 }
 
 /// Open an application by name
 pub struct OpenAppTool {
     launcher: Box<dyn AppLauncher>,
+}
+
+impl Default for OpenAppTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OpenAppTool {
@@ -285,7 +333,8 @@ impl ToolHandler for OpenAppTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let app_name = input.get("app_name")
+        let app_name = input
+            .get("app_name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'app_name' parameter"))?;
 
@@ -305,6 +354,12 @@ impl ToolHandler for OpenAppTool {
 /// Get clipboard content
 pub struct GetClipboardTool {
     provider: Box<dyn ClipboardProvider>,
+}
+
+impl Default for GetClipboardTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GetClipboardTool {
@@ -338,6 +393,12 @@ impl ToolHandler for GetClipboardTool {
 /// List reminders from Apple Reminders
 pub struct ListRemindersTool {
     provider: Box<dyn RemindersProvider>,
+}
+
+impl Default for ListRemindersTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ListRemindersTool {
@@ -380,6 +441,12 @@ impl ToolHandler for ListRemindersTool {
 /// Create a reminder in Apple Reminders
 pub struct CreateReminderTool {
     provider: Box<dyn RemindersProvider>,
+}
+
+impl Default for CreateReminderTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CreateReminderTool {
@@ -425,7 +492,8 @@ impl ToolHandler for CreateReminderTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'name' parameter"))?;
         let list_name = input.get("list_name").and_then(|v| v.as_str());
@@ -433,17 +501,27 @@ impl ToolHandler for CreateReminderTool {
         let notes = input.get("notes").and_then(|v| v.as_str());
 
         if name.len() > 500 {
-            return Err(anyhow::anyhow!("Reminder name too long (max 500 characters)"));
+            return Err(anyhow::anyhow!(
+                "Reminder name too long (max 500 characters)"
+            ));
         }
 
         debug!("Creating reminder: {}", name);
-        self.provider.create_reminder(name, list_name, due_date, notes).await
+        self.provider
+            .create_reminder(name, list_name, due_date, notes)
+            .await
     }
 }
 
 /// List notes from Apple Notes
 pub struct ListNotesTool {
     provider: Box<dyn NotesProvider>,
+}
+
+impl Default for ListNotesTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ListNotesTool {
@@ -482,7 +560,8 @@ impl ToolHandler for ListNotesTool {
 
     async fn execute(&self, input: Value) -> Result<String> {
         let folder = input.get("folder").and_then(|v| v.as_str());
-        let limit = input.get("limit")
+        let limit = input
+            .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(10)
             .min(50);
@@ -495,6 +574,12 @@ impl ToolHandler for ListNotesTool {
 /// Create a note in Apple Notes
 pub struct CreateNoteTool {
     provider: Box<dyn NotesProvider>,
+}
+
+impl Default for CreateNoteTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CreateNoteTool {
@@ -536,16 +621,20 @@ impl ToolHandler for CreateNoteTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let title = input.get("title")
+        let title = input
+            .get("title")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'title' parameter"))?;
-        let body = input.get("body")
+        let body = input
+            .get("body")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
         let folder = input.get("folder").and_then(|v| v.as_str());
 
         if body.len() > 100_000 {
-            return Err(anyhow::anyhow!("Note body too long (max 100,000 characters)"));
+            return Err(anyhow::anyhow!(
+                "Note body too long (max 100,000 characters)"
+            ));
         }
 
         debug!("Creating note: {}", title);
@@ -556,6 +645,12 @@ impl ToolHandler for CreateNoteTool {
 /// Send a macOS notification
 pub struct SendNotificationTool {
     provider: Box<dyn NotificationProvider>,
+}
+
+impl Default for SendNotificationTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SendNotificationTool {
@@ -597,10 +692,12 @@ impl ToolHandler for SendNotificationTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let title = input.get("title")
+        let title = input
+            .get("title")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'title' parameter"))?;
-        let message = input.get("message")
+        let message = input
+            .get("message")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'message' parameter"))?;
         let sound = input.get("sound").and_then(|v| v.as_str());
@@ -620,6 +717,12 @@ impl ToolHandler for SendNotificationTool {
 /// Capture the screen
 pub struct ScreenCaptureTool {
     provider: Box<dyn ScreenCaptureProvider>,
+}
+
+impl Default for ScreenCaptureTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ScreenCaptureTool {
@@ -657,7 +760,9 @@ impl ToolHandler for ScreenCaptureTool {
 
         if let Some(p) = path {
             if !p.ends_with(".png") && !p.ends_with(".jpg") && !p.ends_with(".pdf") {
-                return Err(anyhow::anyhow!("Output path must end with .png, .jpg, or .pdf"));
+                return Err(anyhow::anyhow!(
+                    "Output path must end with .png, .jpg, or .pdf"
+                ));
             }
             if p.len() > 500 {
                 return Err(anyhow::anyhow!("Path too long (max 500 characters)"));
@@ -672,6 +777,12 @@ impl ToolHandler for ScreenCaptureTool {
 /// Get the currently playing track from Apple Music
 pub struct GetCurrentTrackTool {
     provider: Box<dyn MusicProvider>,
+}
+
+impl Default for GetCurrentTrackTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GetCurrentTrackTool {
@@ -707,6 +818,12 @@ pub struct MusicControlTool {
     provider: Box<dyn MusicProvider>,
 }
 
+impl Default for MusicControlTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MusicControlTool {
     pub fn new() -> Self {
         Self {
@@ -738,7 +855,8 @@ impl ToolHandler for MusicControlTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let action = input.get("action")
+        let action = input
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
@@ -750,6 +868,12 @@ impl ToolHandler for MusicControlTool {
 /// Search contacts in Apple Contacts
 pub struct SearchContactsTool {
     provider: Box<dyn ContactsProvider>,
+}
+
+impl Default for SearchContactsTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SearchContactsTool {
@@ -783,7 +907,8 @@ impl ToolHandler for SearchContactsTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let query = input.get("query")
+        let query = input
+            .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
 
@@ -823,8 +948,12 @@ mod tests {
         assert_eq!(tool.name(), "send_email");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"to".to_string()));
         assert!(required.contains(&"subject".to_string()));
         assert!(required.contains(&"body".to_string()));
@@ -836,8 +965,12 @@ mod tests {
         assert_eq!(tool.name(), "create_calendar_event");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"summary".to_string()));
         assert!(required.contains(&"start_time".to_string()));
     }
@@ -859,9 +992,11 @@ mod tests {
     #[tokio::test]
     async fn test_send_email_missing_params() {
         let tool = SendEmailTool::new();
-        let result = tool.execute(serde_json::json!({
-            "to": "test@test.com"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "to": "test@test.com"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -897,8 +1032,12 @@ mod tests {
         assert_eq!(tool.name(), "create_reminder");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"name".to_string()));
     }
 
@@ -926,8 +1065,12 @@ mod tests {
         assert_eq!(tool.name(), "create_note");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"title".to_string()));
         assert!(required.contains(&"body".to_string()));
     }
@@ -945,10 +1088,12 @@ mod tests {
     async fn test_create_note_body_too_long() {
         let tool = CreateNoteTool::new();
         let long_body = "x".repeat(100_001);
-        let result = tool.execute(serde_json::json!({
-            "title": "test",
-            "body": long_body
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "title": "test",
+                "body": long_body
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -960,8 +1105,12 @@ mod tests {
         assert_eq!(tool.name(), "send_notification");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"title".to_string()));
         assert!(required.contains(&"message".to_string()));
     }
@@ -979,10 +1128,12 @@ mod tests {
     async fn test_send_notification_title_too_long() {
         let tool = SendNotificationTool::new();
         let long_title = "x".repeat(201);
-        let result = tool.execute(serde_json::json!({
-            "title": long_title,
-            "message": "test"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "title": long_title,
+                "message": "test"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -999,7 +1150,9 @@ mod tests {
     #[tokio::test]
     async fn test_screen_capture_invalid_extension() {
         let tool = ScreenCaptureTool::new();
-        let result = tool.execute(serde_json::json!({"path": "/tmp/test.txt"})).await;
+        let result = tool
+            .execute(serde_json::json!({"path": "/tmp/test.txt"}))
+            .await;
         assert!(result.is_err());
     }
 
@@ -1019,8 +1172,12 @@ mod tests {
         assert_eq!(tool.name(), "music_control");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"action".to_string()));
     }
 
@@ -1040,8 +1197,12 @@ mod tests {
         assert_eq!(tool.name(), "search_contacts");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"query".to_string()));
     }
 

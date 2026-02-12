@@ -1,13 +1,13 @@
 //! Main agent loop - the brain of meepo
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use std::sync::Arc;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 use crate::api::ApiClient;
+use crate::context::build_system_prompt;
 use crate::tools::{ToolExecutor, ToolRegistry};
 use crate::types::{IncomingMessage, MessageKind, OutgoingMessage};
-use crate::context::build_system_prompt;
 
 use meepo_knowledge::KnowledgeDb;
 
@@ -49,12 +49,10 @@ impl Agent {
         );
 
         // Store the incoming message in conversation history
-        self.db.insert_conversation(
-            &msg.channel.to_string(),
-            &msg.sender,
-            &msg.content,
-            None,
-        ).await.context("Failed to store conversation")?;
+        self.db
+            .insert_conversation(&msg.channel.to_string(), &msg.sender, &msg.content, None)
+            .await
+            .context("Failed to store conversation")?;
 
         // Load relevant context from knowledge graph
         let context = self.load_context(&msg).await?;
@@ -65,23 +63,28 @@ impl Agent {
         // Get tool definitions
         let tool_definitions = self.tools.list_tools();
 
-        debug!("Using {} tools for this interaction", tool_definitions.len());
+        debug!(
+            "Using {} tools for this interaction",
+            tool_definitions.len()
+        );
 
         // Run the tool loop to get final response
-        let response_text = self.api.run_tool_loop(
-            &msg.content,
-            &system_prompt,
-            &tool_definitions,
-            self.tools.as_ref(),
-        ).await.context("Failed to run agent tool loop")?;
+        let response_text = self
+            .api
+            .run_tool_loop(
+                &msg.content,
+                &system_prompt,
+                &tool_definitions,
+                self.tools.as_ref(),
+            )
+            .await
+            .context("Failed to run agent tool loop")?;
 
         // Store the response in conversation history
-        self.db.insert_conversation(
-            &msg.channel.to_string(),
-            "meepo",
-            &response_text,
-            None,
-        ).await.context("Failed to store response")?;
+        self.db
+            .insert_conversation(&msg.channel.to_string(), "meepo", &response_text, None)
+            .await
+            .context("Failed to store response")?;
 
         info!("Generated response ({} chars)", response_text.len());
 
@@ -103,10 +106,11 @@ impl Agent {
         let mut truncated = false;
 
         // Add recent conversation history from this channel
-        let recent = self.db.get_recent_conversations(
-            Some(&msg.channel.to_string()),
-            10,
-        ).await.context("Failed to load recent conversations")?;
+        let recent = self
+            .db
+            .get_recent_conversations(Some(&msg.channel.to_string()), 10)
+            .await
+            .context("Failed to load recent conversations")?;
 
         if !recent.is_empty() {
             context.push_str("## Recent Conversation\n\n");
@@ -117,13 +121,14 @@ impl Agent {
                     break;
                 }
             }
-            context.push_str("\n");
+            context.push('\n');
         }
 
         // Search for relevant entities mentioned in the message
         // Simple keyword extraction - split on whitespace and search each word
         if !truncated {
-            let keywords: Vec<&str> = msg.content
+            let keywords: Vec<&str> = msg
+                .content
                 .split_whitespace()
                 .filter(|word| word.len() > 3)
                 .take(5)
@@ -141,10 +146,8 @@ impl Agent {
 
                     if let Ok(entities) = self.db.search_entities(keyword, None).await {
                         for entity in entities.iter().take(3) {
-                            context.push_str(&format!(
-                                "- {} ({})",
-                                entity.name, entity.entity_type
-                            ));
+                            context
+                                .push_str(&format!("- {} ({})", entity.name, entity.entity_type));
                             if let Some(metadata) = &entity.metadata {
                                 context.push_str(&format!(": {}", metadata));
                             }
@@ -157,17 +160,16 @@ impl Agent {
         }
 
         // Add metadata about the sender if available
-        if !truncated {
-            if let Ok(sender_entities) = self.db.search_entities(&msg.sender, Some("person")).await {
-                if let Some(sender_info) = sender_entities.first() {
-                    context.push_str("## About the Sender\n\n");
-                    context.push_str(&format!("Name: {}\n", sender_info.name));
-                    if let Some(metadata) = &sender_info.metadata {
-                        context.push_str(&format!("Info: {}\n", metadata));
-                    }
-                    context.push('\n');
-                }
+        if !truncated
+            && let Ok(sender_entities) = self.db.search_entities(&msg.sender, Some("person")).await
+            && let Some(sender_info) = sender_entities.first()
+        {
+            context.push_str("## About the Sender\n\n");
+            context.push_str(&format!("Name: {}\n", sender_info.name));
+            if let Some(metadata) = &sender_info.metadata {
+                context.push_str(&format!("Info: {}\n", metadata));
             }
+            context.push('\n');
         }
 
         // Final truncation guard: hard-cap the string if it still exceeds the limit
@@ -209,8 +211,8 @@ mod tests {
     use super::*;
     use crate::tools::ToolRegistry;
     use crate::types::ChannelType;
-    use tempfile::TempDir;
     use chrono::Utc;
+    use tempfile::TempDir;
 
     fn create_test_agent() -> (Agent, TempDir) {
         let temp_dir = TempDir::new().unwrap();

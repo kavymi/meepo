@@ -9,9 +9,9 @@
 pub mod parser;
 pub mod skill_tool;
 
+use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
-use anyhow::Result;
 use tracing::{info, warn};
 
 use crate::tools::ToolHandler;
@@ -26,7 +26,10 @@ pub fn load_skills(dir: &Path) -> Result<Vec<Arc<dyn ToolHandler>>> {
     let mut tools: Vec<Arc<dyn ToolHandler>> = Vec::new();
 
     if !dir.exists() {
-        info!("Skills directory does not exist: {} — skipping", dir.display());
+        info!(
+            "Skills directory does not exist: {} — skipping",
+            dir.display()
+        );
         return Ok(tools);
     }
 
@@ -47,7 +50,11 @@ pub fn load_skills(dir: &Path) -> Result<Vec<Arc<dyn ToolHandler>>> {
 
         match load_single_skill(&skill_file) {
             Ok(tool) => {
-                info!("Loaded skill: {} from {}", tool.name(), skill_file.display());
+                info!(
+                    "Loaded skill: {} from {}",
+                    tool.name(),
+                    skill_file.display()
+                );
                 tools.push(tool);
             }
             Err(e) => {
@@ -89,7 +96,8 @@ mod tests {
         fs::write(
             skill_dir.join("SKILL.md"),
             "---\nname: my_skill\ndescription: A test skill\n---\nDo the thing.\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create a non-skill directory (no SKILL.md)
         let other_dir = dir.path().join("not_a_skill");
@@ -111,7 +119,8 @@ mod tests {
         fs::write(
             good.join("SKILL.md"),
             "---\nname: good_skill\ndescription: Works\n---\nDo it.\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create an invalid skill
         let bad = dir.path().join("bad");

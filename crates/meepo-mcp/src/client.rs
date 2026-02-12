@@ -1,16 +1,16 @@
 //! MCP client — connects to external MCP servers and discovers tools
 
-use std::sync::Arc;
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Context, Result, anyhow};
+use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Command, Child};
+use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tracing::{debug, info};
-use async_trait::async_trait;
 
-use meepo_core::tools::ToolHandler;
 use crate::protocol::McpTool;
+use meepo_core::tools::ToolHandler;
 
 /// Configuration for an external MCP server
 #[derive(Debug, Clone)]
@@ -33,7 +33,10 @@ pub struct McpClient {
 impl McpClient {
     /// Spawn and connect to an external MCP server
     pub async fn connect(config: McpClientConfig) -> Result<Arc<Self>> {
-        info!("Connecting to MCP server: {} ({})", config.name, config.command);
+        info!(
+            "Connecting to MCP server: {} ({})",
+            config.name, config.command
+        );
 
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args)
@@ -45,12 +48,17 @@ impl McpClient {
             cmd.env(key, value);
         }
 
-        let mut child = cmd.spawn()
+        let mut child = cmd
+            .spawn()
             .with_context(|| format!("Failed to spawn MCP server: {}", config.command))?;
 
-        let stdin = child.stdin.take()
+        let stdin = child
+            .stdin
+            .take()
             .ok_or_else(|| anyhow!("Failed to capture MCP server stdin"))?;
-        let stdout = child.stdout.take()
+        let stdout = child
+            .stdout
+            .take()
             .ok_or_else(|| anyhow!("Failed to capture MCP server stdout"))?;
 
         let client = Arc::new(Self {
@@ -69,19 +77,25 @@ impl McpClient {
 
     /// Send initialize handshake
     async fn initialize(&self) -> Result<()> {
-        let result = self.send_request("initialize", serde_json::json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "meepo",
-                "version": env!("CARGO_PKG_VERSION")
-            }
-        })).await?;
+        let result = self
+            .send_request(
+                "initialize",
+                serde_json::json!({
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "meepo",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
+                }),
+            )
+            .await?;
 
         debug!("MCP initialize response: {:?}", result);
 
         // Send initialized notification
-        self.send_notification("notifications/initialized", None).await?;
+        self.send_notification("notifications/initialized", None)
+            .await?;
 
         info!("MCP client connected to {}", self.config.name);
         Ok(())
@@ -89,13 +103,23 @@ impl McpClient {
 
     /// Discover tools from the MCP server
     pub async fn discover_tools(self: &Arc<Self>) -> Result<Vec<Arc<dyn ToolHandler>>> {
-        let result = self.send_request("tools/list", serde_json::json!({})).await?;
+        let result = self
+            .send_request("tools/list", serde_json::json!({}))
+            .await?;
 
         let tools: Vec<McpTool> = serde_json::from_value(
-            result.get("tools").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            result
+                .get("tools")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
 
-        info!("Discovered {} tools from MCP server {}", tools.len(), self.config.name);
+        info!(
+            "Discovered {} tools from MCP server {}",
+            tools.len(),
+            self.config.name
+        );
 
         let handlers: Vec<Arc<dyn ToolHandler>> = tools
             .into_iter()
@@ -116,14 +140,20 @@ impl McpClient {
 
     /// Call a tool on the MCP server
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<String> {
-        let result = self.send_request("tools/call", serde_json::json!({
-            "name": name,
-            "arguments": arguments,
-        })).await?;
+        let result = self
+            .send_request(
+                "tools/call",
+                serde_json::json!({
+                    "name": name,
+                    "arguments": arguments,
+                }),
+            )
+            .await?;
 
         // Extract text from content array
         if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-            let texts: Vec<&str> = content.iter()
+            let texts: Vec<&str> = content
+                .iter()
                 .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
                 .collect();
             Ok(texts.join("\n"))
@@ -162,14 +192,16 @@ impl McpClient {
         }
 
         // Read response (skip notifications)
-        let response = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            self.read_response(id),
-        ).await
-        .map_err(|_| anyhow!("MCP request timed out after 30s"))??;
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(30), self.read_response(id))
+                .await
+                .map_err(|_| anyhow!("MCP request timed out after 30s"))??;
 
         if let Some(error) = response.get("error") {
-            let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            let msg = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
             return Err(anyhow!("MCP error: {}", msg));
         }
 
@@ -179,7 +211,8 @@ impl McpClient {
     /// Read until we get a response matching the given id
     async fn read_response(&self, expected_id: u64) -> Result<Value> {
         let mut reader_guard = self.reader.lock().await;
-        let reader = reader_guard.as_mut()
+        let reader = reader_guard
+            .as_mut()
             .ok_or_else(|| anyhow!("MCP server stdout not available"))?;
 
         loop {
@@ -194,14 +227,18 @@ impl McpClient {
                 continue;
             }
 
-            let msg: Value = serde_json::from_str(line)
-                .with_context(|| format!("Invalid JSON from MCP server: {}", &line[..line.len().min(100)]))?;
+            let msg: Value = serde_json::from_str(line).with_context(|| {
+                format!(
+                    "Invalid JSON from MCP server: {}",
+                    &line[..line.len().min(100)]
+                )
+            })?;
 
             // Check if this is our response (has matching id)
-            if let Some(id) = msg.get("id").and_then(|i| i.as_u64()) {
-                if id == expected_id {
-                    return Ok(msg);
-                }
+            if let Some(id) = msg.get("id").and_then(|i| i.as_u64())
+                && id == expected_id
+            {
+                return Ok(msg);
             }
 
             // Otherwise it's a notification — log and continue
@@ -231,7 +268,9 @@ impl McpClient {
     /// Shutdown the MCP server process
     pub async fn shutdown(&self) {
         // Try graceful shutdown first
-        let _ = self.send_notification("notifications/cancelled", None).await;
+        let _ = self
+            .send_notification("notifications/cancelled", None)
+            .await;
 
         let mut child_guard = self.child.lock().await;
         if let Some(ref mut child) = *child_guard {
@@ -243,10 +282,10 @@ impl McpClient {
 impl Drop for McpClient {
     fn drop(&mut self) {
         // Best-effort cleanup — can't await in drop
-        if let Ok(mut guard) = self.child.try_lock() {
-            if let Some(ref mut child) = *guard {
-                let _ = child.start_kill();
-            }
+        if let Ok(mut guard) = self.child.try_lock()
+            && let Some(ref mut child) = *guard
+        {
+            let _ = child.start_kill();
         }
     }
 }
@@ -275,7 +314,10 @@ impl ToolHandler for DynamicMcpTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        debug!("Executing MCP tool {} (remote: {})", self.name, self.remote_name);
+        debug!(
+            "Executing MCP tool {} (remote: {})",
+            self.name, self.remote_name
+        );
         self.client.call_tool(&self.remote_name, input).await
     }
 }

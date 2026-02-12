@@ -16,7 +16,7 @@
 //! Instructions for the agent...
 //! ```
 
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -67,21 +67,26 @@ pub fn parse_skill(content: &str) -> Result<SkillDefinition> {
 
     // Find closing ---
     let rest = &content[3..];
-    let end = rest.find("\n---")
+    let end = rest
+        .find("\n---")
         .ok_or_else(|| anyhow!("Missing closing --- in YAML frontmatter"))?;
 
     let yaml_str = &rest[..end];
     let instructions = rest[end + 4..].trim().to_string();
 
     let frontmatter: SkillFrontmatter = serde_yml::from_str(yaml_str)
-        .with_context(|| format!("Failed to parse YAML frontmatter"))?;
+        .with_context(|| "Failed to parse YAML frontmatter".to_string())?;
 
     if frontmatter.name.is_empty() {
         return Err(anyhow!("Skill name cannot be empty"));
     }
 
     // Validate name is a valid identifier
-    if !frontmatter.name.chars().all(|c: char| c.is_alphanumeric() || c == '_' || c == '-') {
+    if !frontmatter
+        .name
+        .chars()
+        .all(|c: char| c.is_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(anyhow!("Skill name must be alphanumeric (with _ or -)"));
     }
 
@@ -184,6 +189,9 @@ Search for the query.
         assert_eq!(skill.inputs.len(), 2);
         assert!(skill.inputs["query"].required);
         assert!(!skill.inputs["limit"].required);
-        assert_eq!(skill.inputs["query"].description.as_deref(), Some("The search query"));
+        assert_eq!(
+            skill.inputs["query"].description.as_deref(),
+            Some("The search query")
+        );
     }
 }

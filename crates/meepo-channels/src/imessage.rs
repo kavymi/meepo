@@ -2,20 +2,20 @@
 
 use crate::bus::MessageChannel;
 use crate::rate_limit::RateLimiter;
-use meepo_core::types::{IncomingMessage, MessageKind, OutgoingMessage, ChannelType};
-use tokio::sync::mpsc;
-use async_trait::async_trait;
 use anyhow::{Result, anyhow};
-use std::path::PathBuf;
-use std::time::Duration;
-use rusqlite::{Connection, params};
-use tracing::{info, error, debug, warn};
+use async_trait::async_trait;
 use chrono::Utc;
-use tokio::process::Command;
-use std::sync::Arc;
-use std::num::NonZeroUsize;
-use tokio::sync::{Mutex, RwLock};
 use lru::LruCache;
+use meepo_core::types::{ChannelType, IncomingMessage, MessageKind, OutgoingMessage};
+use rusqlite::{Connection, params};
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::process::Command;
+use tokio::sync::mpsc;
+use tokio::sync::{Mutex, RwLock};
+use tracing::{debug, error, info, warn};
 
 const MAX_MESSAGE_SENDERS: usize = 1000;
 const MAX_MESSAGE_SIZE: usize = 10_240;
@@ -66,7 +66,8 @@ impl IMessageChannel {
 
     /// Normalize phone number for comparison (remove +, -, spaces, etc.)
     fn normalize_contact(contact: &str) -> String {
-        contact.chars()
+        contact
+            .chars()
             .filter(|c| c.is_alphanumeric() || *c == '@')
             .collect::<String>()
             .to_lowercase()
@@ -75,9 +76,9 @@ impl IMessageChannel {
     /// Check if a contact is in the allowed list
     fn is_allowed_contact(&self, contact: &str) -> bool {
         let normalized = Self::normalize_contact(contact);
-        self.allowed_contacts.iter().any(|allowed| {
-            Self::normalize_contact(allowed) == normalized
-        })
+        self.allowed_contacts
+            .iter()
+            .any(|allowed| Self::normalize_contact(allowed) == normalized)
     }
 
     /// Poll the iMessage database for new messages
@@ -87,10 +88,8 @@ impl IMessageChannel {
         // because: (1) Messages.app may lock the database, so a stale connection could fail,
         // (2) SQLite read-only connections are lightweight (~1ms overhead),
         // (3) This ensures we always have a valid connection without complex error recovery.
-        let conn = Connection::open_with_flags(
-            &self.db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
+        let conn =
+            Connection::open_with_flags(&self.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
         // Get or initialize last_rowid
         let mut last_rowid_guard = self.last_rowid.write().await;
@@ -98,11 +97,10 @@ impl IMessageChannel {
             rowid
         } else {
             // First run - get the current max ROWID
-            let max_rowid: i64 = conn.query_row(
-                "SELECT COALESCE(MAX(ROWID), 0) FROM message",
-                [],
-                |row| row.get(0),
-            )?;
+            let max_rowid: i64 =
+                conn.query_row("SELECT COALESCE(MAX(ROWID), 0) FROM message", [], |row| {
+                    row.get(0)
+                })?;
             *last_rowid_guard = Some(max_rowid);
             debug!("Initialized last_rowid to {}", max_rowid);
             max_rowid
@@ -173,11 +171,13 @@ impl IMessageChannel {
                 }
 
                 // Parse timestamp (fallback to current time if parsing fails)
-                let timestamp = chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                    .ok()
-                    .and_then(|dt| dt.and_utc().timestamp_millis().try_into().ok())
-                    .and_then(|ts: i64| chrono::DateTime::from_timestamp_millis(ts))
-                    .unwrap_or_else(Utc::now);
+                let timestamp =
+                    chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                        .ok()
+                        .and_then(|dt| {
+                            chrono::DateTime::from_timestamp_millis(dt.and_utc().timestamp_millis())
+                        })
+                        .unwrap_or_else(Utc::now);
 
                 pending_messages.push((rowid, handle, content, timestamp));
             }
@@ -213,7 +213,10 @@ impl IMessageChannel {
         if new_last_rowid > last_rowid {
             let mut last_rowid_guard = self.last_rowid.write().await;
             *last_rowid_guard = Some(new_last_rowid);
-            debug!("Updated last_rowid to {} ({} new messages)", new_last_rowid, message_count);
+            debug!(
+                "Updated last_rowid to {} ({} new messages)",
+                new_last_rowid, message_count
+            );
         }
 
         Ok(())
@@ -268,22 +271,23 @@ end tell"#,
         // Small delay to let the sent message propagate to chat.db
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        if let Ok(conn) = Connection::open_with_flags(
-            &self.db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        ) {
-            if let Ok(max_rowid) = conn.query_row::<i64, _, _>(
+        if let Ok(conn) =
+            Connection::open_with_flags(&self.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            && let Ok(max_rowid) = conn.query_row::<i64, _, _>(
                 "SELECT COALESCE(MAX(ROWID), 0) FROM message",
                 [],
                 |row| row.get(0),
-            ) {
-                let mut guard = self.last_rowid.write().await;
-                if let Some(current) = *guard {
-                    if max_rowid > current {
-                        debug!("Bumping last_rowid from {} to {} after ack send", current, max_rowid);
-                        *guard = Some(max_rowid);
-                    }
-                }
+            )
+        {
+            let mut guard = self.last_rowid.write().await;
+            if let Some(current) = *guard
+                && max_rowid > current
+            {
+                debug!(
+                    "Bumping last_rowid from {} to {} after ack send",
+                    current, max_rowid
+                );
+                *guard = Some(max_rowid);
             }
         }
     }
@@ -301,10 +305,7 @@ impl MessageChannel for IMessageChannel {
         }
 
         // Verify we can open the database
-        Connection::open_with_flags(
-            &self.db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
+        Connection::open_with_flags(&self.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
         // Clone necessary data for the polling task
         let poll_interval = self.poll_interval;
@@ -351,7 +352,10 @@ impl MessageChannel for IMessageChannel {
                 debug!("Found recipient from reply_to: {}", sender);
                 sender.clone()
             } else {
-                warn!("reply_to '{}' not found in message tracking, falling back to first allowed contact", reply_to);
+                warn!(
+                    "reply_to '{}' not found in message tracking, falling back to first allowed contact",
+                    reply_to
+                );
                 if self.allowed_contacts.is_empty() {
                     return Err(anyhow!("No allowed contacts configured for iMessage"));
                 }
@@ -424,11 +428,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_sender_lru_eviction() {
-        let channel = IMessageChannel::new(
-            Duration::from_secs(3),
-            vec![],
-            None,
-        );
+        let channel = IMessageChannel::new(Duration::from_secs(3), vec![], None);
 
         // Fill the LRU cache beyond capacity
         {
@@ -442,7 +442,10 @@ mod tests {
             assert!(lru.peek("msg_0").is_none());
             assert!(lru.peek("msg_9").is_none());
             // Newest entries should still be present
-            assert!(lru.peek(&format!("msg_{}", MAX_MESSAGE_SENDERS + 9)).is_some());
+            assert!(
+                lru.peek(&format!("msg_{}", MAX_MESSAGE_SENDERS + 9))
+                    .is_some()
+            );
         }
     }
 
@@ -469,11 +472,7 @@ mod tests {
 
     #[test]
     fn test_is_allowed_empty_list() {
-        let channel = IMessageChannel::new(
-            Duration::from_secs(3),
-            vec![],
-            None,
-        );
+        let channel = IMessageChannel::new(Duration::from_secs(3), vec![], None);
         assert!(!channel.is_allowed_contact("anyone"));
     }
 
@@ -491,11 +490,7 @@ mod tests {
 
     #[test]
     fn test_channel_type() {
-        let channel = IMessageChannel::new(
-            Duration::from_secs(3),
-            vec![],
-            None,
-        );
+        let channel = IMessageChannel::new(Duration::from_secs(3), vec![], None);
         assert!(matches!(channel.channel_type(), ChannelType::IMessage));
     }
 }

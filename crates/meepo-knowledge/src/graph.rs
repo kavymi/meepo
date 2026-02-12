@@ -50,25 +50,21 @@ impl KnowledgeGraph {
         debug!("Adding entity: {} ({})", name, entity_type);
 
         // Insert into SQLite
-        let id = self.db.insert_entity(name, entity_type, metadata.clone()).await?;
+        let id = self
+            .db
+            .insert_entity(name, entity_type, metadata.clone())
+            .await?;
 
         // Index in Tantivy
         let content = format!(
             "{} {} {}",
             name,
             entity_type,
-            metadata
-                .as_ref()
-                .map(|m| m.to_string())
-                .unwrap_or_default()
+            metadata.as_ref().map(|m| m.to_string()).unwrap_or_default()
         );
 
-        self.index.index_document(
-            &id,
-            &content,
-            entity_type,
-            &chrono::Utc::now().to_rfc3339(),
-        )?;
+        self.index
+            .index_document(&id, &content, entity_type, &chrono::Utc::now().to_rfc3339())?;
 
         info!("Added entity: {} with ID {}", name, id);
         Ok(id)
@@ -177,12 +173,14 @@ impl KnowledgeGraph {
 
         // Also store as conversation if channel provided
         if let Some(ch) = channel {
-            self.db.insert_conversation(
-                ch,
-                "system",
-                content,
-                Some(serde_json::json!({"entity_id": entity_id})),
-            ).await?;
+            self.db
+                .insert_conversation(
+                    ch,
+                    "system",
+                    content,
+                    Some(serde_json::json!({"entity_id": entity_id})),
+                )
+                .await?;
         }
 
         info!("Remembered content as entity {}", entity_id);
@@ -214,7 +212,11 @@ impl KnowledgeGraph {
     }
 
     /// Search entities in database
-    pub async fn search_entities(&self, query: &str, entity_type: Option<&str>) -> Result<Vec<Entity>> {
+    pub async fn search_entities(
+        &self,
+        query: &str,
+        entity_type: Option<&str>,
+    ) -> Result<Vec<Entity>> {
         self.db.search_entities(query, entity_type).await
     }
 
@@ -231,11 +233,17 @@ impl KnowledgeGraph {
         content: &str,
         metadata: Option<JsonValue>,
     ) -> Result<String> {
-        self.db.insert_conversation(channel, sender, content, metadata).await
+        self.db
+            .insert_conversation(channel, sender, content, metadata)
+            .await
     }
 
     /// Get recent conversations
-    pub async fn get_conversations(&self, channel: Option<&str>, limit: usize) -> Result<Vec<crate::sqlite::Conversation>> {
+    pub async fn get_conversations(
+        &self,
+        channel: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<crate::sqlite::Conversation>> {
         self.db.get_recent_conversations(channel, limit).await
     }
 
@@ -247,7 +255,9 @@ impl KnowledgeGraph {
         action: &str,
         reply_channel: &str,
     ) -> Result<String> {
-        self.db.insert_watcher(kind, config, action, reply_channel).await
+        self.db
+            .insert_watcher(kind, config, action, reply_channel)
+            .await
     }
 
     /// Get active watchers
@@ -308,11 +318,13 @@ mod tests {
         let graph = KnowledgeGraph::new(&db_path, &index_path)?;
 
         // Add entity
-        let id = graph.add_entity(
-            "Rust programming language",
-            "concept",
-            Some(serde_json::json!({"description": "Systems programming language"})),
-        ).await?;
+        let id = graph
+            .add_entity(
+                "Rust programming language",
+                "concept",
+                Some(serde_json::json!({"description": "Systems programming language"})),
+            )
+            .await?;
 
         // Search
         let results = graph.search("Rust", 10)?;
@@ -337,10 +349,14 @@ mod tests {
 
         // Add entities
         let rust_id = graph.add_entity("Rust", "language", None).await?;
-        let systems_id = graph.add_entity("Systems Programming", "domain", None).await?;
+        let systems_id = graph
+            .add_entity("Systems Programming", "domain", None)
+            .await?;
 
         // Link them
-        let rel_id = graph.link_entities(&rust_id, &systems_id, "used_for", None).await?;
+        let rel_id = graph
+            .link_entities(&rust_id, &systems_id, "used_for", None)
+            .await?;
         assert!(!rel_id.is_empty());
 
         // Get context
@@ -366,11 +382,13 @@ mod tests {
         let graph = KnowledgeGraph::new(&db_path, &index_path)?;
 
         // Remember something
-        let id = graph.remember(
-            "Rust is a systems programming language focused on safety and performance",
-            "fact",
-            Some("test_channel"),
-        ).await?;
+        let id = graph
+            .remember(
+                "Rust is a systems programming language focused on safety and performance",
+                "fact",
+                Some("test_channel"),
+            )
+            .await?;
         assert!(!id.is_empty());
 
         // Recall it
@@ -395,7 +413,9 @@ mod tests {
 
         // Create watcher
         let config = serde_json::json!({"path": "/test/path", "pattern": "*.rs"});
-        let watcher_id = graph.create_watcher("file", config, "notify", "test_channel").await?;
+        let watcher_id = graph
+            .create_watcher("file", config, "notify", "test_channel")
+            .await?;
         assert!(!watcher_id.is_empty());
 
         // Get active watchers

@@ -1,14 +1,14 @@
 //! Watcher management tools
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::{Result, Context};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use meepo_knowledge::KnowledgeDb;
 use super::{ToolHandler, json_schema};
+use meepo_knowledge::KnowledgeDb;
 
 /// Commands to send to the watcher scheduler
 #[derive(Debug, Clone)]
@@ -74,39 +74,50 @@ impl ToolHandler for CreateWatcherTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let kind = input.get("kind")
+        let kind = input
+            .get("kind")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'kind' parameter"))?;
-        let config = input.get("config")
+        let config = input
+            .get("config")
             .ok_or_else(|| anyhow::anyhow!("Missing 'config' parameter"))?
             .clone();
-        let action = input.get("action")
+        let action = input
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
-        let reply_channel = input.get("reply_channel")
+        let reply_channel = input
+            .get("reply_channel")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'reply_channel' parameter"))?;
 
         if action.len() > 10_000 {
-            return Err(anyhow::anyhow!("Action description too long ({} chars, max 10,000)", action.len()));
+            return Err(anyhow::anyhow!(
+                "Action description too long ({} chars, max 10,000)",
+                action.len()
+            ));
         }
 
         debug!("Creating watcher: {} -> {}", kind, action);
 
         // Store in database
-        let watcher_id = self.db.insert_watcher(kind, config.clone(), action, reply_channel).await
+        let watcher_id = self
+            .db
+            .insert_watcher(kind, config.clone(), action, reply_channel)
+            .await
             .context("Failed to create watcher in database")?;
 
         // Send command to scheduler (include ID so the runner uses the same one)
-        self.command_tx.send(WatcherCommand::Create {
-            id: watcher_id.clone(),
-            kind: kind.to_string(),
-            config,
-            action: action.to_string(),
-            reply_channel: reply_channel.to_string(),
-        })
-        .await
-        .context("Failed to send command to scheduler")?;
+        self.command_tx
+            .send(WatcherCommand::Create {
+                id: watcher_id.clone(),
+                kind: kind.to_string(),
+                config,
+                action: action.to_string(),
+                reply_channel: reply_channel.to_string(),
+            })
+            .await
+            .context("Failed to send command to scheduler")?;
 
         Ok(format!("Created watcher with ID: {}", watcher_id))
     }
@@ -140,7 +151,10 @@ impl ToolHandler for ListWatchersTool {
     async fn execute(&self, _input: Value) -> Result<String> {
         debug!("Listing active watchers");
 
-        let watchers = self.db.get_active_watchers().await
+        let watchers = self
+            .db
+            .get_active_watchers()
+            .await
             .context("Failed to get active watchers")?;
 
         if watchers.is_empty() {
@@ -196,26 +210,30 @@ impl ToolHandler for CancelWatcherTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let watcher_id = input.get("watcher_id")
+        let watcher_id = input
+            .get("watcher_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'watcher_id' parameter"))?;
 
         debug!("Canceling watcher: {}", watcher_id);
 
         // Deactivate in database
-        self.db.update_watcher_active(watcher_id, false).await
+        self.db
+            .update_watcher_active(watcher_id, false)
+            .await
             .context("Failed to deactivate watcher")?;
 
         // Send cancel command to scheduler
-        self.command_tx.send(WatcherCommand::Cancel {
-            id: watcher_id.to_string(),
-        })
-        .await
-        .map_err(|e| {
-            warn!("Failed to send cancel command: {}", e);
-            e
-        })
-        .ok(); // Don't fail if scheduler is down
+        self.command_tx
+            .send(WatcherCommand::Cancel {
+                id: watcher_id.to_string(),
+            })
+            .await
+            .map_err(|e| {
+                warn!("Failed to send cancel command: {}", e);
+                e
+            })
+            .ok(); // Don't fail if scheduler is down
 
         Ok(format!("Canceled watcher: {}", watcher_id))
     }
@@ -227,7 +245,12 @@ mod tests {
     use crate::tools::ToolHandler;
     use tempfile::TempDir;
 
-    fn setup() -> (Arc<meepo_knowledge::KnowledgeDb>, mpsc::Sender<WatcherCommand>, mpsc::Receiver<WatcherCommand>, TempDir) {
+    fn setup() -> (
+        Arc<meepo_knowledge::KnowledgeDb>,
+        mpsc::Sender<WatcherCommand>,
+        mpsc::Receiver<WatcherCommand>,
+        TempDir,
+    ) {
         let temp = TempDir::new().unwrap();
         let db = Arc::new(meepo_knowledge::KnowledgeDb::new(&temp.path().join("test.db")).unwrap());
         let (tx, rx) = mpsc::channel(100);
@@ -263,7 +286,12 @@ mod tests {
         let (db, _tx, _rx, _temp) = setup();
         let tool = ListWatchersTool::new(db);
         let result = tool.execute(serde_json::json!({})).await.unwrap();
-        assert!(result.contains("No") || result.contains("no") || result.contains("0") || result.is_empty());
+        assert!(
+            result.contains("No")
+                || result.contains("no")
+                || result.contains("0")
+                || result.is_empty()
+        );
     }
 
     #[tokio::test]
@@ -272,13 +300,18 @@ mod tests {
         let create = CreateWatcherTool::new(db.clone(), tx);
         let list = ListWatchersTool::new(db);
 
-        let result = create.execute(serde_json::json!({
-            "kind": "scheduled",
-            "config": {"cron_expr": "0 * * * *", "task": "test task"},
-            "action": "Run a test",
-            "reply_channel": "internal"
-        })).await.unwrap();
-        assert!(result.contains("Created") || result.contains("created") || result.contains("watcher"));
+        let result = create
+            .execute(serde_json::json!({
+                "kind": "scheduled",
+                "config": {"cron_expr": "0 * * * *", "task": "test task"},
+                "action": "Run a test",
+                "reply_channel": "internal"
+            }))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("Created") || result.contains("created") || result.contains("watcher")
+        );
 
         let result = list.execute(serde_json::json!({})).await.unwrap();
         assert!(result.contains("test") || result.contains("Run"));

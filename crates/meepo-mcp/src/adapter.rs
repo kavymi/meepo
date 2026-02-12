@@ -1,7 +1,7 @@
 //! Adapter between Meepo's ToolRegistry and MCP protocol
 
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 use tracing::debug;
 
 use meepo_core::tools::{ToolExecutor, ToolRegistry};
@@ -98,7 +98,9 @@ mod tests {
     async fn test_call_denylisted_tool() {
         let registry = Arc::new(ToolRegistry::new());
         let adapter = McpToolAdapter::new(registry);
-        let result = adapter.call_tool("delegate_tasks", serde_json::json!({})).await;
+        let result = adapter
+            .call_tool("delegate_tasks", serde_json::json!({}))
+            .await;
         assert_eq!(result.is_error, Some(true));
         assert!(result.content[0].text.contains("not available"));
     }
@@ -107,7 +109,9 @@ mod tests {
     async fn test_call_unknown_tool() {
         let registry = Arc::new(ToolRegistry::new());
         let adapter = McpToolAdapter::new(registry);
-        let result = adapter.call_tool("nonexistent", serde_json::json!({})).await;
+        let result = adapter
+            .call_tool("nonexistent", serde_json::json!({}))
+            .await;
         assert_eq!(result.is_error, Some(true));
     }
 }

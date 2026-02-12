@@ -2,17 +2,17 @@
 
 use crate::bus::MessageChannel;
 use crate::rate_limit::RateLimiter;
-use meepo_core::types::{ChannelType, IncomingMessage, MessageKind, OutgoingMessage};
-use tokio::sync::mpsc;
-use async_trait::async_trait;
 use anyhow::{Result, anyhow};
-use tracing::{info, error, debug, warn};
+use async_trait::async_trait;
 use chrono::Utc;
+use dashmap::DashMap;
+use meepo_core::types::{ChannelType, IncomingMessage, MessageKind, OutgoingMessage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use dashmap::DashMap;
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
 
 const MAX_MESSAGE_SIZE: usize = 10_240;
 
@@ -66,7 +66,10 @@ impl SlackChannel {
         let body: serde_json::Value = response.json().await?;
 
         if body.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-            let err = body.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let err = body
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             return Err(anyhow!("Slack API error: {}", err));
         }
 
@@ -96,11 +99,15 @@ impl SlackChannel {
         let result: serde_json::Value = response.json().await?;
 
         if result.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-            let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let err = result
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             return Err(anyhow!("Slack chat.postMessage error: {}", err));
         }
 
-        let ts = result.get("ts")
+        let ts = result
+            .get("ts")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -132,7 +139,10 @@ impl SlackChannel {
         let result: serde_json::Value = response.json().await?;
 
         if result.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-            let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let err = result
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             return Err(anyhow!("Slack chat.update error: {}", err));
         }
 
@@ -230,8 +240,7 @@ impl MessageChannel for SlackChannel {
                     &[("types", "im"), ("limit", "100")],
                 )
                 .await
-                {
-                    if let Some(channels) = convos.get("channels").and_then(|v| v.as_array()) {
+                    && let Some(channels) = convos.get("channels").and_then(|v| v.as_array()) {
                         for ch in channels {
                             let ch_id = ch.get("id").and_then(|v| v.as_str()).unwrap_or("");
                             let user = ch.get("user").and_then(|v| v.as_str()).unwrap_or("");
@@ -243,7 +252,6 @@ impl MessageChannel for SlackChannel {
                             }
                         }
                     }
-                }
 
                 // Poll each DM channel for new messages
                 let channel_ids: Vec<String> = channel_map
@@ -375,12 +383,10 @@ impl MessageChannel for SlackChannel {
             .build()?;
 
         // Find the channel to send to
-        let channel_id = if let Some(reply_to) = &msg.reply_to {
-            if let Some(stripped) = reply_to.strip_prefix("slack_") {
-                stripped.split('_').next().unwrap_or("").to_string()
-            } else {
-                String::new()
-            }
+        let channel_id = if let Some(reply_to) = &msg.reply_to
+            && let Some(stripped) = reply_to.strip_prefix("slack_")
+        {
+            stripped.split('_').next().unwrap_or("").to_string()
         } else {
             String::new()
         };
@@ -410,18 +416,26 @@ impl MessageChannel for SlackChannel {
         }
 
         // Normal response: check if there's a pending ack to update
-        if let Some(reply_to) = &msg.reply_to {
-            if let Some((_, (ack_channel, ack_ts))) = self.pending_acks.remove(reply_to) {
-                debug!("Updating Slack acknowledgment message with response");
-                match Self::update_message(&client, &self.bot_token, &ack_channel, &ack_ts, &msg.content).await {
-                    Ok(()) => {
-                        info!("Slack message updated successfully (replaced Thinking...)");
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        warn!("Failed to update Slack message, posting new one: {}", e);
-                        // Fall through to post as new message
-                    }
+        if let Some(reply_to) = &msg.reply_to
+            && let Some((_, (ack_channel, ack_ts))) = self.pending_acks.remove(reply_to)
+        {
+            debug!("Updating Slack acknowledgment message with response");
+            match Self::update_message(
+                &client,
+                &self.bot_token,
+                &ack_channel,
+                &ack_ts,
+                &msg.content,
+            )
+            .await
+            {
+                Ok(()) => {
+                    info!("Slack message updated successfully (replaced Thinking...)");
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!("Failed to update Slack message, posting new one: {}", e);
+                    // Fall through to post as new message
                 }
             }
         }
@@ -442,19 +456,13 @@ mod tests {
 
     #[test]
     fn test_slack_channel_creation() {
-        let channel = SlackChannel::new(
-            "xoxb-test-token".to_string(),
-            Duration::from_secs(3),
-        );
+        let channel = SlackChannel::new("xoxb-test-token".to_string(), Duration::from_secs(3));
         assert!(matches!(channel.channel_type(), ChannelType::Slack));
     }
 
     #[tokio::test]
     async fn test_slack_empty_token() {
-        let channel = SlackChannel::new(
-            String::new(),
-            Duration::from_secs(3),
-        );
+        let channel = SlackChannel::new(String::new(), Duration::from_secs(3));
         let (tx, _rx) = mpsc::channel(10);
         let result = channel.start(tx).await;
         assert!(result.is_err());
@@ -462,10 +470,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_slack_send_no_channels() {
-        let channel = SlackChannel::new(
-            "xoxb-test".to_string(),
-            Duration::from_secs(3),
-        );
+        let channel = SlackChannel::new("xoxb-test".to_string(), Duration::from_secs(3));
         let msg = OutgoingMessage {
             content: "test".to_string(),
             channel: ChannelType::Slack,

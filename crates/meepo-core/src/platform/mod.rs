@@ -16,14 +16,26 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait EmailProvider: Send + Sync {
     async fn read_emails(&self, limit: u64, mailbox: &str, search: Option<&str>) -> Result<String>;
-    async fn send_email(&self, to: &str, subject: &str, body: &str, cc: Option<&str>, in_reply_to: Option<&str>) -> Result<String>;
+    async fn send_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+        cc: Option<&str>,
+        in_reply_to: Option<&str>,
+    ) -> Result<String>;
 }
 
 /// Calendar provider for reading and creating events
 #[async_trait]
 pub trait CalendarProvider: Send + Sync {
     async fn read_events(&self, days_ahead: u64) -> Result<String>;
-    async fn create_event(&self, summary: &str, start_time: &str, duration_minutes: u64) -> Result<String>;
+    async fn create_event(
+        &self,
+        summary: &str,
+        start_time: &str,
+        duration_minutes: u64,
+    ) -> Result<String>;
 }
 
 /// Clipboard provider for reading clipboard contents
@@ -50,7 +62,13 @@ pub trait UiAutomation: Send + Sync {
 #[async_trait]
 pub trait RemindersProvider: Send + Sync {
     async fn list_reminders(&self, list_name: Option<&str>) -> Result<String>;
-    async fn create_reminder(&self, name: &str, list_name: Option<&str>, due_date: Option<&str>, notes: Option<&str>) -> Result<String>;
+    async fn create_reminder(
+        &self,
+        name: &str,
+        list_name: Option<&str>,
+        due_date: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<String>;
 }
 
 /// Notes provider for reading and creating notes
@@ -63,7 +81,12 @@ pub trait NotesProvider: Send + Sync {
 /// Notification provider for sending system notifications
 #[async_trait]
 pub trait NotificationProvider: Send + Sync {
-    async fn send_notification(&self, title: &str, message: &str, sound: Option<&str>) -> Result<String>;
+    async fn send_notification(
+        &self,
+        title: &str,
+        message: &str,
+        sound: Option<&str>,
+    ) -> Result<String>;
 }
 
 /// Screen capture provider
@@ -135,21 +158,33 @@ pub trait BrowserProvider: Send + Sync {
 /// Create platform email provider
 pub fn create_email_provider() -> Box<dyn EmailProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsEmailProvider) }
+    {
+        Box::new(macos::MacOsEmailProvider)
+    }
     #[cfg(target_os = "windows")]
-    { Box::new(windows::WindowsEmailProvider) }
+    {
+        Box::new(windows::WindowsEmailProvider)
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    { panic!("Email provider not available on this platform") }
+    {
+        panic!("Email provider not available on this platform")
+    }
 }
 
 /// Create platform calendar provider
 pub fn create_calendar_provider() -> Box<dyn CalendarProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsCalendarProvider) }
+    {
+        Box::new(macos::MacOsCalendarProvider)
+    }
     #[cfg(target_os = "windows")]
-    { Box::new(windows::WindowsCalendarProvider) }
+    {
+        Box::new(windows::WindowsCalendarProvider)
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    { panic!("Calendar provider not available on this platform") }
+    {
+        panic!("Calendar provider not available on this platform")
+    }
 }
 
 /// Create cross-platform clipboard provider
@@ -165,59 +200,89 @@ pub fn create_app_launcher() -> Box<dyn AppLauncher> {
 /// Create platform UI automation provider
 pub fn create_ui_automation() -> Box<dyn UiAutomation> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsUiAutomation) }
+    {
+        Box::new(macos::MacOsUiAutomation)
+    }
     #[cfg(target_os = "windows")]
-    { Box::new(windows::WindowsUiAutomation) }
+    {
+        Box::new(windows::WindowsUiAutomation)
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    { panic!("UI automation not available on this platform") }
+    {
+        panic!("UI automation not available on this platform")
+    }
 }
 
 /// Create platform reminders provider (macOS only)
 pub fn create_reminders_provider() -> Box<dyn RemindersProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsRemindersProvider) }
+    {
+        Box::new(macos::MacOsRemindersProvider)
+    }
     #[cfg(not(target_os = "macos"))]
-    { panic!("Reminders provider only available on macOS") }
+    {
+        panic!("Reminders provider only available on macOS")
+    }
 }
 
 /// Create platform notes provider (macOS only)
 pub fn create_notes_provider() -> Box<dyn NotesProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsNotesProvider) }
+    {
+        Box::new(macos::MacOsNotesProvider)
+    }
     #[cfg(not(target_os = "macos"))]
-    { panic!("Notes provider only available on macOS") }
+    {
+        panic!("Notes provider only available on macOS")
+    }
 }
 
 /// Create platform notification provider (macOS only)
 pub fn create_notification_provider() -> Box<dyn NotificationProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsNotificationProvider) }
+    {
+        Box::new(macos::MacOsNotificationProvider)
+    }
     #[cfg(not(target_os = "macos"))]
-    { panic!("Notification provider only available on macOS") }
+    {
+        panic!("Notification provider only available on macOS")
+    }
 }
 
 /// Create platform screen capture provider (macOS only)
 pub fn create_screen_capture_provider() -> Box<dyn ScreenCaptureProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsScreenCaptureProvider) }
+    {
+        Box::new(macos::MacOsScreenCaptureProvider)
+    }
     #[cfg(not(target_os = "macos"))]
-    { panic!("Screen capture provider only available on macOS") }
+    {
+        panic!("Screen capture provider only available on macOS")
+    }
 }
 
 /// Create platform music provider (macOS only)
 pub fn create_music_provider() -> Box<dyn MusicProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsMusicProvider) }
+    {
+        Box::new(macos::MacOsMusicProvider)
+    }
     #[cfg(not(target_os = "macos"))]
-    { panic!("Music provider only available on macOS") }
+    {
+        panic!("Music provider only available on macOS")
+    }
 }
 
 /// Create platform contacts provider (macOS only)
 pub fn create_contacts_provider() -> Box<dyn ContactsProvider> {
     #[cfg(target_os = "macos")]
-    { Box::new(macos::MacOsContactsProvider) }
+    {
+        Box::new(macos::MacOsContactsProvider)
+    }
     #[cfg(not(target_os = "macos"))]
-    { panic!("Contacts provider only available on macOS") }
+    {
+        panic!("Contacts provider only available on macOS")
+    }
 }
 
 /// Create Safari browser provider (macOS only)
@@ -230,17 +295,28 @@ pub fn create_browser_provider_for(browser: &str) -> Box<dyn BrowserProvider> {
     match browser.to_lowercase().as_str() {
         "safari" => {
             #[cfg(target_os = "macos")]
-            { Box::new(macos::MacOsSafariBrowser) }
+            {
+                Box::new(macos::MacOsSafariBrowser)
+            }
             #[cfg(not(target_os = "macos"))]
-            { panic!("Safari browser provider only available on macOS") }
+            {
+                panic!("Safari browser provider only available on macOS")
+            }
         }
         "chrome" | "google chrome" => {
             #[cfg(target_os = "macos")]
-            { Box::new(macos::MacOsChromeBrowser) }
+            {
+                Box::new(macos::MacOsChromeBrowser)
+            }
             #[cfg(not(target_os = "macos"))]
-            { panic!("Chrome browser provider only available on macOS") }
+            {
+                panic!("Chrome browser provider only available on macOS")
+            }
         }
-        _ => panic!("Unsupported browser: {}. Supported: safari, chrome", browser),
+        _ => panic!(
+            "Unsupported browser: {}. Supported: safari, chrome",
+            browser
+        ),
     }
 }
 
@@ -253,7 +329,8 @@ impl ClipboardProvider for CrossPlatformClipboard {
         tokio::task::spawn_blocking(|| {
             let mut clipboard = arboard::Clipboard::new()
                 .map_err(|e| anyhow::anyhow!("Failed to access clipboard: {}", e))?;
-            clipboard.get_text()
+            clipboard
+                .get_text()
                 .map_err(|e| anyhow::anyhow!("Failed to read clipboard: {}", e))
         })
         .await?
@@ -281,14 +358,17 @@ impl AppLauncher for CrossPlatformAppLauncher {
                 Ok(format!("Successfully opened {}", name))
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(anyhow::anyhow!("Failed to open {}: {}", name, stderr.trim()))
+                Err(anyhow::anyhow!(
+                    "Failed to open {}: {}",
+                    name,
+                    stderr.trim()
+                ))
             }
         }
         #[cfg(not(target_os = "macos"))]
         {
             tokio::task::spawn_blocking(move || {
-                open::that(&name)
-                    .map_err(|e| anyhow::anyhow!("Failed to open {}: {}", name, e))?;
+                open::that(&name).map_err(|e| anyhow::anyhow!("Failed to open {}: {}", name, e))?;
                 Ok(format!("Successfully opened {}", name))
             })
             .await?

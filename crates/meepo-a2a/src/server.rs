@@ -6,15 +6,15 @@
 //! - GET  /a2a/tasks/:id           — Poll task status
 //! - DELETE /a2a/tasks/:id         — Cancel a task
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::num::NonZeroUsize;
 use anyhow::Result;
 use chrono::Utc;
+use lru::LruCache;
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 use uuid::Uuid;
-use lru::LruCache;
 
 use meepo_core::agent::Agent;
 use meepo_core::tools::ToolRegistry;
@@ -99,7 +99,10 @@ impl A2aServer {
 
                 // Enforce max request body size to prevent OOM (check BEFORE allocation)
                 if content_length > MAX_REQUEST_BODY_SIZE {
-                    warn!("A2A request body too large: {} bytes (max {})", content_length, MAX_REQUEST_BODY_SIZE);
+                    warn!(
+                        "A2A request body too large: {} bytes (max {})",
+                        content_length, MAX_REQUEST_BODY_SIZE
+                    );
                     let resp = "HTTP/1.1 413 Payload Too Large\r\nContent-Type: application/json\r\n\r\n{\"error\":\"request body too large\"}";
                     let _ = writer.write_all(resp.as_bytes()).await;
                     return;
@@ -117,13 +120,16 @@ impl A2aServer {
                 // Check auth (constant-time comparison to prevent timing attacks)
                 if let Some(ref expected_token) = server.auth_token {
                     let auth = headers.get("authorization").cloned().unwrap_or_default();
-                    let is_valid = if auth.starts_with("Bearer ") {
-                        let provided = auth[7..].as_bytes();
+                    let is_valid = if let Some(token) = auth.strip_prefix("Bearer ") {
+                        let provided = token.as_bytes();
                         let expected = expected_token.as_bytes();
                         // Constant-time comparison: always compare all bytes
                         provided.len() == expected.len()
-                            && provided.iter().zip(expected.iter())
-                                .fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+                            && provided
+                                .iter()
+                                .zip(expected.iter())
+                                .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                                == 0
                     } else {
                         false
                     };
@@ -147,9 +153,7 @@ impl A2aServer {
                         let json = serde_json::to_string(&server.card).unwrap();
                         ("200 OK", json)
                     }
-                    ("POST", "/a2a/tasks") => {
-                        server.handle_submit_task(&body).await
-                    }
+                    ("POST", "/a2a/tasks") => server.handle_submit_task(&body).await,
                     ("GET", p) if p.starts_with("/a2a/tasks/") => {
                         let task_id = &p["/a2a/tasks/".len()..];
                         server.handle_get_task(task_id).await
@@ -158,9 +162,7 @@ impl A2aServer {
                         let task_id = &p["/a2a/tasks/".len()..];
                         server.handle_cancel_task(task_id).await
                     }
-                    _ => {
-                        ("404 Not Found", r#"{"error":"not found"}"#.to_string())
-                    }
+                    _ => ("404 Not Found", r#"{"error":"not found"}"#.to_string()),
                 };
 
                 let response = format!(
@@ -178,7 +180,10 @@ impl A2aServer {
         let request: TaskRequest = match serde_json::from_slice(body) {
             Ok(r) => r,
             Err(e) => {
-                return ("400 Bad Request", format!(r#"{{"error":"invalid request: {}"}}"#, e));
+                return (
+                    "400 Bad Request",
+                    format!(r#"{{"error":"invalid request: {}"}}"#, e),
+                );
             }
         };
 
@@ -197,11 +202,17 @@ impl A2aServer {
             let mut tasks = self.tasks.lock().await;
 
             // Rate limit: max 100 concurrent (non-completed) tasks
-            let active_count = tasks.iter()
-                .filter(|(_, t)| t.status == TaskStatus::Submitted || t.status == TaskStatus::Working)
+            let active_count = tasks
+                .iter()
+                .filter(|(_, t)| {
+                    t.status == TaskStatus::Submitted || t.status == TaskStatus::Working
+                })
                 .count();
             if active_count >= 100 {
-                return ("429 Too Many Requests", r#"{"error":"too many concurrent tasks"}"#.to_string());
+                return (
+                    "429 Too Many Requests",
+                    r#"{"error":"too many concurrent tasks"}"#.to_string(),
+                );
             }
 
             tasks.put(task_id.clone(), response.clone());
@@ -260,9 +271,7 @@ impl A2aServer {
                 let json = serde_json::to_string(task).unwrap();
                 ("200 OK", json)
             }
-            None => {
-                ("404 Not Found", r#"{"error":"task not found"}"#.to_string())
-            }
+            None => ("404 Not Found", r#"{"error":"task not found"}"#.to_string()),
         }
     }
 
@@ -275,12 +284,13 @@ impl A2aServer {
                     task.completed_at = Some(Utc::now());
                     ("200 OK", r#"{"status":"cancelled"}"#.to_string())
                 } else {
-                    ("409 Conflict", format!(r#"{{"error":"task already {}"}}"#, task.status))
+                    (
+                        "409 Conflict",
+                        format!(r#"{{"error":"task already {}"}}"#, task.status),
+                    )
                 }
             }
-            None => {
-                ("404 Not Found", r#"{"error":"task not found"}"#.to_string())
-            }
+            None => ("404 Not Found", r#"{"error":"task not found"}"#.to_string()),
         }
     }
 }

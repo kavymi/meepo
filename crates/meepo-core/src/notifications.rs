@@ -13,14 +13,38 @@ use crate::types::{ChannelType, MessageKind, OutgoingMessage};
 /// Which kind of event triggered this notification
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotifyEvent {
-    TaskStarted { task_id: String, description: String },
-    TaskCompleted { task_id: String, description: String, result_preview: String },
-    TaskFailed { task_id: String, description: String, error: String },
-    WatcherTriggered { watcher_id: String, kind: String, payload: String },
-    AutonomousAction { description: String },
-    Error { context: String, error: String },
-    DigestMorning { summary: String },
-    DigestEvening { summary: String },
+    TaskStarted {
+        task_id: String,
+        description: String,
+    },
+    TaskCompleted {
+        task_id: String,
+        description: String,
+        result_preview: String,
+    },
+    TaskFailed {
+        task_id: String,
+        description: String,
+        error: String,
+    },
+    WatcherTriggered {
+        watcher_id: String,
+        kind: String,
+        payload: String,
+    },
+    AutonomousAction {
+        description: String,
+    },
+    Error {
+        context: String,
+        error: String,
+    },
+    DigestMorning {
+        summary: String,
+    },
+    DigestEvening {
+        summary: String,
+    },
 }
 
 /// Configuration for the notification service (mirrors config.toml)
@@ -66,12 +90,16 @@ impl NotificationService {
             info!(
                 "Notification service enabled (channel: {}, quiet_hours: {})",
                 config.channel,
-                config.quiet_hours
+                config
+                    .quiet_hours
                     .map(|(s, e)| format!("{}-{}", s, e))
                     .unwrap_or_else(|| "none".to_string()),
             );
         }
-        Self { config, response_tx }
+        Self {
+            config,
+            response_tx,
+        }
     }
 
     /// Create a no-op notification service (disabled)
@@ -145,28 +173,50 @@ impl NotificationService {
     /// Format a notification event into a user-friendly iMessage
     fn format_message(&self, event: &NotifyEvent) -> String {
         match event {
-            NotifyEvent::TaskStarted { task_id, description } => {
+            NotifyEvent::TaskStarted {
+                task_id,
+                description,
+            } => {
                 format!(
                     "🤖 Starting background task\n[{}] {}",
-                    task_id, truncate(description, 200)
+                    task_id,
+                    truncate(description, 200)
                 )
             }
-            NotifyEvent::TaskCompleted { task_id, description, result_preview } => {
+            NotifyEvent::TaskCompleted {
+                task_id,
+                description,
+                result_preview,
+            } => {
                 format!(
                     "✅ Task completed\n[{}] {}\n\nResult: {}",
-                    task_id, truncate(description, 150), truncate(result_preview, 300)
+                    task_id,
+                    truncate(description, 150),
+                    truncate(result_preview, 300)
                 )
             }
-            NotifyEvent::TaskFailed { task_id, description, error } => {
+            NotifyEvent::TaskFailed {
+                task_id,
+                description,
+                error,
+            } => {
                 format!(
                     "❌ Task failed\n[{}] {}\n\nError: {}",
-                    task_id, truncate(description, 150), truncate(error, 200)
+                    task_id,
+                    truncate(description, 150),
+                    truncate(error, 200)
                 )
             }
-            NotifyEvent::WatcherTriggered { watcher_id, kind, payload } => {
+            NotifyEvent::WatcherTriggered {
+                watcher_id,
+                kind,
+                payload,
+            } => {
                 format!(
                     "👁 Watcher triggered\n[{}] {}\n{}",
-                    watcher_id, kind, truncate(payload, 300)
+                    watcher_id,
+                    kind,
+                    truncate(payload, 300)
                 )
             }
             NotifyEvent::AutonomousAction { description } => {
@@ -178,7 +228,8 @@ impl NotificationService {
             NotifyEvent::Error { context, error } => {
                 format!(
                     "⚠️ Error: {}\n{}",
-                    truncate(context, 100), truncate(error, 300)
+                    truncate(context, 100),
+                    truncate(error, 300)
                 )
             }
             NotifyEvent::DigestMorning { summary } => {
@@ -258,7 +309,8 @@ mod tests {
         svc.notify(NotifyEvent::TaskStarted {
             task_id: "t-1".into(),
             description: "test".into(),
-        }).await;
+        })
+        .await;
 
         // Nothing should be sent
         assert!(rx.try_recv().is_err());
@@ -277,7 +329,8 @@ mod tests {
             task_id: "t-42".into(),
             description: "Build report".into(),
             result_preview: "Report generated".into(),
-        }).await;
+        })
+        .await;
 
         let msg = rx.try_recv().unwrap();
         assert_eq!(msg.channel, ChannelType::IMessage);

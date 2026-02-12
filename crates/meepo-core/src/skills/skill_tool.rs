@@ -4,8 +4,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::tools::ToolHandler;
 use super::parser::SkillDefinition;
+use crate::tools::ToolHandler;
 
 /// A tool handler that wraps an imported skill
 pub struct SkillToolHandler {
@@ -64,10 +64,8 @@ impl ToolHandler for SkillToolHandler {
     async fn execute(&self, input: Value) -> Result<String> {
         // Validate required inputs
         for (name, skill_input) in &self.skill.inputs {
-            if skill_input.required {
-                if input.get(name).is_none() || input.get(name) == Some(&Value::Null) {
-                    return Err(anyhow::anyhow!("Missing required input: {}", name));
-                }
+            if skill_input.required && input.get(name).is_none_or(|v| v.is_null()) {
+                return Err(anyhow::anyhow!("Missing required input: {}", name));
             }
         }
 
@@ -103,16 +101,22 @@ mod tests {
 
     fn make_skill() -> SkillDefinition {
         let mut inputs = HashMap::new();
-        inputs.insert("pr_url".to_string(), SkillInput {
-            input_type: "string".to_string(),
-            required: true,
-            description: Some("URL of the PR".to_string()),
-        });
-        inputs.insert("depth".to_string(), SkillInput {
-            input_type: "string".to_string(),
-            required: false,
-            description: None,
-        });
+        inputs.insert(
+            "pr_url".to_string(),
+            SkillInput {
+                input_type: "string".to_string(),
+                required: true,
+                description: Some("URL of the PR".to_string()),
+            },
+        );
+        inputs.insert(
+            "depth".to_string(),
+            SkillInput {
+                input_type: "string".to_string(),
+                required: false,
+                description: None,
+            },
+        );
 
         SkillDefinition {
             name: "review_pr".to_string(),
@@ -147,9 +151,12 @@ mod tests {
     async fn test_execute_returns_instructions() {
         let skill = make_skill();
         let tool = SkillToolHandler::new(skill);
-        let result = tool.execute(serde_json::json!({
-            "pr_url": "https://github.com/org/repo/pull/123"
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "pr_url": "https://github.com/org/repo/pull/123"
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("Skill: review_pr"));
         assert!(result.contains("Review the PR at the given URL"));

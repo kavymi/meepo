@@ -6,7 +6,7 @@
 use crate::watcher::Watcher;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use tracing::{debug, info, warn};
 
 /// Initialize watcher tables in the database
@@ -73,8 +73,8 @@ pub fn init_watcher_tables(conn: &Connection) -> Result<()> {
 /// If a watcher with the same ID exists, it will be updated.
 /// Otherwise, a new watcher will be inserted.
 pub fn save_watcher(conn: &Connection, watcher: &Watcher) -> Result<()> {
-    let kind_json = serde_json::to_string(&watcher.kind)
-        .context("Failed to serialize watcher kind")?;
+    let kind_json =
+        serde_json::to_string(&watcher.kind).context("Failed to serialize watcher kind")?;
 
     let created_at = watcher.created_at.to_rfc3339();
 
@@ -119,38 +119,36 @@ pub fn get_active_watchers(conn: &Connection) -> Result<Vec<Watcher>> {
             Ok((id, kind_json, action, reply_channel, active, created_at_str))
         })
         .context("Failed to query active watchers")?
-        .filter_map(|result| {
-            match result {
-                Ok((id, kind_json, action, reply_channel, active, created_at_str)) => {
-                    let kind = match serde_json::from_str(&kind_json) {
-                        Ok(k) => k,
-                        Err(e) => {
-                            warn!("Failed to deserialize watcher kind for {}: {}", id, e);
-                            return None;
-                        }
-                    };
+        .filter_map(|result| match result {
+            Ok((id, kind_json, action, reply_channel, active, created_at_str)) => {
+                let kind = match serde_json::from_str(&kind_json) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        warn!("Failed to deserialize watcher kind for {}: {}", id, e);
+                        return None;
+                    }
+                };
 
-                    let created_at = match DateTime::parse_from_rfc3339(&created_at_str) {
-                        Ok(dt) => dt.with_timezone(&Utc),
-                        Err(e) => {
-                            warn!("Failed to parse created_at for {}: {}", id, e);
-                            Utc::now()
-                        }
-                    };
+                let created_at = match DateTime::parse_from_rfc3339(&created_at_str) {
+                    Ok(dt) => dt.with_timezone(&Utc),
+                    Err(e) => {
+                        warn!("Failed to parse created_at for {}: {}", id, e);
+                        Utc::now()
+                    }
+                };
 
-                    Some(Watcher {
-                        id,
-                        kind,
-                        action,
-                        reply_channel,
-                        active: active != 0,
-                        created_at,
-                    })
-                }
-                Err(e) => {
-                    warn!("Failed to read watcher row: {}", e);
-                    None
-                }
+                Some(Watcher {
+                    id,
+                    kind,
+                    action,
+                    reply_channel,
+                    active: active != 0,
+                    created_at,
+                })
+            }
+            Err(e) => {
+                warn!("Failed to read watcher row: {}", e);
+                None
             }
         })
         .collect();
@@ -178,8 +176,8 @@ pub fn get_watcher_by_id(conn: &Connection, id: &str) -> Result<Option<Watcher>>
 
     match result {
         Ok((id, kind_json, action, reply_channel, active, created_at_str)) => {
-            let kind = serde_json::from_str(&kind_json)
-                .context("Failed to deserialize watcher kind")?;
+            let kind =
+                serde_json::from_str(&kind_json).context("Failed to deserialize watcher kind")?;
 
             let created_at = DateTime::parse_from_rfc3339(&created_at_str)
                 .context("Failed to parse created_at")?
@@ -244,8 +242,8 @@ pub fn save_watcher_event(
     kind: &str,
     payload: &serde_json::Value,
 ) -> Result<()> {
-    let payload_json = serde_json::to_string(payload)
-        .context("Failed to serialize event payload")?;
+    let payload_json =
+        serde_json::to_string(payload).context("Failed to serialize event payload")?;
 
     let timestamp = Utc::now().to_rfc3339();
 
@@ -284,31 +282,29 @@ pub fn get_watcher_events(
             Ok((kind, payload_json, timestamp_str))
         })
         .context("Failed to query watcher events")?
-        .filter_map(|result| {
-            match result {
-                Ok((kind, payload_json, timestamp_str)) => {
-                    let payload = match serde_json::from_str(&payload_json) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            warn!("Failed to deserialize event payload: {}", e);
-                            return None;
-                        }
-                    };
+        .filter_map(|result| match result {
+            Ok((kind, payload_json, timestamp_str)) => {
+                let payload = match serde_json::from_str(&payload_json) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        warn!("Failed to deserialize event payload: {}", e);
+                        return None;
+                    }
+                };
 
-                    let timestamp = match DateTime::parse_from_rfc3339(&timestamp_str) {
-                        Ok(dt) => dt.with_timezone(&Utc),
-                        Err(e) => {
-                            warn!("Failed to parse event timestamp: {}", e);
-                            return None;
-                        }
-                    };
+                let timestamp = match DateTime::parse_from_rfc3339(&timestamp_str) {
+                    Ok(dt) => dt.with_timezone(&Utc),
+                    Err(e) => {
+                        warn!("Failed to parse event timestamp: {}", e);
+                        return None;
+                    }
+                };
 
-                    Some((kind, payload, timestamp))
-                }
-                Err(e) => {
-                    warn!("Failed to read event row: {}", e);
-                    None
-                }
+                Some((kind, payload, timestamp))
+            }
+            Err(e) => {
+                warn!("Failed to read event row: {}", e);
+                None
             }
         })
         .collect();

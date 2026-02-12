@@ -6,16 +6,16 @@
 //! - Running watchers as tokio tasks with event emission
 //! - Scheduling one-shot and recurring tasks
 
-pub mod watcher;
 pub mod persistence;
 pub mod runner;
+pub mod watcher;
 
-pub use watcher::{Watcher, WatcherKind, WatcherEvent};
 pub use persistence::{
-    init_watcher_tables, save_watcher, get_active_watchers,
-    deactivate_watcher, delete_watcher, get_watcher_by_id
+    deactivate_watcher, delete_watcher, get_active_watchers, get_watcher_by_id,
+    init_watcher_tables, save_watcher,
 };
-pub use runner::{WatcherRunner, WatcherConfig};
+pub use runner::{WatcherConfig, WatcherRunner};
+pub use watcher::{Watcher, WatcherEvent, WatcherKind};
 
 #[cfg(test)]
 mod tests {

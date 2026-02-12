@@ -12,7 +12,7 @@ members = [
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "A local AI agent that connects Claude to your digital life"
 repository = "https://github.com/kavymi/meepo"

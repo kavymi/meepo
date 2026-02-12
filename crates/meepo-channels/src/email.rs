@@ -2,18 +2,18 @@
 
 use crate::bus::MessageChannel;
 use crate::rate_limit::RateLimiter;
-use meepo_core::types::{IncomingMessage, MessageKind, OutgoingMessage, ChannelType};
-use tokio::sync::mpsc;
-use async_trait::async_trait;
 use anyhow::{Result, anyhow};
-use std::time::Duration;
-use std::num::NonZeroUsize;
-use tracing::{info, error, debug, warn};
+use async_trait::async_trait;
 use chrono::Utc;
-use tokio::process::Command;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use lru::LruCache;
+use meepo_core::types::{ChannelType, IncomingMessage, MessageKind, OutgoingMessage};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::process::Command;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
 
 const MAX_EMAIL_SENDERS: usize = 500;
 
@@ -60,7 +60,8 @@ impl EmailChannel {
     async fn poll_emails(&self, tx: &mpsc::Sender<IncomingMessage>) -> Result<()> {
         let prefix = Self::escape_applescript(&self.subject_prefix);
 
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Mail"
     try
         set output to ""
@@ -88,14 +89,12 @@ tell application "Mail"
         return "ERROR: " & errMsg
     end try
 end tell
-"#);
+"#
+        );
 
         let output = tokio::time::timeout(
             Duration::from_secs(30),
-            Command::new("osascript")
-                .arg("-e")
-                .arg(&script)
-                .output()
+            Command::new("osascript").arg("-e").arg(&script).output(),
         )
         .await
         .map_err(|_| anyhow!("Mail.app polling timed out"))?
@@ -141,7 +140,10 @@ end tell
             }
 
             if id.is_empty() || sender.is_empty() {
-                debug!("Skipping email with missing id='{}' or sender='{}'", id, sender);
+                debug!(
+                    "Skipping email with missing id='{}' or sender='{}'",
+                    id, sender
+                );
                 continue;
             }
 
@@ -168,10 +170,13 @@ end tell
 
             {
                 let mut lru = self.message_senders.lock().await;
-                lru.put(msg_id.clone(), EmailMeta {
-                    sender: sender.clone(),
-                    subject: subject.clone(),
-                });
+                lru.put(
+                    msg_id.clone(),
+                    EmailMeta {
+                        sender: sender.clone(),
+                        subject: subject.clone(),
+                    },
+                );
             }
 
             let incoming = IncomingMessage {
@@ -193,12 +198,18 @@ end tell
     }
 
     /// Reply to an email using Mail.app threading
-    async fn reply_to_email(&self, original_subject: &str, sender: &str, reply_body: &str) -> Result<()> {
+    async fn reply_to_email(
+        &self,
+        original_subject: &str,
+        sender: &str,
+        reply_body: &str,
+    ) -> Result<()> {
         let safe_subject = Self::escape_applescript(original_subject);
         let safe_body = Self::escape_applescript(reply_body);
         let safe_sender = Self::escape_applescript(sender);
 
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Mail"
     try
         set targetMsgs to (every message of inbox whose subject is "{safe_subject}" and sender contains "{safe_sender}")
@@ -220,14 +231,12 @@ tell application "Mail"
         return "Error: " & errMsg
     end try
 end tell
-"#);
+"#
+        );
 
         let output = tokio::time::timeout(
             Duration::from_secs(30),
-            Command::new("osascript")
-                .arg("-e")
-                .arg(&script)
-                .output()
+            Command::new("osascript").arg("-e").arg(&script).output(),
         )
         .await
         .map_err(|_| anyhow!("Email reply timed out"))?
@@ -292,11 +301,14 @@ impl MessageChannel for EmailChannel {
                 // Handle acknowledgment: send auto-reply
                 if msg.kind == MessageKind::Acknowledgment {
                     debug!("Sending email acknowledgment to {}", sender);
-                    if let Err(e) = self.reply_to_email(
-                        &subject,
-                        &sender,
-                        "Your message has been received. Working on a response...",
-                    ).await {
+                    if let Err(e) = self
+                        .reply_to_email(
+                            &subject,
+                            &sender,
+                            "Your message has been received. Working on a response...",
+                        )
+                        .await
+                    {
                         warn!("Failed to send email acknowledgment: {}", e);
                     }
                     return Ok(());
@@ -328,10 +340,7 @@ mod tests {
 
     #[test]
     fn test_email_channel_creation() {
-        let channel = EmailChannel::new(
-            Duration::from_secs(10),
-            "[meepo]".to_string(),
-        );
+        let channel = EmailChannel::new(Duration::from_secs(10), "[meepo]".to_string());
         assert_eq!(channel.channel_type(), ChannelType::Email);
     }
 
@@ -349,17 +358,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_email_meta_tracking() {
-        let channel = EmailChannel::new(
-            Duration::from_secs(10),
-            "[meepo]".to_string(),
-        );
+        let channel = EmailChannel::new(Duration::from_secs(10), "[meepo]".to_string());
 
         {
             let mut lru = channel.message_senders.lock().await;
-            lru.put("email_123".to_string(), EmailMeta {
-                sender: "user@example.com".to_string(),
-                subject: "[meepo] test subject".to_string(),
-            });
+            lru.put(
+                "email_123".to_string(),
+                EmailMeta {
+                    sender: "user@example.com".to_string(),
+                    subject: "[meepo] test subject".to_string(),
+                },
+            );
         }
 
         {
@@ -372,10 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_without_context_fails() {
-        let channel = EmailChannel::new(
-            Duration::from_secs(10),
-            "[meepo]".to_string(),
-        );
+        let channel = EmailChannel::new(Duration::from_secs(10), "[meepo]".to_string());
 
         let msg = OutgoingMessage {
             content: "test reply".to_string(),

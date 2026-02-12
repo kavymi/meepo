@@ -1,11 +1,11 @@
 //! Windows platform implementations using PowerShell and COM automation
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
 use tokio::process::Command;
 use tracing::{debug, warn};
 
-use super::{EmailProvider, CalendarProvider, UiAutomation};
+use super::{CalendarProvider, EmailProvider, UiAutomation};
 
 /// Sanitize a string for safe use in PowerShell
 /// Escapes backticks, dollar signs, double/single quotes, and control characters
@@ -48,7 +48,7 @@ async fn run_powershell(script: &str) -> Result<String> {
         std::time::Duration::from_secs(30),
         Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .output()
+            .output(),
     )
     .await
     .map_err(|_| anyhow::anyhow!("PowerShell execution timed out after 30 seconds"))?
@@ -78,11 +78,15 @@ impl EmailProvider for WindowsEmailProvider {
         };
         let filter_clause = if let Some(term) = search {
             let safe_term = sanitize_powershell_string(term);
-            format!(r#"$items = $items | Where-Object {{ $_.Subject -like "*{}*" -or $_.SenderName -like "*{}*" }}"#, safe_term, safe_term)
+            format!(
+                r#"$items = $items | Where-Object {{ $_.Subject -like "*{}*" -or $_.SenderName -like "*{}*" }}"#,
+                safe_term, safe_term
+            )
         } else {
             String::new()
         };
-        let script = format!(r#"
+        let script = format!(
+            r#"
 try {{
     $outlook = New-Object -ComObject Outlook.Application
     $namespace = $outlook.GetNamespace("MAPI")
@@ -106,18 +110,27 @@ try {{
 }} catch {{
     Write-Error "Error reading emails: $_"
 }}
-"#);
+"#
+        );
         run_powershell(&script).await
     }
 
-    async fn send_email(&self, to: &str, subject: &str, body: &str, cc: Option<&str>, in_reply_to: Option<&str>) -> Result<String> {
+    async fn send_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+        cc: Option<&str>,
+        in_reply_to: Option<&str>,
+    ) -> Result<String> {
         let safe_to = sanitize_powershell_string(to);
         let safe_subject = sanitize_powershell_string(subject);
         let safe_body = sanitize_powershell_string(body);
         let script = if let Some(reply_subject) = in_reply_to {
             let safe_reply = sanitize_powershell_string(reply_subject);
             debug!("Replying to email with subject: {}", reply_subject);
-            format!(r#"
+            format!(
+                r#"
 try {{
     $outlook = New-Object -ComObject Outlook.Application
     $namespace = $outlook.GetNamespace("MAPI")
@@ -140,7 +153,8 @@ try {{
 }} catch {{
     Write-Error "Error sending email: $_"
 }}
-"#)
+"#
+            )
         } else {
             debug!("Sending new email to: {}", to);
             let cc_line = if let Some(cc_addr) = cc {
@@ -149,7 +163,8 @@ try {{
             } else {
                 String::new()
             };
-            format!(r#"
+            format!(
+                r#"
 try {{
     $outlook = New-Object -ComObject Outlook.Application
     $mail = $outlook.CreateItem(0)
@@ -162,7 +177,8 @@ try {{
 }} catch {{
     Write-Error "Error sending email: $_"
 }}
-"#)
+"#
+            )
         };
         run_powershell(&script).await
     }
@@ -173,8 +189,12 @@ pub struct WindowsCalendarProvider;
 #[async_trait]
 impl CalendarProvider for WindowsCalendarProvider {
     async fn read_events(&self, days_ahead: u64) -> Result<String> {
-        debug!("Reading calendar events for next {} days from Outlook", days_ahead);
-        let script = format!(r#"
+        debug!(
+            "Reading calendar events for next {} days from Outlook",
+            days_ahead
+        );
+        let script = format!(
+            r#"
 try {{
     $outlook = New-Object -ComObject Outlook.Application
     $namespace = $outlook.GetNamespace("MAPI")
@@ -197,15 +217,22 @@ try {{
 }} catch {{
     Write-Error "Error reading calendar: $_"
 }}
-"#);
+"#
+        );
         run_powershell(&script).await
     }
 
-    async fn create_event(&self, summary: &str, start_time: &str, duration_minutes: u64) -> Result<String> {
+    async fn create_event(
+        &self,
+        summary: &str,
+        start_time: &str,
+        duration_minutes: u64,
+    ) -> Result<String> {
         debug!("Creating calendar event: {}", summary);
         let safe_summary = sanitize_powershell_string(summary);
         let safe_start = sanitize_powershell_string(start_time);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 try {{
     $outlook = New-Object -ComObject Outlook.Application
     $appt = $outlook.CreateItem(1)
@@ -217,7 +244,8 @@ try {{
 }} catch {{
     Write-Error "Error creating event: $_"
 }}
-"#);
+"#
+        );
         run_powershell(&script).await
     }
 }
@@ -248,7 +276,8 @@ try {
         debug!("Clicking {} element: {}", element_type, element_name);
         let safe_name = sanitize_powershell_string(element_name);
         let _ = element_type; // Windows UI Automation searches by name, not type
-        let script = format!(r#"
+        let script = format!(
+            r#"
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 try {{
@@ -266,7 +295,8 @@ try {{
 }} catch {{
     Write-Error "Error clicking element: $_"
 }}
-"#);
+"#
+        );
         run_powershell(&script).await
     }
 
@@ -275,7 +305,8 @@ try {{
         // First escape SendKeys meta-characters, then escape for PowerShell string embedding
         let sendkeys_safe = sanitize_sendkeys_string(text);
         let safe_text = sanitize_powershell_string(&sendkeys_safe);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 try {{
     [System.Windows.Forms.SendKeys]::SendWait("{safe_text}")
@@ -283,7 +314,8 @@ try {{
 }} catch {{
     Write-Error "Error typing text: $_"
 }}
-"#);
+"#
+        );
         run_powershell(&script).await
     }
 }

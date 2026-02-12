@@ -1,8 +1,8 @@
 //! Web search tool using Tavily Search API
 
+use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::Result;
 use std::sync::Arc;
 use tracing::debug;
 
@@ -47,11 +47,13 @@ impl ToolHandler for WebSearchTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let query = input.get("query")
+        let query = input
+            .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
 
-        let max_results = input.get("max_results")
+        let max_results = input
+            .get("max_results")
             .and_then(|v| v.as_u64())
             .unwrap_or(5) as usize;
 

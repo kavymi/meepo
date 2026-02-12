@@ -3,9 +3,9 @@
 //! These tools delegate to platform-specific BrowserProvider implementations.
 //! On macOS: AppleScript-based Safari and Chrome automation.
 
+use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::Result;
 use tracing::debug;
 
 use super::{ToolHandler, json_schema};
@@ -44,10 +44,16 @@ impl ToolHandler for BrowserListTabsTool {
         if tabs.is_empty() {
             return Ok("No open tabs found".to_string());
         }
-        let output = tabs.iter().map(|t| {
-            format!("Tab: {}\n  Title: {}\n  URL: {}\n  Active: {}\n  Window: {}",
-                    t.id, t.title, t.url, t.is_active, t.window_index)
-        }).collect::<Vec<_>>().join("\n---\n");
+        let output = tabs
+            .iter()
+            .map(|t| {
+                format!(
+                    "Tab: {}\n  Title: {}\n  URL: {}\n  Active: {}\n  Window: {}",
+                    t.id, t.title, t.url, t.is_active, t.window_index
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n---\n");
         Ok(output)
     }
 }
@@ -88,7 +94,8 @@ impl ToolHandler for BrowserOpenTabTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let url = input.get("url")
+        let url = input
+            .get("url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
 
@@ -138,7 +145,8 @@ impl ToolHandler for BrowserCloseTabTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let tab_id = input.get("tab_id")
+        let tab_id = input
+            .get("tab_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'tab_id' parameter"))?;
 
@@ -184,7 +192,8 @@ impl ToolHandler for BrowserSwitchTabTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let tab_id = input.get("tab_id")
+        let tab_id = input
+            .get("tab_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'tab_id' parameter"))?;
 
@@ -234,7 +243,10 @@ impl ToolHandler for BrowserGetPageContentTool {
 
         debug!("Getting page content from browser tab: {:?}", tab_id);
         let content = self.provider.get_page_content(tab_id).await?;
-        Ok(format!("Title: {}\nURL: {}\n\n{}", content.title, content.url, content.text))
+        Ok(format!(
+            "Title: {}\nURL: {}\n\n{}",
+            content.title, content.url, content.text
+        ))
     }
 }
 
@@ -278,13 +290,17 @@ impl ToolHandler for BrowserExecuteJsTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let script = input.get("script")
+        let script = input
+            .get("script")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'script' parameter"))?;
         let tab_id = input.get("tab_id").and_then(|v| v.as_str());
 
         if script.len() > 50_000 {
-            return Err(anyhow::anyhow!("Script too long ({} chars, max 50,000)", script.len()));
+            return Err(anyhow::anyhow!(
+                "Script too long ({} chars, max 50,000)",
+                script.len()
+            ));
         }
 
         // Block dangerous JS patterns that could steal credentials or exfiltrate data
@@ -308,12 +324,17 @@ impl ToolHandler for BrowserExecuteJsTool {
         for (pattern, reason) in &blocked_patterns {
             if script_lower.contains(pattern) {
                 return Err(anyhow::anyhow!(
-                    "Script blocked for security: {} is not allowed ({})", pattern, reason
+                    "Script blocked for security: {} is not allowed ({})",
+                    pattern,
+                    reason
                 ));
             }
         }
 
-        debug!("Executing JavaScript in browser tab ({} chars)", script.len());
+        debug!(
+            "Executing JavaScript in browser tab ({} chars)",
+            script.len()
+        );
         self.provider.execute_javascript(tab_id, script).await
     }
 }
@@ -358,7 +379,8 @@ impl ToolHandler for BrowserClickElementTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let selector = input.get("selector")
+        let selector = input
+            .get("selector")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'selector' parameter"))?;
         let tab_id = input.get("tab_id").and_then(|v| v.as_str());
@@ -417,10 +439,12 @@ impl ToolHandler for BrowserFillFormTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let selector = input.get("selector")
+        let selector = input
+            .get("selector")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'selector' parameter"))?;
-        let value = input.get("value")
+        let value = input
+            .get("value")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'value' parameter"))?;
         let tab_id = input.get("tab_id").and_then(|v| v.as_str());
@@ -478,7 +502,8 @@ impl ToolHandler for BrowserNavigateTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let action = input.get("action")
+        let action = input
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
         let tab_id = input.get("tab_id").and_then(|v| v.as_str());
@@ -499,7 +524,10 @@ impl ToolHandler for BrowserNavigateTool {
                 self.provider.reload(tab_id).await?;
                 Ok("Page reloaded".to_string())
             }
-            _ => Err(anyhow::anyhow!("Invalid action: {}. Use: back, forward, reload", action)),
+            _ => Err(anyhow::anyhow!(
+                "Invalid action: {}. Use: back, forward, reload",
+                action
+            )),
         }
     }
 }
@@ -591,7 +619,9 @@ impl ToolHandler for BrowserScreenshotTool {
 
         if let Some(p) = path {
             if !p.ends_with(".png") && !p.ends_with(".jpg") && !p.ends_with(".pdf") {
-                return Err(anyhow::anyhow!("Output path must end with .png, .jpg, or .pdf"));
+                return Err(anyhow::anyhow!(
+                    "Output path must end with .png, .jpg, or .pdf"
+                ));
             }
             if p.len() > 500 {
                 return Err(anyhow::anyhow!("Path too long (max 500 characters)"));
@@ -623,8 +653,12 @@ mod tests {
         assert_eq!(tool.name(), "browser_open_tab");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"url".to_string()));
     }
 
@@ -635,8 +669,12 @@ mod tests {
         assert_eq!(tool.name(), "browser_execute_js");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"script".to_string()));
     }
 
@@ -647,8 +685,12 @@ mod tests {
         assert_eq!(tool.name(), "browser_click");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"selector".to_string()));
     }
 
@@ -659,8 +701,12 @@ mod tests {
         assert_eq!(tool.name(), "browser_fill_form");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"selector".to_string()));
         assert!(required.contains(&"value".to_string()));
     }
@@ -672,8 +718,12 @@ mod tests {
         assert_eq!(tool.name(), "browser_navigate");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"action".to_string()));
     }
 
@@ -721,7 +771,9 @@ mod tests {
     #[tokio::test]
     async fn test_browser_screenshot_invalid_extension() {
         let tool = BrowserScreenshotTool::new("safari");
-        let result = tool.execute(serde_json::json!({"path": "/tmp/test.txt"})).await;
+        let result = tool
+            .execute(serde_json::json!({"path": "/tmp/test.txt"}))
+            .await;
         assert!(result.is_err());
     }
 }

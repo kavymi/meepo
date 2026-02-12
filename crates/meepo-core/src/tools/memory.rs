@@ -1,13 +1,13 @@
 //! Knowledge graph and memory tools
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::{Result, Context};
 use std::sync::Arc;
 use tracing::debug;
 
-use meepo_knowledge::{KnowledgeDb, KnowledgeGraph};
 use super::{ToolHandler, json_schema};
+use meepo_knowledge::{KnowledgeDb, KnowledgeGraph};
 
 /// Remember information by adding to knowledge graph
 pub struct RememberTool {
@@ -52,17 +52,22 @@ impl ToolHandler for RememberTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'name' parameter"))?;
-        let entity_type = input.get("entity_type")
+        let entity_type = input
+            .get("entity_type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'entity_type' parameter"))?;
         let metadata = input.get("metadata").cloned();
 
         debug!("Remembering: {} (type: {})", name, entity_type);
 
-        let entity_id = self.db.insert_entity(name, entity_type, metadata).await
+        let entity_id = self
+            .db
+            .insert_entity(name, entity_type, metadata)
+            .await
             .context("Failed to insert entity")?;
 
         Ok(format!("Remembered '{}' with ID: {}", name, entity_id))
@@ -108,14 +113,18 @@ impl ToolHandler for RecallTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let query = input.get("query")
+        let query = input
+            .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
         let entity_type = input.get("entity_type").and_then(|v| v.as_str());
 
         debug!("Searching knowledge graph for: {}", query);
 
-        let results = self.db.search_entities(query, entity_type).await
+        let results = self
+            .db
+            .search_entities(query, entity_type)
+            .await
             .context("Failed to search entities")?;
 
         if results.is_empty() {
@@ -182,20 +191,26 @@ impl ToolHandler for LinkEntitiesTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let source_id = input.get("source_id")
+        let source_id = input
+            .get("source_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'source_id' parameter"))?;
-        let target_id = input.get("target_id")
+        let target_id = input
+            .get("target_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'target_id' parameter"))?;
-        let relation_type = input.get("relation_type")
+        let relation_type = input
+            .get("relation_type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'relation_type' parameter"))?;
         let metadata = input.get("metadata").cloned();
 
         debug!("Linking {} -> {} ({})", source_id, target_id, relation_type);
 
-        let rel_id = self.db.insert_relationship(source_id, target_id, relation_type, metadata).await
+        let rel_id = self
+            .db
+            .insert_relationship(source_id, target_id, relation_type, metadata)
+            .await
             .context("Failed to create relationship")?;
 
         Ok(format!("Created relationship with ID: {}", rel_id))
@@ -257,32 +272,33 @@ impl ToolHandler for SearchKnowledgeTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let query = input.get("query")
+        let query = input
+            .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
-        let limit = input.get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10) as usize;
+        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
         debug!("Full-text search for: {}", query);
 
         // Use Tantivy if KnowledgeGraph is available, otherwise fall back to basic search
         if let Some(graph) = &self.graph {
             // Use Tantivy full-text search via KnowledgeGraph
-            let search_results = graph.search(query, limit)
+            let search_results = graph
+                .search(query, limit)
                 .context("Failed to perform full-text search")?;
 
             if search_results.is_empty() {
                 return Ok("No results found.".to_string());
             }
 
-            let mut output = format!("Found {} result(s) (sorted by relevance):\n\n", search_results.len());
+            let mut output = format!(
+                "Found {} result(s) (sorted by relevance):\n\n",
+                search_results.len()
+            );
             for result in search_results.iter().take(limit) {
                 output.push_str(&format!(
                     "- {} ({})\n  Relevance: {:.2}\n",
-                    result.id,
-                    result.entity_type,
-                    result.score
+                    result.id, result.entity_type, result.score
                 ));
                 if let Some(snippet) = &result.snippet {
                     output.push_str(&format!("  Preview: {}\n", snippet));
@@ -294,14 +310,19 @@ impl ToolHandler for SearchKnowledgeTool {
         } else if let Some(db) = &self.db {
             // Fallback to basic SQL search
             debug!("Using fallback SQL search (Tantivy not available)");
-            let results = db.search_entities(query, None).await
+            let results = db
+                .search_entities(query, None)
+                .await
                 .context("Failed to search knowledge")?;
 
             if results.is_empty() {
                 return Ok("No results found.".to_string());
             }
 
-            let mut output = format!("Found {} result(s) (basic search):\n\n", results.len().min(limit));
+            let mut output = format!(
+                "Found {} result(s) (basic search):\n\n",
+                results.len().min(limit)
+            );
             for entity in results.iter().take(limit) {
                 output.push_str(&format!("- {} ({})\n", entity.name, entity.entity_type));
                 if let Some(metadata) = &entity.metadata {
@@ -311,7 +332,9 @@ impl ToolHandler for SearchKnowledgeTool {
 
             Ok(output)
         } else {
-            Err(anyhow::anyhow!("SearchKnowledgeTool not properly initialized"))
+            Err(anyhow::anyhow!(
+                "SearchKnowledgeTool not properly initialized"
+            ))
         }
     }
 }
@@ -353,17 +376,23 @@ mod tests {
         let recall = RecallTool::new(db);
 
         // Remember something
-        let result = remember.execute(serde_json::json!({
-            "name": "Rust programming",
-            "entity_type": "concept",
-            "metadata": {"detail": "systems language"}
-        })).await.unwrap();
+        let result = remember
+            .execute(serde_json::json!({
+                "name": "Rust programming",
+                "entity_type": "concept",
+                "metadata": {"detail": "systems language"}
+            }))
+            .await
+            .unwrap();
         assert!(result.contains("Remembered"));
 
         // Recall it
-        let result = recall.execute(serde_json::json!({
-            "query": "Rust"
-        })).await.unwrap();
+        let result = recall
+            .execute(serde_json::json!({
+                "query": "Rust"
+            }))
+            .await
+            .unwrap();
         assert!(result.contains("Rust programming"));
     }
 
@@ -371,9 +400,11 @@ mod tests {
     async fn test_remember_missing_name() {
         let (db, _temp) = setup();
         let tool = RememberTool::new(db);
-        let result = tool.execute(serde_json::json!({
-            "entity_type": "concept"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "entity_type": "concept"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -381,10 +412,18 @@ mod tests {
     async fn test_recall_empty_results() {
         let (db, _temp) = setup();
         let tool = RecallTool::new(db);
-        let result = tool.execute(serde_json::json!({
-            "query": "nonexistent_xyz_12345"
-        })).await.unwrap();
-        assert!(result.contains("No") || result.contains("no") || result.is_empty() || result.contains("Found 0"));
+        let result = tool
+            .execute(serde_json::json!({
+                "query": "nonexistent_xyz_12345"
+            }))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("No")
+                || result.contains("no")
+                || result.is_empty()
+                || result.contains("Found 0")
+        );
     }
 
     #[tokio::test]
@@ -394,26 +433,35 @@ mod tests {
         let link = LinkEntitiesTool::new(db);
 
         // Create two entities
-        let r1 = remember.execute(serde_json::json!({
-            "name": "Alice",
-            "entity_type": "person"
-        })).await.unwrap();
+        let r1 = remember
+            .execute(serde_json::json!({
+                "name": "Alice",
+                "entity_type": "person"
+            }))
+            .await
+            .unwrap();
 
-        let r2 = remember.execute(serde_json::json!({
-            "name": "Bob",
-            "entity_type": "person"
-        })).await.unwrap();
+        let r2 = remember
+            .execute(serde_json::json!({
+                "name": "Bob",
+                "entity_type": "person"
+            }))
+            .await
+            .unwrap();
 
         // Extract IDs from responses (format: "Remembered 'X' with ID: <uuid>")
         let id1 = r1.split("ID: ").nth(1).unwrap_or("").trim();
         let id2 = r2.split("ID: ").nth(1).unwrap_or("").trim();
 
         if !id1.is_empty() && !id2.is_empty() {
-            let result = link.execute(serde_json::json!({
-                "source_id": id1,
-                "target_id": id2,
-                "relation_type": "knows"
-            })).await.unwrap();
+            let result = link
+                .execute(serde_json::json!({
+                    "source_id": id1,
+                    "target_id": id2,
+                    "relation_type": "knows"
+                }))
+                .await
+                .unwrap();
             assert!(result.contains("Created") || result.contains("relationship"));
         }
     }
@@ -425,14 +473,20 @@ mod tests {
         let search = SearchKnowledgeTool::new(db);
 
         // Add some data
-        remember.execute(serde_json::json!({
-            "name": "Python language",
-            "entity_type": "concept"
-        })).await.unwrap();
+        remember
+            .execute(serde_json::json!({
+                "name": "Python language",
+                "entity_type": "concept"
+            }))
+            .await
+            .unwrap();
 
-        let result = search.execute(serde_json::json!({
-            "query": "Python"
-        })).await.unwrap();
+        let result = search
+            .execute(serde_json::json!({
+                "query": "Python"
+            }))
+            .await
+            .unwrap();
         assert!(result.contains("Python"));
     }
 
@@ -441,25 +495,34 @@ mod tests {
         let (graph, _temp) = setup_graph();
 
         // Add entities directly to the graph (which indexes them in Tantivy)
-        let _ = graph.add_entity(
-            "Rust programming language",
-            "concept",
-            Some(serde_json::json!({"description": "Systems programming"}))
-        ).await.unwrap();
+        let _ = graph
+            .add_entity(
+                "Rust programming language",
+                "concept",
+                Some(serde_json::json!({"description": "Systems programming"})),
+            )
+            .await
+            .unwrap();
 
-        let _ = graph.add_entity(
-            "Python scripting language",
-            "concept",
-            Some(serde_json::json!({"description": "High-level programming"}))
-        ).await.unwrap();
+        let _ = graph
+            .add_entity(
+                "Python scripting language",
+                "concept",
+                Some(serde_json::json!({"description": "High-level programming"})),
+            )
+            .await
+            .unwrap();
 
         let search = SearchKnowledgeTool::with_graph(graph);
 
         // Search using full-text search
-        let result = search.execute(serde_json::json!({
-            "query": "programming",
-            "limit": 10
-        })).await.unwrap();
+        let result = search
+            .execute(serde_json::json!({
+                "query": "programming",
+                "limit": 10
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("Found"));
         assert!(result.contains("Relevance"));
@@ -470,25 +533,34 @@ mod tests {
         let (graph, _temp) = setup_graph();
 
         // Add entities with different relevance
-        let _ = graph.add_entity(
-            "Rust is the best systems programming language",
-            "article",
-            Some(serde_json::json!({"content": "Rust Rust Rust systems programming"}))
-        ).await.unwrap();
+        let _ = graph
+            .add_entity(
+                "Rust is the best systems programming language",
+                "article",
+                Some(serde_json::json!({"content": "Rust Rust Rust systems programming"})),
+            )
+            .await
+            .unwrap();
 
-        let _ = graph.add_entity(
-            "Introduction to programming",
-            "article",
-            Some(serde_json::json!({"content": "General programming concepts"}))
-        ).await.unwrap();
+        let _ = graph
+            .add_entity(
+                "Introduction to programming",
+                "article",
+                Some(serde_json::json!({"content": "General programming concepts"})),
+            )
+            .await
+            .unwrap();
 
         let search = SearchKnowledgeTool::with_graph(graph);
 
         // Search for "Rust" - should rank first result higher
-        let result = search.execute(serde_json::json!({
-            "query": "Rust systems",
-            "limit": 5
-        })).await.unwrap();
+        let result = search
+            .execute(serde_json::json!({
+                "query": "Rust systems",
+                "limit": 5
+            }))
+            .await
+            .unwrap();
 
         // Should find results
         assert!(result.contains("article"));
@@ -499,9 +571,12 @@ mod tests {
         let (graph, _temp) = setup_graph();
         let search = SearchKnowledgeTool::with_graph(graph);
 
-        let result = search.execute(serde_json::json!({
-            "query": "nonexistent_xyz_12345"
-        })).await.unwrap();
+        let result = search
+            .execute(serde_json::json!({
+                "query": "nonexistent_xyz_12345"
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("No results") || result.contains("Found 0"));
     }

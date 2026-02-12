@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, warn};
 
 use crate::api::{ApiClient, ToolDefinition, Usage};
@@ -117,14 +117,18 @@ impl ToolExecutor for FilteredToolExecutor {
     async fn execute(&self, tool_name: &str, input: Value) -> Result<String> {
         if !self.allowed.contains(tool_name) {
             warn!("Sub-agent attempted to use non-allowed tool: {}", tool_name);
-            return Err(anyhow!("Tool '{}' is not available for this sub-agent", tool_name));
+            return Err(anyhow!(
+                "Tool '{}' is not available for this sub-agent",
+                tool_name
+            ));
         }
         debug!("Sub-agent executing allowed tool: {}", tool_name);
         self.inner.execute(tool_name, input).await
     }
 
     fn list_tools(&self) -> Vec<ToolDefinition> {
-        self.inner.list_tools()
+        self.inner
+            .list_tools()
             .into_iter()
             .filter(|t| self.allowed.contains(&t.name))
             .collect()
@@ -182,19 +186,28 @@ impl TaskOrchestrator {
                 task_id: task.task_id,
                 status: SubTaskStatus::Completed,
                 output,
-                tokens_used: Usage { input_tokens: 0, output_tokens: 0 },
+                tokens_used: Usage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                },
             },
             Ok(Err(e)) => SubTaskResult {
                 task_id: task.task_id,
                 status: SubTaskStatus::Failed,
                 output: format!("Error: {}", e),
-                tokens_used: Usage { input_tokens: 0, output_tokens: 0 },
+                tokens_used: Usage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                },
             },
             Err(_) => SubTaskResult {
                 task_id: task.task_id,
                 status: SubTaskStatus::TimedOut,
                 output: "Sub-task timed out".to_string(),
-                tokens_used: Usage { input_tokens: 0, output_tokens: 0 },
+                tokens_used: Usage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                },
             },
         }
     }
@@ -225,20 +238,27 @@ impl TaskOrchestrator {
 
     /// Execute a task group in parallel mode.
     /// Blocks until all sub-tasks complete and returns combined results.
-    pub async fn run_parallel(&self, group: TaskGroup, registry: Arc<ToolRegistry>) -> Result<String> {
+    pub async fn run_parallel(
+        &self,
+        group: TaskGroup,
+        registry: Arc<ToolRegistry>,
+    ) -> Result<String> {
         let task_count = group.tasks.len();
 
         if task_count > self.config.max_subtasks_per_request {
             return Err(anyhow!(
                 "Too many sub-tasks: {} (max {})",
-                task_count, self.config.max_subtasks_per_request,
+                task_count,
+                self.config.max_subtasks_per_request,
             ));
         }
 
         self.send_progress(
-            &group.channel, &group.reply_to,
+            &group.channel,
+            &group.reply_to,
             &format!("Working on {} tasks...", task_count),
-        ).await;
+        )
+        .await;
 
         let semaphore = Arc::new(Semaphore::new(self.config.max_concurrent_subtasks));
         let mut handles = Vec::new();
@@ -261,7 +281,10 @@ impl TaskOrchestrator {
                     task_id: "unknown".to_string(),
                     status: SubTaskStatus::Failed,
                     output: format!("Task panicked: {}", e),
-                    tokens_used: Usage { input_tokens: 0, output_tokens: 0 },
+                    tokens_used: Usage {
+                        input_tokens: 0,
+                        output_tokens: 0,
+                    },
                 }),
             }
         }
@@ -271,13 +294,18 @@ impl TaskOrchestrator {
 
     /// Execute a task group in background mode.
     /// Returns immediately with a confirmation. Progress sent via channel.
-    pub async fn run_background(&self, group: TaskGroup, registry: Arc<ToolRegistry>) -> Result<String> {
+    pub async fn run_background(
+        &self,
+        group: TaskGroup,
+        registry: Arc<ToolRegistry>,
+    ) -> Result<String> {
         let task_count = group.tasks.len();
 
         if task_count > self.config.max_subtasks_per_request {
             return Err(anyhow!(
                 "Too many sub-tasks: {} (max {})",
-                task_count, self.config.max_subtasks_per_request,
+                task_count,
+                self.config.max_subtasks_per_request,
             ));
         }
 
@@ -287,10 +315,12 @@ impl TaskOrchestrator {
             if current >= self.config.max_background_groups {
                 return Err(anyhow!(
                     "Too many background task groups running: {} (max {})",
-                    current, self.config.max_background_groups,
+                    current,
+                    self.config.max_background_groups,
                 ));
             }
-            if self.active_background_groups
+            if self
+                .active_background_groups
                 .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
             {
@@ -308,12 +338,14 @@ impl TaskOrchestrator {
         let max_concurrent = self.config.max_concurrent_subtasks;
 
         tokio::spawn(async move {
-            let _ = progress_tx.send(OutgoingMessage {
-                content: format!("Started {} background tasks...", task_count),
-                channel: channel.clone(),
-                reply_to: reply_to.clone(),
-                kind: MessageKind::Response,
-            }).await;
+            let _ = progress_tx
+                .send(OutgoingMessage {
+                    content: format!("Started {} background tasks...", task_count),
+                    channel: channel.clone(),
+                    reply_to: reply_to.clone(),
+                    kind: MessageKind::Response,
+                })
+                .await;
 
             let semaphore = Arc::new(Semaphore::new(max_concurrent));
             let mut handles = Vec::new();
@@ -333,41 +365,52 @@ impl TaskOrchestrator {
                     Ok(result) => {
                         let update = format!(
                             "Task '{}' {} ({}/{})",
-                            result.task_id, result.status,
-                            results.len() + 1, task_count,
+                            result.task_id,
+                            result.status,
+                            results.len() + 1,
+                            task_count,
                         );
-                        let _ = progress_tx.send(OutgoingMessage {
-                            content: update,
-                            channel: channel.clone(),
-                            reply_to: reply_to.clone(),
-                            kind: MessageKind::Response,
-                        }).await;
+                        let _ = progress_tx
+                            .send(OutgoingMessage {
+                                content: update,
+                                channel: channel.clone(),
+                                reply_to: reply_to.clone(),
+                                kind: MessageKind::Response,
+                            })
+                            .await;
                         results.push(result);
                     }
                     Err(e) => {
-                        let _ = progress_tx.send(OutgoingMessage {
-                            content: format!("A background task panicked: {}", e),
-                            channel: channel.clone(),
-                            reply_to: reply_to.clone(),
-                            kind: MessageKind::Response,
-                        }).await;
+                        let _ = progress_tx
+                            .send(OutgoingMessage {
+                                content: format!("A background task panicked: {}", e),
+                                channel: channel.clone(),
+                                reply_to: reply_to.clone(),
+                                kind: MessageKind::Response,
+                            })
+                            .await;
                         results.push(SubTaskResult {
                             task_id: "unknown".to_string(),
                             status: SubTaskStatus::Failed,
                             output: format!("Task panicked: {}", e),
-                            tokens_used: Usage { input_tokens: 0, output_tokens: 0 },
+                            tokens_used: Usage {
+                                input_tokens: 0,
+                                output_tokens: 0,
+                            },
                         });
                     }
                 }
             }
 
             let summary = Self::format_results(&results);
-            let _ = progress_tx.send(OutgoingMessage {
-                content: format!("All background tasks complete:\n\n{}", summary),
-                channel: channel.clone(),
-                reply_to: reply_to.clone(),
-                kind: MessageKind::Response,
-            }).await;
+            let _ = progress_tx
+                .send(OutgoingMessage {
+                    content: format!("All background tasks complete:\n\n{}", summary),
+                    channel: channel.clone(),
+                    reply_to: reply_to.clone(),
+                    kind: MessageKind::Response,
+                })
+                .await;
 
             active_counter.fetch_sub(1, Ordering::SeqCst);
         });
@@ -390,14 +433,20 @@ mod tests {
 
     impl DummyTool {
         fn new(name: &str) -> Self {
-            Self { tool_name: name.to_string() }
+            Self {
+                tool_name: name.to_string(),
+            }
         }
     }
 
     #[async_trait]
     impl ToolHandler for DummyTool {
-        fn name(&self) -> &str { &self.tool_name }
-        fn description(&self) -> &str { "dummy" }
+        fn name(&self) -> &str {
+            &self.tool_name
+        }
+        fn description(&self) -> &str {
+            "dummy"
+        }
         fn input_schema(&self) -> Value {
             json_schema(serde_json::json!({}), vec![])
         }
@@ -455,10 +504,7 @@ mod tests {
     #[tokio::test]
     async fn test_filtered_executor_blocks_non_permitted_tool() {
         let registry = make_registry_with_tools(&["read_file", "browse_url", "run_command"]);
-        let filtered = FilteredToolExecutor::new(
-            registry,
-            &["read_file".to_string()],
-        );
+        let filtered = FilteredToolExecutor::new(registry, &["read_file".to_string()]);
 
         let result = filtered.execute("run_command", serde_json::json!({})).await;
         assert!(result.is_err());
@@ -491,8 +537,7 @@ mod tests {
 
     use crate::api::ApiClient;
 
-    fn make_orchestrator(
-    ) -> (TaskOrchestrator, mpsc::Receiver<OutgoingMessage>) {
+    fn make_orchestrator() -> (TaskOrchestrator, mpsc::Receiver<OutgoingMessage>) {
         let api = ApiClient::new("test-key".to_string(), None);
         let (tx, rx) = mpsc::channel(100);
         let config = OrchestratorConfig::default();
@@ -506,13 +551,19 @@ mod tests {
                 task_id: "task_a".to_string(),
                 status: SubTaskStatus::Completed,
                 output: "Found 3 items".to_string(),
-                tokens_used: Usage { input_tokens: 0, output_tokens: 0 },
+                tokens_used: Usage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                },
             },
             SubTaskResult {
                 task_id: "task_b".to_string(),
                 status: SubTaskStatus::Failed,
                 output: "Error: timeout".to_string(),
-                tokens_used: Usage { input_tokens: 0, output_tokens: 0 },
+                tokens_used: Usage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                },
             },
         ];
         let formatted = TaskOrchestrator::format_results(&results);
@@ -546,7 +597,12 @@ mod tests {
 
         let result = orchestrator.run_parallel(group, registry).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Too many sub-tasks"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Too many sub-tasks")
+        );
     }
 
     #[tokio::test]
@@ -576,16 +632,21 @@ mod tests {
 
         let result = orchestrator.run_background(group, registry).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Too many background"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Too many background")
+        );
     }
 
     #[tokio::test]
     async fn test_send_progress() {
         let (orchestrator, mut rx) = make_orchestrator();
 
-        orchestrator.send_progress(
-            &ChannelType::Discord, &None, "Working on 3 tasks...",
-        ).await;
+        orchestrator
+            .send_progress(&ChannelType::Discord, &None, "Working on 3 tasks...")
+            .await;
 
         let msg = rx.recv().await.unwrap();
         assert_eq!(msg.content, "Working on 3 tasks...");

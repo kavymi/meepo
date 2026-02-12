@@ -80,7 +80,7 @@ git clone https://github.com/kavymi/meepo.git; cd meepo
 cargo build --release; .\target\release\meepo.exe setup
 ```
 
-All methods run `meepo setup` — an interactive wizard that configures your API keys and tests the connection.
+All methods run `meepo setup` — an interactive wizard that walks you through API keys, macOS permissions (Accessibility, Full Disk Access, Automation, Screen Recording), feature selection, and connection verification. It opens System Settings panes for you and detects your terminal app automatically.
 
 ## Manual Setup
 
@@ -129,9 +129,24 @@ export TAVILY_API_KEY="tvly-..."
 
 Get yours at [tavily.com](https://tavily.com). Without this key, Meepo still works — the `web_search` tool just won't be available, and `browse_url` will fall back to raw HTML fetching.
 
-### 4. Enable Channels
+### 4. macOS Permissions
 
-Edit `~/.meepo/config.toml` to enable the channels you want:
+Meepo's tools require several macOS permissions. The `meepo setup` wizard handles all of these automatically — it detects what's missing, opens the correct System Settings pane, and tells you exactly what to click. You can also grant them manually:
+
+| Permission | Required For | System Settings Path |
+|------------|-------------|---------------------|
+| **Accessibility** | `read_screen`, `click_element`, `type_text` (UI automation) | Privacy & Security → Accessibility |
+| **Full Disk Access** | iMessage channel (reads `~/Library/Messages/chat.db`) | Privacy & Security → Full Disk Access |
+| **Automation** | Email, Calendar, Reminders, Notes, Messages, Music tools | Privacy & Security → Automation |
+| **Screen Recording** | `screen_capture` tool | Privacy & Security → Screen Recording |
+
+Grant each permission to your terminal app (Terminal, iTerm, Warp, Ghostty, VS Code, etc.). The setup wizard detects which terminal you're using.
+
+> **Tip:** If a tool fails with a permission error after setup, re-run `meepo setup` — it will check and guide you through any missing permissions.
+
+### 5. Enable Channels
+
+The setup wizard lets you enable channels interactively. You can also edit `~/.meepo/config.toml` manually:
 
 #### Discord
 
@@ -168,7 +183,19 @@ No API key needed. Requires macOS with **Full Disk Access** granted to your term
 
 All messages from allowed contacts are processed. Example: text "What's on my calendar?" to get a response.
 
-### 5. Run
+#### Safari Browser Automation
+
+If you enabled browser automation with Safari, one extra setting is needed:
+
+1. Open Safari
+2. Safari → Settings → Advanced
+3. Check "Show features for web developers"
+4. Close Settings
+5. Develop menu → Allow JavaScript from Apple Events (check it)
+
+Chrome requires no extra setup.
+
+### 6. Run
 
 ```bash
 # Start the daemon (Ctrl+C to stop)
@@ -185,7 +212,7 @@ meepo stop
 
 | Command | Description |
 |---------|-------------|
-| `meepo setup` | Interactive setup wizard (API keys, connection test) |
+| `meepo setup` | Interactive setup wizard (API keys, macOS permissions, feature selection, connection test) |
 | `meepo init` | Create `~/.meepo/` with default config |
 | `meepo start` | Start the agent daemon |
 | `meepo stop` | Stop a running daemon |
@@ -361,8 +388,10 @@ scripts\uninstall.ps1   # Remove
 - If using the launch agent, re-run `scripts/install.sh` after setting new env vars (the plist snapshots env vars at install time)
 
 **iMessage not receiving messages**
-- Grant Full Disk Access to your terminal: System Settings > Privacy & Security > Full Disk Access
+- Run `meepo setup` — it checks Full Disk Access and opens System Settings for you
+- Or manually: System Settings → Privacy & Security → Full Disk Access → add your terminal app
 - Check `allowed_contacts` in config includes the sender's phone/email
+- You may need to restart your terminal after granting Full Disk Access
 
 **`web_search` tool not available**
 - Set `TAVILY_API_KEY` env var — Meepo logs a warning at startup if it's missing
@@ -376,6 +405,14 @@ scripts\uninstall.ps1   # Remove
 - Ensure Rust is up to date: `rustup update`
 - Clean build: `cargo clean && cargo build --release`
 - Windows: Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
+
+**macOS permission errors ("not allowed assistive access", "not authorized")**
+- Run `meepo setup` — it detects missing permissions and opens the correct System Settings pane
+- Accessibility: System Settings → Privacy & Security → Accessibility → add your terminal
+- Automation: System Settings → Privacy & Security → Automation → enable apps under your terminal
+- Screen Recording: System Settings → Privacy & Security → Screen Recording → add your terminal
+- Full Disk Access: System Settings → Privacy & Security → Full Disk Access → add your terminal
+- After granting, you may need to restart your terminal
 
 **"Permission denied" running scripts**
 - macOS/Linux: `chmod +x scripts/*.sh`

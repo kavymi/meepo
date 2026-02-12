@@ -1,11 +1,11 @@
 //! System interaction tools
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::{Result, Context};
-use tokio::process::Command;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::process::Command;
 use tracing::{debug, warn};
 
 use super::{ToolHandler, json_schema};
@@ -15,7 +15,9 @@ use super::{ToolHandler, json_schema};
 fn validate_file_path(path: &str, for_write: bool) -> Result<PathBuf> {
     // Check for suspicious patterns before canonicalization
     if path.contains("..") {
-        return Err(anyhow::anyhow!("Path contains '..' which is not allowed for security reasons"));
+        return Err(anyhow::anyhow!(
+            "Path contains '..' which is not allowed for security reasons"
+        ));
     }
 
     let path_buf = PathBuf::from(path);
@@ -32,7 +34,8 @@ fn validate_file_path(path: &str, for_write: bool) -> Result<PathBuf> {
                     .join(path_buf.file_name().unwrap())
             } else if parent.exists() {
                 // Parent exists, canonicalize it and append filename
-                let canonical_parent = parent.canonicalize()
+                let canonical_parent = parent
+                    .canonicalize()
                     .context("Failed to canonicalize parent directory")?;
                 canonical_parent.join(path_buf.file_name().unwrap())
             } else {
@@ -51,15 +54,15 @@ fn validate_file_path(path: &str, for_write: bool) -> Result<PathBuf> {
         }
     } else {
         // For reads, file must exist
-        path_buf.canonicalize()
+        path_buf
+            .canonicalize()
             .with_context(|| format!("Failed to canonicalize path: {}", path))?
     };
 
     // Check if the resolved path is within the user's home directory, current directory, or temp directory
-    let home_dir = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-    let current_dir = std::env::current_dir()
-        .context("Failed to get current directory")?;
+    let home_dir =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
     // Canonicalize temp directory to handle symlinks (e.g., /var -> /private/var on macOS)
     let temp_dir = std::env::temp_dir()
@@ -79,7 +82,15 @@ fn validate_file_path(path: &str, for_write: bool) -> Result<PathBuf> {
     }
 
     // Additional check: reject system directories
-    let system_dirs = ["/etc", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/System", "/Library"];
+    let system_dirs = [
+        "/etc",
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/System",
+        "/Library",
+    ];
     for sys_dir in &system_dirs {
         if canonical_path.starts_with(sys_dir) {
             return Err(anyhow::anyhow!(
@@ -122,36 +133,103 @@ impl ToolHandler for RunCommandTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let command = input.get("command")
+        let command = input
+            .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
-        let working_dir = input.get("working_dir")
+        let working_dir = input
+            .get("working_dir")
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 
         // Maximum command length check
         const MAX_COMMAND_LENGTH: usize = 1000;
         if command.len() > MAX_COMMAND_LENGTH {
-            warn!("Blocked command exceeding max length: {} chars", command.len());
-            return Err(anyhow::anyhow!("Command exceeds maximum length of {} characters", MAX_COMMAND_LENGTH));
+            warn!(
+                "Blocked command exceeding max length: {} chars",
+                command.len()
+            );
+            return Err(anyhow::anyhow!(
+                "Command exceeds maximum length of {} characters",
+                MAX_COMMAND_LENGTH
+            ));
         }
 
         // Allowlist of safe commands
         const ALLOWED_COMMANDS: &[&str] = &[
             // Read-only / informational
-            "ls", "cat", "head", "tail", "wc", "echo", "date", "whoami", "uname",
-            "pwd", "which", "file", "stat", "du", "df", "uptime", "ps", "env",
-            "printenv", "hostname", "id", "groups", "grep", "find", "sort", "uniq",
-            "cut", "awk", "sed", "tr", "basename", "dirname", "realpath", "readlink",
+            "ls",
+            "cat",
+            "head",
+            "tail",
+            "wc",
+            "echo",
+            "date",
+            "whoami",
+            "uname",
+            "pwd",
+            "which",
+            "file",
+            "stat",
+            "du",
+            "df",
+            "uptime",
+            "ps",
+            "env",
+            "printenv",
+            "hostname",
+            "id",
+            "groups",
+            "grep",
+            "find",
+            "sort",
+            "uniq",
+            "cut",
+            "awk",
+            "sed",
+            "tr",
+            "basename",
+            "dirname",
+            "realpath",
+            "readlink",
             // File operations (mv removed — can overwrite critical files)
-            "mkdir", "cp", "touch", "ln", "chmod", "tar", "zip", "unzip", "gzip",
+            "mkdir",
+            "cp",
+            "touch",
+            "ln",
+            "chmod",
+            "tar",
+            "zip",
+            "unzip",
+            "gzip",
             // Networking
-            "curl", "wget", "ping", "dig", "nslookup",
+            "curl",
+            "wget",
+            "ping",
+            "dig",
+            "nslookup",
             // Development tools
-            "git", "python3", "python", "node", "npm", "npx", "cargo", "go", "ruby",
-            "pip", "pip3", "make", "cmake", "brew",
+            "git",
+            "python3",
+            "python",
+            "node",
+            "npm",
+            "npx",
+            "cargo",
+            "go",
+            "ruby",
+            "pip",
+            "pip3",
+            "make",
+            "cmake",
+            "brew",
             // macOS utilities
-            "open", "osascript", "defaults", "pbcopy", "pbpaste", "say",
+            "open",
+            "osascript",
+            "defaults",
+            "pbcopy",
+            "pbpaste",
+            "say",
         ];
 
         // Shell metacharacters that allow chaining/redirecting commands.
@@ -159,20 +237,23 @@ impl ToolHandler for RunCommandTool {
         const SHELL_CHAIN_CHARS: &[char] = &['|', ';', '&', '\n'];
 
         // Also block dangerous shell operators that can't be split simply
-        let dangerous_operators = [
-            "`", "$(", ">>", ">", "<(", ">(",
-        ];
+        let dangerous_operators = ["`", "$(", ">>", ">", "<(", ">("];
         for op in &dangerous_operators {
             if command.contains(op) {
-                warn!("Blocked command containing shell operator '{}': {}", op, command);
+                warn!(
+                    "Blocked command containing shell operator '{}': {}",
+                    op, command
+                );
                 return Err(anyhow::anyhow!(
-                    "Command blocked: shell operator '{}' is not allowed for security reasons", op
+                    "Command blocked: shell operator '{}' is not allowed for security reasons",
+                    op
                 ));
             }
         }
 
         // Split on chain characters and validate EVERY command in the pipeline
-        let segments: Vec<&str> = command.split(SHELL_CHAIN_CHARS)
+        let segments: Vec<&str> = command
+            .split(SHELL_CHAIN_CHARS)
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect();
@@ -182,15 +263,16 @@ impl ToolHandler for RunCommandTool {
         }
 
         for segment in &segments {
-            let first_word = segment
-                .split_whitespace()
-                .next()
-                .unwrap_or("");
+            let first_word = segment.split_whitespace().next().unwrap_or("");
 
             if !ALLOWED_COMMANDS.contains(&first_word) {
-                warn!("Blocked command not in allowlist: '{}' (in segment: '{}')", first_word, segment);
+                warn!(
+                    "Blocked command not in allowlist: '{}' (in segment: '{}')",
+                    first_word, segment
+                );
                 return Err(anyhow::anyhow!(
-                    "Command '{}' is not in the allowlist of safe commands", first_word
+                    "Command '{}' is not in the allowlist of safe commands",
+                    first_word
                 ));
             }
         }
@@ -208,7 +290,10 @@ impl ToolHandler for RunCommandTool {
         for pattern in &dangerous_patterns {
             if command.contains(pattern) {
                 warn!("Blocked dangerous command: {}", command);
-                return Err(anyhow::anyhow!("Command blocked for safety: contains '{}'", pattern));
+                return Err(anyhow::anyhow!(
+                    "Command blocked for safety: contains '{}'",
+                    pattern
+                ));
             }
         }
 
@@ -221,7 +306,7 @@ impl ToolHandler for RunCommandTool {
                 .arg("-c")
                 .arg(command)
                 .current_dir(working_dir)
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Command execution timed out after 30 seconds"))?
@@ -244,7 +329,10 @@ impl ToolHandler for RunCommandTool {
         }
 
         if !output.status.success() {
-            result.push_str(&format!("\n\nExit code: {}", output.status.code().unwrap_or(-1)));
+            result.push_str(&format!(
+                "\n\nExit code: {}",
+                output.status.code().unwrap_or(-1)
+            ));
         }
 
         Ok(result)
@@ -279,7 +367,8 @@ impl ToolHandler for ReadFileTool {
     async fn execute(&self, input: Value) -> Result<String> {
         const MAX_READ_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
-        let path = input.get("path")
+        let path = input
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
@@ -291,7 +380,9 @@ impl ToolHandler for ReadFileTool {
         // Check file size before reading
         let metadata = tokio::fs::metadata(&validated_path)
             .await
-            .with_context(|| format!("Failed to read file metadata: {}", validated_path.display()))?;
+            .with_context(|| {
+                format!("Failed to read file metadata: {}", validated_path.display())
+            })?;
 
         let file_size = metadata.len();
         if file_size > MAX_READ_SIZE {
@@ -341,10 +432,12 @@ impl ToolHandler for WriteFileTool {
     async fn execute(&self, input: Value) -> Result<String> {
         const MAX_WRITE_SIZE: usize = 10 * 1024 * 1024; // 10MB
 
-        let path = input.get("path")
+        let path = input
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-        let content = input.get("content")
+        let content = input
+            .get("content")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
@@ -372,7 +465,11 @@ impl ToolHandler for WriteFileTool {
             .await
             .with_context(|| format!("Failed to write file: {}", validated_path.display()))?;
 
-        Ok(format!("Successfully wrote {} bytes to {}", content.len(), validated_path.display()))
+        Ok(format!(
+            "Successfully wrote {} bytes to {}",
+            content.len(),
+            validated_path.display()
+        ))
     }
 }
 
@@ -416,8 +513,7 @@ fn is_private_ip(ip: &std::net::IpAddr) -> Option<&'static str> {
 fn is_safe_url(url_str: &str) -> Result<()> {
     use std::net::IpAddr;
 
-    let url = url::Url::parse(url_str)
-        .context("Invalid URL format")?;
+    let url = url::Url::parse(url_str).context("Invalid URL format")?;
 
     // Only allow HTTP and HTTPS
     let scheme = url.scheme();
@@ -426,7 +522,8 @@ fn is_safe_url(url_str: &str) -> Result<()> {
     }
 
     // Get the host
-    let host = url.host_str()
+    let host = url
+        .host_str()
         .ok_or_else(|| anyhow::anyhow!("URL must have a host"))?;
 
     // Block localhost variations
@@ -438,10 +535,10 @@ fn is_safe_url(url_str: &str) -> Result<()> {
     }
 
     // Check if host is a direct IP address
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if let Some(reason) = is_private_ip(&ip) {
-            return Err(anyhow::anyhow!("Access to {} is not allowed", reason));
-        }
+    if let Ok(ip) = host.parse::<IpAddr>()
+        && let Some(reason) = is_private_ip(&ip)
+    {
+        return Err(anyhow::anyhow!("Access to {} is not allowed", reason));
     }
 
     // DNS rebinding mitigation: resolve the hostname and validate all resolved IPs.
@@ -452,9 +549,17 @@ fn is_safe_url(url_str: &str) -> Result<()> {
     if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&resolve_target) {
         for addr in addrs {
             if let Some(reason) = is_private_ip(&addr.ip()) {
-                warn!("DNS rebinding detected: {} resolved to {} ({})", host, addr.ip(), reason);
+                warn!(
+                    "DNS rebinding detected: {} resolved to {} ({})",
+                    host,
+                    addr.ip(),
+                    reason
+                );
                 return Err(anyhow::anyhow!(
-                    "Access denied: hostname '{}' resolved to {} ({})", host, addr.ip(), reason
+                    "Access denied: hostname '{}' resolved to {} ({})",
+                    host,
+                    addr.ip(),
+                    reason
                 ));
             }
         }
@@ -471,12 +576,20 @@ pub struct BrowseUrlTool {
 impl BrowseUrlTool {
     /// Create with Tavily client for clean content extraction
     pub fn with_tavily(client: Arc<crate::tavily::TavilyClient>) -> Self {
-        Self { tavily: Some(client) }
+        Self {
+            tavily: Some(client),
+        }
     }
 
     /// Create without Tavily — raw fetch only
     pub fn new() -> Self {
         Self { tavily: None }
+    }
+}
+
+impl Default for BrowseUrlTool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -507,7 +620,8 @@ impl ToolHandler for BrowseUrlTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let url = input.get("url")
+        let url = input
+            .get("url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
 
@@ -523,13 +637,19 @@ impl ToolHandler for BrowseUrlTool {
                     debug!("Tavily extract succeeded for {}", url);
                     const MAX_LENGTH: usize = 50000;
                     if content.len() > MAX_LENGTH {
-                        return Ok(format!("{}\n\n[Content truncated at {} chars]",
-                                         &content[..MAX_LENGTH], MAX_LENGTH));
+                        return Ok(format!(
+                            "{}\n\n[Content truncated at {} chars]",
+                            &content[..MAX_LENGTH],
+                            MAX_LENGTH
+                        ));
                     }
                     return Ok(content);
                 }
                 Err(e) => {
-                    debug!("Tavily extract failed for {}, falling back to raw fetch: {}", url, e);
+                    debug!(
+                        "Tavily extract failed for {}, falling back to raw fetch: {}",
+                        url, e
+                    );
                 }
             }
         }
@@ -558,7 +678,11 @@ impl BrowseUrlTool {
             if let Some(headers) = input.get("headers").and_then(|v| v.as_object()) {
                 for (key, value) in headers {
                     if let Some(value_str) = value.as_str() {
-                        if key.contains('\r') || key.contains('\n') || value_str.contains('\r') || value_str.contains('\n') {
+                        if key.contains('\r')
+                            || key.contains('\n')
+                            || value_str.contains('\r')
+                            || value_str.contains('\n')
+                        {
                             warn!("Skipping header '{}' due to CRLF characters", key);
                             continue;
                         }
@@ -567,9 +691,7 @@ impl BrowseUrlTool {
                 }
             }
 
-            let resp = request.send()
-                .await
-                .context("Failed to fetch URL")?;
+            let resp = request.send().await.context("Failed to fetch URL")?;
 
             if resp.status().is_redirection() {
                 redirects += 1;
@@ -577,7 +699,8 @@ impl BrowseUrlTool {
                     return Ok("Too many redirects".to_string());
                 }
                 if let Some(location) = resp.headers().get("location") {
-                    let redirect_url = location.to_str()
+                    let redirect_url = location
+                        .to_str()
                         .map_err(|_| anyhow::anyhow!("Invalid redirect URL"))?;
                     let resolved = if redirect_url.starts_with("http") {
                         redirect_url.to_string()
@@ -585,7 +708,13 @@ impl BrowseUrlTool {
                         url::Url::parse(&current_url)
                             .and_then(|base| base.join(redirect_url))
                             .map(|u| u.to_string())
-                            .unwrap_or_else(|_| format!("{}/{}", current_url.trim_end_matches('/'), redirect_url.trim_start_matches('/')))
+                            .unwrap_or_else(|_| {
+                                format!(
+                                    "{}/{}",
+                                    current_url.trim_end_matches('/'),
+                                    redirect_url.trim_start_matches('/')
+                                )
+                            })
                     };
                     if is_safe_url(&resolved).is_err() {
                         return Ok(format!("Blocked redirect to unsafe URL: {}", resolved));
@@ -601,17 +730,24 @@ impl BrowseUrlTool {
 
         let status = response.status();
         if !status.is_success() {
-            return Err(anyhow::anyhow!("HTTP request failed with status: {}", status));
+            return Err(anyhow::anyhow!(
+                "HTTP request failed with status: {}",
+                status
+            ));
         }
 
-        let content = response.text()
+        let content = response
+            .text()
             .await
             .context("Failed to read response body")?;
 
         const MAX_LENGTH: usize = 50000;
         if content.len() > MAX_LENGTH {
-            Ok(format!("{}\n\n[Content truncated at {} chars]",
-                       &content[..MAX_LENGTH], MAX_LENGTH))
+            Ok(format!(
+                "{}\n\n[Content truncated at {} chars]",
+                &content[..MAX_LENGTH],
+                MAX_LENGTH
+            ))
         } else {
             Ok(content)
         }
@@ -654,9 +790,12 @@ mod tests {
     #[tokio::test]
     async fn test_run_command_echo() {
         let tool = RunCommandTool;
-        let result = tool.execute(serde_json::json!({
-            "command": "echo hello_meepo_test"
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "command": "echo hello_meepo_test"
+            }))
+            .await
+            .unwrap();
         assert!(result.contains("hello_meepo_test"));
     }
 
@@ -670,9 +809,11 @@ mod tests {
     #[tokio::test]
     async fn test_run_command_blocks_dangerous() {
         let tool = RunCommandTool;
-        let result = tool.execute(serde_json::json!({
-            "command": "rm -rf /"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "command": "rm -rf /"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -680,32 +821,54 @@ mod tests {
     async fn test_run_command_blocks_not_allowlisted() {
         let tool = RunCommandTool;
         // nc (netcat) is not in the allowlist
-        let result = tool.execute(serde_json::json!({
-            "command": "nc -l 1234"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "command": "nc -l 1234"
+            }))
+            .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not in the allowlist"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not in the allowlist")
+        );
     }
 
     #[tokio::test]
     async fn test_run_command_blocks_too_long() {
         let tool = RunCommandTool;
         let long_command = "echo ".to_string() + &"A".repeat(1001);
-        let result = tool.execute(serde_json::json!({
-            "command": long_command
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "command": long_command
+            }))
+            .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("exceeds maximum length"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
     }
 
     #[tokio::test]
     async fn test_run_command_safe_command_works() {
         let tool = RunCommandTool;
-        let result = tool.execute(serde_json::json!({
-            "command": "ls -la"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "command": "ls -la"
+            }))
+            .await;
         // ls should be allowed and work
-        assert!(result.is_ok() || result.unwrap_err().to_string().contains("Failed to execute"));
+        assert!(
+            result.is_ok()
+                || result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Failed to execute")
+        );
     }
 
     #[tokio::test]
@@ -715,25 +878,33 @@ mod tests {
         let path_str = path.to_str().unwrap();
 
         let write_tool = WriteFileTool;
-        let result = write_tool.execute(serde_json::json!({
-            "path": path_str,
-            "content": "hello from meepo"
-        })).await.unwrap();
+        let result = write_tool
+            .execute(serde_json::json!({
+                "path": path_str,
+                "content": "hello from meepo"
+            }))
+            .await
+            .unwrap();
         assert!(result.contains("Wrote") || result.contains("wrote") || result.contains("bytes"));
 
         let read_tool = ReadFileTool;
-        let result = read_tool.execute(serde_json::json!({
-            "path": path_str
-        })).await.unwrap();
+        let result = read_tool
+            .execute(serde_json::json!({
+                "path": path_str
+            }))
+            .await
+            .unwrap();
         assert_eq!(result.trim(), "hello from meepo");
     }
 
     #[tokio::test]
     async fn test_read_file_missing() {
         let tool = ReadFileTool;
-        let result = tool.execute(serde_json::json!({
-            "path": "/tmp/nonexistent_meepo_test_file_xyz"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": "/tmp/nonexistent_meepo_test_file_xyz"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -755,9 +926,11 @@ mod tests {
         std::fs::write(&path, large_content).unwrap();
 
         let tool = ReadFileTool;
-        let result = tool.execute(serde_json::json!({
-            "path": path_str
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": path_str
+            }))
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("too large"));
@@ -773,10 +946,12 @@ mod tests {
         let large_content = "A".repeat(11 * 1024 * 1024); // 11MB
 
         let tool = WriteFileTool;
-        let result = tool.execute(serde_json::json!({
-            "path": path_str,
-            "content": large_content
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": path_str,
+                "content": large_content
+            }))
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("too large"));
@@ -787,13 +962,17 @@ mod tests {
         let tool = ReadFileTool;
 
         // Try to read /etc/passwd using path traversal
-        let result = tool.execute(serde_json::json!({
-            "path": "../../../etc/passwd"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": "../../../etc/passwd"
+            }))
+            .await;
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("..") || err_msg.contains("not allowed") || err_msg.contains("denied"));
+        assert!(
+            err_msg.contains("..") || err_msg.contains("not allowed") || err_msg.contains("denied")
+        );
     }
 
     #[tokio::test]
@@ -801,14 +980,18 @@ mod tests {
         let tool = WriteFileTool;
 
         // Try to write to /etc using path traversal
-        let result = tool.execute(serde_json::json!({
-            "path": "../../../etc/malicious.txt",
-            "content": "test"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": "../../../etc/malicious.txt",
+                "content": "test"
+            }))
+            .await;
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("..") || err_msg.contains("not allowed") || err_msg.contains("denied"));
+        assert!(
+            err_msg.contains("..") || err_msg.contains("not allowed") || err_msg.contains("denied")
+        );
     }
 
     #[tokio::test]
@@ -821,9 +1004,11 @@ mod tests {
         std::fs::write(&path, "test content").unwrap();
 
         let tool = ReadFileTool;
-        let result = tool.execute(serde_json::json!({
-            "path": path_str
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "path": path_str
+            }))
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().trim(), "test content");
@@ -841,11 +1026,7 @@ mod tests {
         // These tests may fail if the paths don't exist, which is fine
         // The important thing is that IF they exist, they should be blocked
 
-        let system_paths = vec![
-            "/etc/test",
-            "/bin/test",
-            "/sbin/test",
-        ];
+        let system_paths = vec!["/etc/test", "/bin/test", "/sbin/test"];
 
         for path in system_paths {
             // We expect either "denied" or a canonicalization error
@@ -892,7 +1073,11 @@ mod tests {
             let result = is_safe_url(url);
             assert!(result.is_err(), "Should block private IP URL: {}", url);
             let err_msg = result.unwrap_err().to_string().to_lowercase();
-            assert!(err_msg.contains("private") || err_msg.contains("link-local") || err_msg.contains("not allowed"));
+            assert!(
+                err_msg.contains("private")
+                    || err_msg.contains("link-local")
+                    || err_msg.contains("not allowed")
+            );
         }
     }
 
@@ -928,9 +1113,11 @@ mod tests {
     async fn test_browse_url_blocks_localhost() {
         let tool = BrowseUrlTool::new();
 
-        let result = tool.execute(serde_json::json!({
-            "url": "http://localhost:8080/admin"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "url": "http://localhost:8080/admin"
+            }))
+            .await;
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string().to_lowercase();
@@ -941,9 +1128,11 @@ mod tests {
     async fn test_browse_url_blocks_private_ip() {
         let tool = BrowseUrlTool::new();
 
-        let result = tool.execute(serde_json::json!({
-            "url": "http://192.168.1.1/router"
-        })).await;
+        let result = tool
+            .execute(serde_json::json!({
+                "url": "http://192.168.1.1/router"
+            }))
+            .await;
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string().to_lowercase();

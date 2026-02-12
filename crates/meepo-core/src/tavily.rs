@@ -114,7 +114,11 @@ impl TavilyClient {
             include_answer: true,
         };
 
-        debug!(query = query, max_results = max_results, "Tavily search request");
+        debug!(
+            query = query,
+            max_results = max_results,
+            "Tavily search request"
+        );
 
         let response = self
             .client
@@ -258,12 +262,18 @@ mod tests {
         });
 
         let response: SearchResponse = serde_json::from_value(json).unwrap();
-        assert_eq!(response.answer.as_deref(), Some("Rust is a systems programming language."));
+        assert_eq!(
+            response.answer.as_deref(),
+            Some("Rust is a systems programming language.")
+        );
         assert_eq!(response.query, "what is rust");
         assert_eq!(response.results.len(), 2);
         assert_eq!(response.results[0].title, "Rust Language");
         assert_eq!(response.results[0].url, "https://rust-lang.org");
-        assert_eq!(response.results[0].content.as_deref(), Some("Rust is a multi-paradigm language."));
+        assert_eq!(
+            response.results[0].content.as_deref(),
+            Some("Rust is a multi-paradigm language.")
+        );
         assert!((response.results[0].score - 0.95).abs() < f64::EPSILON);
         assert_eq!(response.results[1].title, "Rust Book");
     }

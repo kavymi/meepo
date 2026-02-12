@@ -4,10 +4,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tantivy::{
-    collector::TopDocs,
-    query::QueryParser,
+    Index, IndexWriter, ReloadPolicy, TantivyDocument, collector::TopDocs, query::QueryParser,
     schema::*,
-    Index, IndexWriter, ReloadPolicy, TantivyDocument,
 };
 use tracing::{debug, info};
 
@@ -155,7 +153,11 @@ impl TantivyIndex {
             });
         }
 
-        debug!("Search for '{}' returned {} results", query_str, results.len());
+        debug!(
+            "Search for '{}' returned {} results",
+            query_str,
+            results.len()
+        );
         Ok(results)
     }
 
@@ -191,7 +193,8 @@ impl TantivyIndex {
                 "{} {} {}",
                 entity.name,
                 entity.entity_type,
-                entity.metadata
+                entity
+                    .metadata
                     .as_ref()
                     .map(|m: &serde_json::Value| m.to_string())
                     .unwrap_or_default()
@@ -201,7 +204,7 @@ impl TantivyIndex {
             doc.add_text(self.id_field, &entity.id);
             doc.add_text(self.content_field, &content);
             doc.add_text(self.entity_type_field, &entity.entity_type);
-            doc.add_text(self.created_at_field, &entity.created_at.to_rfc3339());
+            doc.add_text(self.created_at_field, entity.created_at.to_rfc3339());
 
             writer.add_document(doc)?;
         }
@@ -228,7 +231,8 @@ mod tests {
 
     #[test]
     fn test_index_and_search() -> Result<()> {
-        let temp_path = env::temp_dir().join(format!("test_tantivy_index_{}", uuid::Uuid::new_v4()));
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_index_{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&temp_path);
 
         let index = TantivyIndex::new(&temp_path)?;
@@ -267,7 +271,8 @@ mod tests {
 
     #[test]
     fn test_delete_document() -> Result<()> {
-        let temp_path = env::temp_dir().join(format!("test_tantivy_delete_{}", uuid::Uuid::new_v4()));
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_delete_{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&temp_path);
 
         let index = TantivyIndex::new(&temp_path)?;

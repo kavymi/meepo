@@ -2,24 +2,20 @@
 
 use crate::bus::MessageChannel;
 use crate::rate_limit::RateLimiter;
-use meepo_core::types::{IncomingMessage, MessageKind, OutgoingMessage, ChannelType};
-use serenity::{
-    async_trait,
-    model::prelude::*,
-    prelude::*,
-    model::gateway::Ready,
-    gateway::GatewayError,
-};
-use tokio::sync::mpsc;
-use std::sync::Arc;
-use std::num::NonZeroUsize;
-use std::time::Duration;
+use anyhow::{Result, anyhow};
+use chrono::Utc;
 use dashmap::DashMap;
 use lru::LruCache;
-use anyhow::{Result, anyhow};
-use tracing::{info, error, debug, warn};
-use chrono::Utc;
+use meepo_core::types::{ChannelType, IncomingMessage, MessageKind, OutgoingMessage};
+use serenity::{
+    async_trait, gateway::GatewayError, model::gateway::Ready, model::prelude::*, prelude::*,
+};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::sync::{Mutex, RwLock};
+use tracing::{debug, error, info, warn};
 
 const MAX_MESSAGE_CHANNELS: usize = 1000;
 const MAX_MESSAGE_SIZE: usize = 10_240;
@@ -75,7 +71,10 @@ impl EventHandler for DiscordHandler {
             return;
         }
 
-        debug!("Received DM from user: {} ({})", msg.author.name, msg.author.id);
+        debug!(
+            "Received DM from user: {} ({})",
+            msg.author.name, msg.author.id
+        );
 
         // Check if user is allowed
         let data = ctx.data.read().await;
@@ -93,11 +92,16 @@ impl EventHandler for DiscordHandler {
         }
 
         // Store the channel mapping for replies
-        let user_channel_map = data.get::<UserChannelMap>().expect("UserChannelMap not initialized");
+        let user_channel_map = data
+            .get::<UserChannelMap>()
+            .expect("UserChannelMap not initialized");
         user_channel_map.insert(msg.author.id, msg.channel_id);
 
         // Store message_id -> channel_id mapping for reply tracking (LRU-bounded)
-        let message_channel_map = data.get::<MessageChannelMap>().expect("MessageChannelMap not initialized").clone();
+        let message_channel_map = data
+            .get::<MessageChannelMap>()
+            .expect("MessageChannelMap not initialized")
+            .clone();
         let msg_id = format!("discord_{}", msg.id);
         {
             let mut lru = message_channel_map.lock().await;
@@ -105,7 +109,10 @@ impl EventHandler for DiscordHandler {
         }
 
         // Get the message sender and rate limiter
-        let tx = data.get::<MessageSender>().expect("MessageSender not initialized").clone();
+        let tx = data
+            .get::<MessageSender>()
+            .expect("MessageSender not initialized")
+            .clone();
         let rate_limiter = data.get::<RateLimiterKey>().cloned();
         drop(data); // Release the lock
 
@@ -121,10 +128,10 @@ impl EventHandler for DiscordHandler {
         }
 
         // Check rate limit
-        if let Some(ref limiter) = rate_limiter {
-            if !limiter.check_and_record(&msg.author.id.to_string()) {
-                return;
-            }
+        if let Some(ref limiter) = rate_limiter
+            && !limiter.check_and_record(&msg.author.id.to_string())
+        {
+            return;
         }
 
         // Convert to IncomingMessage
@@ -185,7 +192,8 @@ impl DiscordChannel {
         self.allowed_users
             .iter()
             .map(|id_str| {
-                id_str.parse::<u64>()
+                id_str
+                    .parse::<u64>()
                     .map(UserId::new)
                     .map_err(|e| anyhow!("Invalid Discord user ID '{}': {}", id_str, e))
             })
@@ -245,7 +253,9 @@ impl MessageChannel for DiscordChannel {
                     Err(e) => {
                         if is_fatal_gateway_error(&e) {
                             error!("Discord fatal error (will not retry): {}", e);
-                            error!("Check your DISCORD_BOT_TOKEN and bot settings at https://discord.com/developers/applications");
+                            error!(
+                                "Check your DISCORD_BOT_TOKEN and bot settings at https://discord.com/developers/applications"
+                            );
                             break;
                         }
                         error!("Failed to create Discord client: {}", e);
@@ -284,7 +294,9 @@ impl MessageChannel for DiscordChannel {
                     Err(e) => {
                         if is_fatal_gateway_error(&e) {
                             error!("Discord fatal error (will not retry): {}", e);
-                            error!("Check your DISCORD_BOT_TOKEN and bot settings at https://discord.com/developers/applications");
+                            error!(
+                                "Check your DISCORD_BOT_TOKEN and bot settings at https://discord.com/developers/applications"
+                            );
                             break;
                         }
                         error!("Discord client error: {}", e);
@@ -304,7 +316,8 @@ impl MessageChannel for DiscordChannel {
 
     async fn send(&self, msg: OutgoingMessage) -> Result<()> {
         let http_guard = self.http.read().await;
-        let http = http_guard.as_ref()
+        let http = http_guard
+            .as_ref()
             .ok_or_else(|| anyhow!("Discord channel not started yet"))?;
 
         // Look up channel from reply_to if present
@@ -314,15 +327,24 @@ impl MessageChannel for DiscordChannel {
                 debug!("Found channel from reply_to: {}", reply_to);
                 Some(*channel)
             } else {
-                warn!("reply_to '{}' not found in message tracking, falling back to first available channel", reply_to);
-                self.user_channel_map.iter().next().map(|entry| *entry.value())
+                warn!(
+                    "reply_to '{}' not found in message tracking, falling back to first available channel",
+                    reply_to
+                );
+                self.user_channel_map
+                    .iter()
+                    .next()
+                    .map(|entry| *entry.value())
             }
         } else {
-            self.user_channel_map.iter().next().map(|entry| *entry.value())
+            self.user_channel_map
+                .iter()
+                .next()
+                .map(|entry| *entry.value())
         };
 
-        let channel_id = channel_id
-            .ok_or_else(|| anyhow!("No Discord users have messaged the bot yet"))?;
+        let channel_id =
+            channel_id.ok_or_else(|| anyhow!("No Discord users have messaged the bot yet"))?;
 
         // Handle acknowledgment: show native "is typing..." indicator
         if msg.kind == MessageKind::Acknowledgment {
@@ -335,10 +357,15 @@ impl MessageChannel for DiscordChannel {
 
         // Normal response: send text message
         debug!("Sending Discord message");
-        channel_id.say(http, &msg.content).await
+        channel_id
+            .say(http, &msg.content)
+            .await
             .map_err(|e| anyhow!("Failed to send Discord message: {}", e))?;
 
-        info!("Discord message sent successfully to channel {}", channel_id);
+        info!(
+            "Discord message sent successfully to channel {}",
+            channel_id
+        );
         Ok(())
     }
 
@@ -353,10 +380,7 @@ mod tests {
 
     #[test]
     fn test_discord_creation() {
-        let channel = DiscordChannel::new(
-            "test-token".to_string(),
-            vec!["12345".to_string()],
-        );
+        let channel = DiscordChannel::new("test-token".to_string(), vec!["12345".to_string()]);
         assert!(matches!(channel.channel_type(), ChannelType::Discord));
     }
 
@@ -372,20 +396,14 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_user_id() {
-        let channel = DiscordChannel::new(
-            "token".to_string(),
-            vec!["not-a-number".to_string()],
-        );
+        let channel = DiscordChannel::new("token".to_string(), vec!["not-a-number".to_string()]);
         let result = channel.parse_user_ids();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_empty_user_ids() {
-        let channel = DiscordChannel::new(
-            "token".to_string(),
-            vec![],
-        );
+        let channel = DiscordChannel::new("token".to_string(), vec![]);
         let ids = channel.parse_user_ids().unwrap();
         assert_eq!(ids.len(), 0);
     }

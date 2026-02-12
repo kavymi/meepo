@@ -1,17 +1,17 @@
 //! Claude Code CLI integration tools
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::{Result, Context};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use meepo_knowledge::KnowledgeDb;
-use super::{ToolHandler, json_schema};
 use super::autonomous::BackgroundTaskCommand;
+use super::{ToolHandler, json_schema};
+use meepo_knowledge::KnowledgeDb;
 
 /// Configuration for Claude Code CLI tools, plumbed from [code] config section
 #[derive(Debug, Clone)]
@@ -69,35 +69,43 @@ impl ToolHandler for WriteCodeTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let task = input.get("task")
+        let task = input
+            .get("task")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?;
-        let workspace = input.get("workspace")
+        let workspace = input
+            .get("workspace")
             .and_then(|v| v.as_str())
             .unwrap_or(&self.config.default_workspace);
 
         if task.len() > 50_000 {
-            return Err(anyhow::anyhow!("Task description too long ({} chars, max 50,000)", task.len()));
+            return Err(anyhow::anyhow!(
+                "Task description too long ({} chars, max 50,000)",
+                task.len()
+            ));
         }
 
         // Validate workspace path to prevent operations in arbitrary directories
         let home_dir = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-        let expanded_workspace = if workspace.starts_with("~/") {
-            home_dir.join(&workspace[2..])
+        let expanded_workspace = if let Some(rest) = workspace.strip_prefix("~/") {
+            home_dir.join(rest)
         } else {
             std::path::PathBuf::from(workspace)
         };
-        let canonical_workspace = expanded_workspace.canonicalize()
+        let canonical_workspace = expanded_workspace
+            .canonicalize()
             .with_context(|| format!("Workspace path does not exist: {}", workspace))?;
-        let default_ws = if self.config.default_workspace.starts_with("~/") {
-            home_dir.join(&self.config.default_workspace[2..])
+        let default_ws = if let Some(rest) = self.config.default_workspace.strip_prefix("~/") {
+            home_dir.join(rest)
         } else {
             std::path::PathBuf::from(&self.config.default_workspace)
         };
         let canonical_allowed = default_ws.canonicalize().unwrap_or(default_ws);
 
-        if !canonical_workspace.starts_with(&canonical_allowed) && !canonical_workspace.starts_with(&home_dir) {
+        if !canonical_workspace.starts_with(&canonical_allowed)
+            && !canonical_workspace.starts_with(&home_dir)
+        {
             return Err(anyhow::anyhow!(
                 "Workspace '{}' is outside allowed directories. Must be within home directory or configured workspace.",
                 canonical_workspace.display()
@@ -113,7 +121,7 @@ impl ToolHandler for WriteCodeTool {
                 .arg("--dangerously-skip-permissions")
                 .arg(task)
                 .current_dir(workspace)
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Claude CLI timed out after 5 minutes"))?
@@ -172,20 +180,29 @@ impl ToolHandler for MakePrTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let task = input.get("task")
+        let task = input
+            .get("task")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?;
         if task.len() > 50_000 {
-            return Err(anyhow::anyhow!("Task description too long ({} chars, max 50,000)", task.len()));
+            return Err(anyhow::anyhow!(
+                "Task description too long ({} chars, max 50,000)",
+                task.len()
+            ));
         }
-        let repo = input.get("repo")
+        let repo = input
+            .get("repo")
             .and_then(|v| v.as_str())
             .unwrap_or(&self.config.default_workspace);
-        let branch_name = input.get("branch_name")
+        let branch_name = input
+            .get("branch_name")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| {
-                format!("meepo-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap())
+                format!(
+                    "meepo-{}",
+                    uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+                )
             });
 
         // Validate branch name to prevent git command injection
@@ -195,8 +212,13 @@ impl ToolHandler for MakePrTool {
         if branch_name.starts_with('-') {
             return Err(anyhow::anyhow!("Branch name cannot start with a dash"));
         }
-        if !branch_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '_' || c == '-' || c == '.') {
-            return Err(anyhow::anyhow!("Branch name contains invalid characters. Only alphanumeric, /, _, -, and . are allowed."));
+        if !branch_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '_' || c == '-' || c == '.')
+        {
+            return Err(anyhow::anyhow!(
+                "Branch name contains invalid characters. Only alphanumeric, /, _, -, and . are allowed."
+            ));
         }
 
         debug!("Creating PR in repo: {} with branch: {}", repo, branch_name);
@@ -207,7 +229,7 @@ impl ToolHandler for MakePrTool {
             Command::new("git")
                 .current_dir(repo)
                 .args(["rev-parse", "--abbrev-ref", "HEAD"])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Git command timed out after 60 seconds"))?
@@ -239,25 +261,31 @@ impl ToolHandler for MakePrTool {
                     Command::new("git")
                         .current_dir(&repo_clone)
                         .args(["push", "origin", "--delete", &branch_name_clone])
-                        .output()
-                ).await;
+                        .output(),
+                )
+                .await;
             }
             if branch_created {
-                warn!("Cleaning up: switching back to {} and deleting local branch {}", original_branch_clone, branch_name_clone);
+                warn!(
+                    "Cleaning up: switching back to {} and deleting local branch {}",
+                    original_branch_clone, branch_name_clone
+                );
                 let _ = tokio::time::timeout(
                     Duration::from_secs(60),
                     Command::new("git")
                         .current_dir(&repo_clone)
                         .args(["checkout", &original_branch_clone])
-                        .output()
-                ).await;
+                        .output(),
+                )
+                .await;
                 let _ = tokio::time::timeout(
                     Duration::from_secs(60),
                     Command::new("git")
                         .current_dir(&repo_clone)
                         .args(["branch", "-D", &branch_name_clone])
-                        .output()
-                ).await;
+                        .output(),
+                )
+                .await;
             }
         };
 
@@ -267,7 +295,7 @@ impl ToolHandler for MakePrTool {
             Command::new("git")
                 .current_dir(repo)
                 .args(["checkout", "-b", &branch_name])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Git command timed out after 60 seconds"))?
@@ -287,7 +315,7 @@ impl ToolHandler for MakePrTool {
                 .arg("--dangerously-skip-permissions")
                 .arg(task)
                 .current_dir(repo)
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Claude CLI timed out after 5 minutes"))??;
@@ -304,18 +332,21 @@ impl ToolHandler for MakePrTool {
             Command::new("git")
                 .current_dir(repo)
                 .args(["add", "-A"])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Git command timed out after 60 seconds"))??;
 
-        let commit_msg = format!("feat: {}\n\nCo-Authored-By: meepo <meepo@anthropic.com>", task);
+        let commit_msg = format!(
+            "feat: {}\n\nCo-Authored-By: meepo <meepo@anthropic.com>",
+            task
+        );
         let _commit_result = tokio::time::timeout(
             Duration::from_secs(60),
             Command::new("git")
                 .current_dir(repo)
                 .args(["commit", "-m", &commit_msg])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Git command timed out after 60 seconds"))??;
@@ -326,7 +357,7 @@ impl ToolHandler for MakePrTool {
             Command::new("git")
                 .current_dir(repo)
                 .args(["push", "-u", "origin", &branch_name])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Git command timed out after 60 seconds"))??;
@@ -344,11 +375,14 @@ impl ToolHandler for MakePrTool {
             Command::new(&self.config.gh_path)
                 .current_dir(repo)
                 .args([
-                    "pr", "create",
-                    "--title", task,
-                    "--body", "Automated PR created by meepo agent"
+                    "pr",
+                    "create",
+                    "--title",
+                    task,
+                    "--body",
+                    "Automated PR created by meepo agent",
                 ])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("GitHub CLI timed out after 60 seconds"))??;
@@ -397,13 +431,27 @@ impl ReviewPrTool {
 
                 // Flag potential issues in added lines
                 if line.contains("TODO") || line.contains("FIXME") {
-                    issues.push(format!("TODO/FIXME added in {}: {}", current_file, line.trim()));
+                    issues.push(format!(
+                        "TODO/FIXME added in {}: {}",
+                        current_file,
+                        line.trim()
+                    ));
                 }
-                if line.contains("console.log") || line.contains("println!") && line.contains("debug") {
-                    issues.push(format!("Debug statement in {}: {}", current_file, line.trim()));
+                if line.contains("console.log")
+                    || line.contains("println!") && line.contains("debug")
+                {
+                    issues.push(format!(
+                        "Debug statement in {}: {}",
+                        current_file,
+                        line.trim()
+                    ));
                 }
                 if line.contains("unwrap()") && !line.contains("test") {
-                    issues.push(format!("Potential panic with unwrap() in {}: {}", current_file, line.trim()));
+                    issues.push(format!(
+                        "Potential panic with unwrap() in {}: {}",
+                        current_file,
+                        line.trim()
+                    ));
                 }
             } else if line.starts_with('-') && !line.starts_with("---") {
                 lines_removed += 1;
@@ -412,14 +460,18 @@ impl ReviewPrTool {
 
         // Check for large file changes
         if files_changed > 20 {
-            issues.push(format!("Large PR: {} files changed (consider splitting)", files_changed));
+            issues.push(format!(
+                "Large PR: {} files changed (consider splitting)",
+                files_changed
+            ));
         }
 
         // Build file list string
         let file_list_str = if file_list.is_empty() {
             "No files detected".to_string()
         } else {
-            file_list.iter()
+            file_list
+                .iter()
                 .take(20)
                 .map(|f| format!("  - {}", f))
                 .collect::<Vec<_>>()
@@ -434,7 +486,8 @@ impl ReviewPrTool {
         }
 
         if lines_removed > lines_added * 2 {
-            analysis_parts.push("Significant code deletion detected (potential refactoring)".to_string());
+            analysis_parts
+                .push("Significant code deletion detected (potential refactoring)".to_string());
         }
 
         // Check file types
@@ -449,8 +502,12 @@ impl ReviewPrTool {
             if file.ends_with(".md") || file.contains("doc") {
                 has_docs = true;
             }
-            if file.ends_with(".json") || file.ends_with(".yaml") || file.ends_with(".yml")
-                || file.ends_with(".toml") || file.ends_with(".config") {
+            if file.ends_with(".json")
+                || file.ends_with(".yaml")
+                || file.ends_with(".yml")
+                || file.ends_with(".toml")
+                || file.ends_with(".config")
+            {
                 config_changes = true;
             }
         }
@@ -460,7 +517,8 @@ impl ReviewPrTool {
         }
 
         if config_changes {
-            analysis_parts.push("Configuration files modified - ensure backward compatibility".to_string());
+            analysis_parts
+                .push("Configuration files modified - ensure backward compatibility".to_string());
         }
 
         let detailed_analysis = if analysis_parts.is_empty() && issues.is_empty() {
@@ -468,8 +526,10 @@ impl ReviewPrTool {
         } else {
             let mut parts = analysis_parts;
             if !issues.is_empty() {
-                parts.push(format!("\nPotential Issues:\n{}",
-                    issues.iter()
+                parts.push(format!(
+                    "\nPotential Issues:\n{}",
+                    issues
+                        .iter()
                         .map(|i| format!("  - {}", i))
                         .collect::<Vec<_>>()
                         .join("\n")
@@ -496,7 +556,8 @@ impl ReviewPrTool {
         recommendations.push("Verify all CI/CD checks pass");
         recommendations.push("Ensure code follows project style guidelines");
 
-        let recommendations_str = recommendations.iter()
+        let recommendations_str = recommendations
+            .iter()
             .map(|r| format!("- {}", r))
             .collect::<Vec<_>>()
             .join("\n");
@@ -539,10 +600,12 @@ impl ToolHandler for ReviewPrTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let repo = input.get("repo")
+        let repo = input
+            .get("repo")
             .and_then(|v| v.as_str())
             .unwrap_or(&self.config.default_workspace);
-        let pr_number = input.get("pr_number")
+        let pr_number = input
+            .get("pr_number")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow::anyhow!("Missing 'pr_number' parameter"))?;
 
@@ -554,7 +617,7 @@ impl ToolHandler for ReviewPrTool {
             Command::new(&self.config.gh_path)
                 .current_dir(repo)
                 .args(["pr", "view", &pr_number.to_string()])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("GitHub CLI timed out after 60 seconds"))?
@@ -572,7 +635,7 @@ impl ToolHandler for ReviewPrTool {
             Command::new(&self.config.gh_path)
                 .current_dir(repo)
                 .args(["pr", "diff", &pr_number.to_string()])
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("GitHub CLI timed out after 60 seconds"))?
@@ -625,7 +688,11 @@ impl SpawnClaudeCodeTool {
         db: Arc<KnowledgeDb>,
         command_tx: mpsc::Sender<BackgroundTaskCommand>,
     ) -> Self {
-        Self { config, db, command_tx }
+        Self {
+            config,
+            db,
+            command_tx,
+        }
     }
 }
 
@@ -662,38 +729,50 @@ impl ToolHandler for SpawnClaudeCodeTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let task = input.get("task")
+        let task = input
+            .get("task")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?;
-        let workspace = input.get("workspace")
+        let workspace = input
+            .get("workspace")
             .and_then(|v| v.as_str())
             .unwrap_or(&self.config.default_workspace);
-        let reply_channel = input.get("reply_channel")
+        let reply_channel = input
+            .get("reply_channel")
             .and_then(|v| v.as_str())
             .unwrap_or("internal");
 
         if task.len() > 50_000 {
-            return Err(anyhow::anyhow!("Task description too long ({} chars, max 50,000)", task.len()));
+            return Err(anyhow::anyhow!(
+                "Task description too long ({} chars, max 50,000)",
+                task.len()
+            ));
         }
 
         let task_id = format!("t-{}", uuid::Uuid::new_v4());
         let description = format!("Claude Code: {}", &task[..task.len().min(100)]);
 
-        debug!("Spawning Claude Code background task {}: {}", task_id, description);
+        debug!(
+            "Spawning Claude Code background task {}: {}",
+            task_id, description
+        );
 
         // Store in database
-        self.db.insert_background_task(&task_id, &description, reply_channel, "agent").await
+        self.db
+            .insert_background_task(&task_id, &description, reply_channel, "agent")
+            .await
             .context("Failed to create background task in database")?;
 
         // Send spawn command to main loop
-        self.command_tx.send(BackgroundTaskCommand::SpawnClaudeCode {
-            id: task_id.clone(),
-            task: task.to_string(),
-            workspace: workspace.to_string(),
-            reply_channel: reply_channel.to_string(),
-        })
-        .await
-        .context("Failed to send background task command")?;
+        self.command_tx
+            .send(BackgroundTaskCommand::SpawnClaudeCode {
+                id: task_id.clone(),
+                task: task.to_string(),
+                workspace: workspace.to_string(),
+                reply_channel: reply_channel.to_string(),
+            })
+            .await
+            .context("Failed to send background task command")?;
 
         Ok(format!(
             "Spawned Claude Code agent [{}] in workspace '{}'. \
@@ -737,8 +816,12 @@ mod tests {
         assert_eq!(tool.name(), "make_pr");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
         assert!(required.contains(&"task".to_string()));
     }
 
@@ -779,8 +862,12 @@ mod tests {
 
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([]))
-        ).unwrap_or_default();
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
 
         assert!(required.contains(&"pr_number".to_string()));
 
@@ -826,7 +913,10 @@ index abc123..def456 100644
 "#;
 
         let analysis = ReviewPrTool::analyze_diff(diff).unwrap();
-        assert!(analysis.detailed_analysis.contains("TODO") || analysis.detailed_analysis.contains("unwrap"));
+        assert!(
+            analysis.detailed_analysis.contains("TODO")
+                || analysis.detailed_analysis.contains("unwrap")
+        );
     }
 
     #[test]

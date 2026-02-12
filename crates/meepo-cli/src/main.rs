@@ -1,10 +1,10 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 mod config;
@@ -100,11 +100,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Set up logging
-    let filter = if cli.debug {
-        "debug"
-    } else {
-        "info"
-    };
+    let filter = if cli.debug { "debug" } else { "info" };
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(filter))
         .init();
@@ -162,22 +158,47 @@ async fn cmd_init() -> Result<()> {
 }
 
 async fn cmd_setup() -> Result<()> {
-    use std::io::{self, Write, BufRead};
+    use std::io::{self, BufRead, Write};
 
-    println!("\n  Meepo Setup\n  ───────────\n");
+    let total_steps = if cfg!(target_os = "macos") { 7 } else { 5 };
 
-    // Step 1: Init config
+    println!();
+    println!("  ╔══════════════════════════════════════╗");
+    println!("  ║         Meepo Setup Wizard           ║");
+    println!("  ╚══════════════════════════════════════╝");
+    println!();
+    println!("  This wizard will walk you through everything:");
+    println!("    • API keys (Anthropic, Tavily)");
+    println!("    • macOS permissions (Accessibility, Full Disk Access, etc.)");
+    println!("    • Feature selection (iMessage, email, browser, etc.)");
+    println!("    • Verify everything works");
+    println!();
+
+    // ── Step 1: Init config ─────────────────────────────────────
+    setup_step(1, total_steps, "Initialize config files");
     cmd_init().await?;
     let config_dir = config::config_dir();
     let config_path = config_dir.join("config.toml");
+    println!("  ✓ Config directory ready\n");
 
-    // Step 2: Anthropic API key
-    println!("\n  Anthropic API Key (required)");
-    println!("  Get one at: https://console.anthropic.com/settings/keys\n");
+    // ── Step 2: Anthropic API key ───────────────────────────────
+    setup_step(2, total_steps, "Anthropic API Key (required)");
+    println!("  Meepo needs an Anthropic API key to talk to Claude.");
+    println!();
+    println!("  How to get one:");
+    println!("    1. Go to https://console.anthropic.com/settings/keys");
+    println!("    2. Click \"Create Key\"");
+    println!("    3. Copy the key (starts with sk-ant-...)");
+    println!();
 
     let api_key = if let Ok(existing) = std::env::var("ANTHROPIC_API_KEY") {
         if !existing.is_empty() && existing.starts_with("sk-ant-") {
-            println!("  Found ANTHROPIC_API_KEY in environment.");
+            println!("  ✓ Found ANTHROPIC_API_KEY in environment.");
+            println!(
+                "    Using existing key: {}...{}",
+                &existing[..10],
+                &existing[existing.len() - 4..]
+            );
             existing
         } else {
             prompt_api_key()?
@@ -186,24 +207,37 @@ async fn cmd_setup() -> Result<()> {
         prompt_api_key()?
     };
 
-    // Step 3: Write API key to shell RC
+    // Write API key to shell RC
     let shell_rc = detect_shell_rc();
     if let Some(rc_path) = &shell_rc {
         let rc_content = std::fs::read_to_string(rc_path).unwrap_or_default();
         if !rc_content.contains("ANTHROPIC_API_KEY") {
             let mut file = std::fs::OpenOptions::new().append(true).open(rc_path)?;
             writeln!(file, "\nexport ANTHROPIC_API_KEY=\"{}\"", api_key)?;
-            println!("  Saved to {}", rc_path.display());
+            println!("  ✓ Saved to {}", rc_path.display());
+        } else {
+            println!("  ✓ Already in {}", rc_path.display());
         }
     } else {
-        println!("  Could not detect shell (SHELL={:?}).", std::env::var("SHELL").unwrap_or_default());
+        println!(
+            "  ⚠ Could not detect shell (SHELL={:?}).",
+            std::env::var("SHELL").unwrap_or_default()
+        );
         println!("  Add this to your shell profile manually:");
         println!("    export ANTHROPIC_API_KEY=\"{}\"", api_key);
     }
+    println!();
 
-    // Step 4: Optional Tavily key
-    println!("\n  Tavily API Key (optional — enables web search)");
-    println!("  Get one at: https://app.tavily.com/home");
+    // ── Step 3: Optional Tavily key ─────────────────────────────
+    setup_step(3, total_steps, "Tavily API Key (optional — web search)");
+    println!("  Tavily gives Meepo the ability to search the web.");
+    println!("  Free tier available — no credit card needed.");
+    println!();
+    println!("  How to get one:");
+    println!("    1. Go to https://app.tavily.com/home");
+    println!("    2. Sign up / log in");
+    println!("    3. Copy your API key (starts with tvly-...)");
+    println!();
     println!("  Press Enter to skip.\n");
 
     print!("  API key: ");
@@ -220,40 +254,304 @@ async fn cmd_setup() -> Result<()> {
                 writeln!(file, "export TAVILY_API_KEY=\"{}\"", tavily_key)?;
             }
         }
-        println!("  Saved.");
+        println!("  ✓ Saved.\n");
     } else {
-        println!("  Skipped — web_search tool won't be available.");
+        println!("  Skipped — web_search tool won't be available.\n");
     }
 
-    // Step 5: Verify
-    println!("\n  Verifying API connection...");
+    // ── Step 4: macOS Permissions (macOS only) ──────────────────
+    #[cfg(target_os = "macos")]
+    {
+        setup_step(4, total_steps, "macOS Permissions");
+        println!("  Meepo uses macOS APIs for email, calendar, screen reading,");
+        println!("  iMessage, and browser automation. Each requires a permission");
+        println!("  grant in System Settings.");
+        println!();
+
+        let terminal_app = detect_terminal_app();
+        println!("  Detected terminal: {}", terminal_app);
+        println!();
+
+        // ── 4a: Accessibility ───────────────────────────────────
+        setup_substep(
+            "4a",
+            "Accessibility (for UI automation: click_element, type_text, read_screen)",
+        );
+        println!("  This lets Meepo read and interact with UI elements on screen.");
+        println!();
+
+        let accessibility_ok = check_accessibility();
+        if accessibility_ok {
+            println!("  ✓ Accessibility access already granted.\n");
+        } else {
+            println!("  ✗ Accessibility access not granted yet.");
+            println!();
+            println!("  I'll open System Settings for you now.");
+            println!("  In the window that opens:");
+            println!("    1. Click the \"+\" button");
+            println!("    2. Find and add \"{}\"", terminal_app);
+            println!("    3. Make sure the toggle is ON");
+            println!();
+            print!("  Press Enter to open System Settings → Accessibility...");
+            io::stdout().flush()?;
+            wait_for_enter()?;
+            let _ = std::process::Command::new("open")
+                .arg(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                )
+                .spawn();
+            println!();
+            print!("  Done? Press Enter to continue (or 's' to skip)...");
+            io::stdout().flush()?;
+            let skipped = wait_for_enter_or_skip()?;
+            if skipped {
+                println!("  Skipped — UI automation tools won't work until granted.\n");
+            } else {
+                println!("  ✓ Great!\n");
+            }
+        }
+
+        // ── 4b: Full Disk Access ────────────────────────────────
+        setup_substep(
+            "4b",
+            "Full Disk Access (for iMessage channel — reads chat.db)",
+        );
+        println!("  Required if you want Meepo to read/reply to iMessages.");
+        println!("  This grants read access to ~/Library/Messages/chat.db.");
+        println!();
+
+        let fda_ok = check_full_disk_access();
+        if fda_ok {
+            println!("  ✓ Full Disk Access already granted.\n");
+        } else {
+            println!("  ✗ Full Disk Access not granted yet.");
+            println!();
+            println!("  I'll open System Settings for you now.");
+            println!("  In the window that opens:");
+            println!("    1. Click the \"+\" button");
+            println!("    2. Find and add \"{}\"", terminal_app);
+            println!("    3. Make sure the toggle is ON");
+            println!("    4. You may need to restart your terminal after granting");
+            println!();
+            print!("  Press Enter to open System Settings → Full Disk Access...");
+            io::stdout().flush()?;
+            wait_for_enter()?;
+            let _ = std::process::Command::new("open")
+                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+                .spawn();
+            println!();
+            print!("  Done? Press Enter to continue (or 's' to skip)...");
+            io::stdout().flush()?;
+            let skipped = wait_for_enter_or_skip()?;
+            if skipped {
+                println!("  Skipped — iMessage channel won't work until granted.\n");
+            } else {
+                println!("  ✓ Great!\n");
+            }
+        }
+
+        // ── 4c: Automation ──────────────────────────────────────
+        setup_substep(
+            "4c",
+            "Automation (for Mail, Calendar, Reminders, Notes, Messages, Music)",
+        );
+        println!("  Meepo uses AppleScript to control macOS apps.");
+        println!("  macOS will prompt you automatically the first time Meepo");
+        println!("  tries to control each app. You can also pre-grant here.");
+        println!();
+        println!("  I'll open System Settings for you now.");
+        println!("  In the window that opens:");
+        println!("    1. Find \"{}\" in the list", terminal_app);
+        println!("    2. Enable toggles for: Mail, Calendar, Reminders,");
+        println!("       Notes, Messages, System Events, Music");
+        println!(
+            "    3. If \"{}\" isn't listed yet, that's OK —",
+            terminal_app
+        );
+        println!("       macOS will prompt you on first use");
+        println!();
+        print!("  Press Enter to open System Settings → Automation...");
+        io::stdout().flush()?;
+        wait_for_enter()?;
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+            .spawn();
+        println!();
+        print!("  Done? Press Enter to continue (or 's' to skip)...");
+        io::stdout().flush()?;
+        let _ = wait_for_enter_or_skip()?;
+        println!();
+
+        // ── 4d: Screen Recording ────────────────────────────────
+        setup_substep("4d", "Screen Recording (for screen_capture tool)");
+        println!("  Required if you want Meepo to take screenshots.");
+        println!();
+        println!("  I'll open System Settings for you now.");
+        println!("  In the window that opens:");
+        println!("    1. Click the \"+\" button");
+        println!("    2. Find and add \"{}\"", terminal_app);
+        println!("    3. Make sure the toggle is ON");
+        println!();
+        print!("  Press Enter to open System Settings → Screen Recording...");
+        io::stdout().flush()?;
+        wait_for_enter()?;
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .spawn();
+        println!();
+        print!("  Done? Press Enter to continue (or 's' to skip)...");
+        io::stdout().flush()?;
+        let _ = wait_for_enter_or_skip()?;
+        println!();
+    }
+
+    // ── Step 5: Feature selection ───────────────────────────────
+    let feature_step = if cfg!(target_os = "macos") { 5 } else { 4 };
+    setup_step(feature_step, total_steps, "Feature Selection");
+    println!("  Let's enable the features you want. Answer y/n for each.\n");
+
+    // iMessage
+    #[cfg(target_os = "macos")]
+    {
+        print!("  Enable iMessage channel? (talk to Meepo via iMessage) [y/N]: ");
+        io::stdout().flush()?;
+        if prompt_yes_no()? {
+            println!("  Enter your phone number or iCloud email for allowed_contacts.");
+            println!("  Example: +15551234567 or me@icloud.com");
+            print!("  Contact: ");
+            io::stdout().flush()?;
+            let mut contact = String::new();
+            io::stdin().lock().read_line(&mut contact)?;
+            let contact = contact.trim().to_string();
+            if !contact.is_empty() {
+                update_config_value(&config_path, "channels.imessage", "enabled", "true")?;
+                update_config_array(
+                    &config_path,
+                    "channels.imessage",
+                    "allowed_contacts",
+                    &[&contact],
+                )?;
+                println!("  ✓ iMessage enabled with contact: {}", contact);
+            } else {
+                println!("  Skipped — no contact provided.");
+            }
+        }
+        println!();
+    }
+
+    // Email channel
+    #[cfg(target_os = "macos")]
+    {
+        print!("  Enable Email channel? (talk to Meepo via Mail.app) [y/N]: ");
+        io::stdout().flush()?;
+        if prompt_yes_no()? {
+            update_config_value(&config_path, "channels.email", "enabled", "true")?;
+            println!(
+                "  ✓ Email channel enabled. Send emails with subject starting with \"[meepo]\""
+            );
+        }
+        println!();
+    }
+
+    // Browser automation
+    #[cfg(target_os = "macos")]
+    {
+        print!("  Enable browser automation? (Safari/Chrome control) [Y/n]: ");
+        io::stdout().flush()?;
+        let mut answer = String::new();
+        io::stdin().lock().read_line(&mut answer)?;
+        let answer = answer.trim().to_lowercase();
+        if answer == "n" || answer == "no" {
+            update_config_value(&config_path, "browser", "enabled", "false")?;
+            println!("  Browser automation disabled.");
+        } else {
+            println!("  ✓ Browser automation enabled (Safari by default).");
+            println!();
+            println!("  ┌─ Safari Setup ─────────────────────────────────────┐");
+            println!("  │ Safari needs one extra setting for JS automation:  │");
+            println!("  │                                                    │");
+            println!("  │  1. Open Safari                                    │");
+            println!("  │  2. Safari → Settings → Advanced                   │");
+            println!("  │  3. Check \"Show features for web developers\"       │");
+            println!("  │  4. Close Settings                                 │");
+            println!("  │  5. Develop menu → Allow JavaScript from           │");
+            println!("  │     Apple Events (check it)                        │");
+            println!("  └────────────────────────────────────────────────────┘");
+            println!();
+            print!("  Want me to open Safari now so you can do this? [y/N]: ");
+            io::stdout().flush()?;
+            if prompt_yes_no()? {
+                let _ = std::process::Command::new("open")
+                    .arg("-a")
+                    .arg("Safari")
+                    .spawn();
+                print!("  Press Enter when done...");
+                io::stdout().flush()?;
+                wait_for_enter()?;
+            }
+        }
+        println!();
+    }
+
+    // Notifications
+    print!("  Enable proactive notifications? (Meepo messages you about tasks) [y/N]: ");
+    io::stdout().flush()?;
+    if prompt_yes_no()? {
+        update_config_value(&config_path, "notifications", "enabled", "true")?;
+        println!("  ✓ Notifications enabled (via iMessage by default).");
+    }
+    println!();
+
+    // ── Step 6: Safari JS / Browser verification (macOS) ────────
+    #[cfg(target_os = "macos")]
+    {
+        let verify_step = 6;
+        setup_step(verify_step, total_steps, "Verify API Connection");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let verify_step = feature_step + 1;
+        setup_step(verify_step, total_steps, "Verify API Connection");
+    }
+
+    println!("  Testing connection to Anthropic API...\n");
     let cfg = MeepoConfig::load(&None)?;
-    let api = meepo_core::api::ApiClient::new(
-        api_key,
-        Some(cfg.agent.default_model.clone()),
-    );
+    let api =
+        meepo_core::api::ApiClient::new(api_key.clone(), Some(cfg.agent.default_model.clone()));
     let api_ok = match tokio::time::timeout(
         std::time::Duration::from_secs(15),
         api.chat(
             &[meepo_core::api::ApiMessage {
                 role: "user".to_string(),
-                content: meepo_core::api::MessageContent::Text("Say 'hello' in one word.".to_string()),
+                content: meepo_core::api::MessageContent::Text(
+                    "Say 'hello' in one word.".to_string(),
+                ),
             }],
             &[],
             "You are a helpful assistant.",
         ),
-    ).await {
+    )
+    .await
+    {
         Ok(Ok(response)) => {
-            let text: String = response.content.iter()
-                .filter_map(|b| if let meepo_core::api::ContentBlock::Text { text } = b { Some(text.as_str()) } else { None })
+            let text: String = response
+                .content
+                .iter()
+                .filter_map(|b| {
+                    if let meepo_core::api::ContentBlock::Text { text } = b {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
-            println!("  Response: {}", text.trim());
-            println!("  API connection works!\n");
+            println!("  Claude says: {}", text.trim());
+            println!("  ✓ API connection works!\n");
             true
         }
         Ok(Err(e)) => {
             let err_str = e.to_string();
-            eprintln!("  API test failed: {}", err_str);
+            eprintln!("  ✗ API test failed: {}", err_str);
             if err_str.contains("401") || err_str.contains("auth") || err_str.contains("invalid") {
                 eprintln!("  Your API key may be incorrect or expired.");
             }
@@ -261,34 +559,211 @@ async fn cmd_setup() -> Result<()> {
             false
         }
         Err(_) => {
-            eprintln!("  API test timed out (>15s).");
+            eprintln!("  ✗ API test timed out (>15s).");
             eprintln!("  Check your internet connection.\n");
             false
         }
     };
 
-    // Summary
-    if api_ok {
-        println!("  Setup complete!");
-    } else {
-        println!("  Setup complete (API verification failed — check your key).");
-    }
-    println!("  ─────────────");
-    println!("  Config:  {}", config_path.display());
-    println!("  Soul:    {}", config_dir.join("workspace/SOUL.md").display());
-    println!("  Memory:  {}", config_dir.join("workspace/MEMORY.md").display());
+    // ── Final Step: Summary ─────────────────────────────────────
+    setup_step(total_steps, total_steps, "All Done!");
     println!();
-    println!("  Next steps:");
+    if api_ok {
+        println!("  ╔══════════════════════════════════════╗");
+        println!("  ║       ✓ Setup complete!              ║");
+        println!("  ╚══════════════════════════════════════╝");
+    } else {
+        println!("  ╔══════════════════════════════════════╗");
+        println!("  ║  ⚠ Setup complete (API check failed) ║");
+        println!("  ╚══════════════════════════════════════╝");
+    }
+    println!();
+    println!("  Files created:");
+    println!("    Config:  {}", config_path.display());
+    println!(
+        "    Soul:    {}",
+        config_dir.join("workspace/SOUL.md").display()
+    );
+    println!(
+        "    Memory:  {}",
+        config_dir.join("workspace/MEMORY.md").display()
+    );
+    println!();
+    println!("  Quick start:");
     println!("    meepo start          # start the daemon");
     println!("    meepo ask \"Hello\"    # one-shot question");
-    println!("    nano {}  # enable channels", config_path.display());
     println!();
+    println!("  Customize further:");
+    println!("    nano {}  # edit config", config_path.display());
+    println!("    meepo template list  # browse agent templates");
+    println!();
+    #[cfg(target_os = "macos")]
+    {
+        println!("  Permissions recap:");
+        println!("    If a tool fails with a permission error, re-run:");
+        println!("      meepo setup");
+        println!("    Or open System Settings → Privacy & Security manually.");
+        println!();
+    }
 
     Ok(())
 }
 
+// ── Setup wizard helpers ────────────────────────────────────────
+
+fn setup_step(current: usize, total: usize, title: &str) {
+    println!("  ── Step {}/{}: {} ──", current, total, title);
+    println!();
+}
+
+fn setup_substep(label: &str, title: &str) {
+    println!("    ┌── {} ──┐", label);
+    println!("    {} ", title);
+    println!();
+}
+
+fn wait_for_enter() -> Result<()> {
+    use std::io::{self, BufRead};
+    let mut buf = String::new();
+    io::stdin().lock().read_line(&mut buf)?;
+    Ok(())
+}
+
+fn wait_for_enter_or_skip() -> Result<bool> {
+    use std::io::{self, BufRead};
+    let mut buf = String::new();
+    io::stdin().lock().read_line(&mut buf)?;
+    Ok(buf.trim().eq_ignore_ascii_case("s"))
+}
+
+fn prompt_yes_no() -> Result<bool> {
+    use std::io::{self, BufRead};
+    let mut answer = String::new();
+    io::stdin().lock().read_line(&mut answer)?;
+    let answer = answer.trim().to_lowercase();
+    Ok(answer == "y" || answer == "yes")
+}
+
+/// Detect which terminal app the user is running (for permission guidance)
+fn detect_terminal_app() -> String {
+    // Check TERM_PROGRAM first (set by most modern terminals)
+    if let Ok(term) = std::env::var("TERM_PROGRAM") {
+        return match term.as_str() {
+            "iTerm.app" => "iTerm".to_string(),
+            "Apple_Terminal" => "Terminal".to_string(),
+            "WarpTerminal" => "Warp".to_string(),
+            "vscode" => "Visual Studio Code".to_string(),
+            "Hyper" => "Hyper".to_string(),
+            "Alacritty" => "Alacritty".to_string(),
+            "kitty" => "kitty".to_string(),
+            "WezTerm" => "WezTerm".to_string(),
+            "ghostty" => "Ghostty".to_string(),
+            "windsurf" => "Windsurf".to_string(),
+            "cursor" => "Cursor".to_string(),
+            other => other.to_string(),
+        };
+    }
+    "Terminal".to_string()
+}
+
+/// Check if Accessibility access is granted (macOS only)
+#[cfg(target_os = "macos")]
+fn check_accessibility() -> bool {
+    // Use the macOS AXIsProcessTrusted() API via osascript as a proxy
+    // A simple test: try to get the frontmost app name via System Events
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to get name of first process whose frontmost is true")
+        .output();
+    match output {
+        Ok(o) => o.status.success(),
+        Err(_) => false,
+    }
+}
+
+/// Check if Full Disk Access is likely granted (macOS only)
+#[cfg(target_os = "macos")]
+fn check_full_disk_access() -> bool {
+    // Try to read the iMessage database — if we can, FDA is granted
+    let home = dirs::home_dir().unwrap_or_default();
+    let chat_db = home.join("Library/Messages/chat.db");
+    if !chat_db.exists() {
+        // If the file doesn't exist, we can't test — assume not needed
+        return true;
+    }
+    std::fs::metadata(&chat_db)
+        .and_then(|_| std::fs::File::open(&chat_db))
+        .is_ok()
+}
+
+/// Update a single value in the TOML config file
+fn update_config_value(
+    config_path: &std::path::Path,
+    section: &str,
+    key: &str,
+    value: &str,
+) -> Result<()> {
+    let content = std::fs::read_to_string(config_path)?;
+    let section_header = format!("[{}]", section);
+
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut in_section = false;
+    let mut found = false;
+
+    for line in lines.iter_mut() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_section =
+                trimmed == section_header || trimmed.starts_with(&format!("[{}]", section));
+        }
+        if in_section
+            && (trimmed.starts_with(&format!("{} ", key))
+                || trimmed.starts_with(&format!("{}=", key)))
+        {
+            *line = format!("{} = {}", key, value);
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        // If key not found in section, find section and append
+        let mut insert_idx = None;
+        let mut in_target = false;
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed == section_header {
+                in_target = true;
+                continue;
+            }
+            if in_target && (trimmed.starts_with('[') || i == lines.len() - 1) {
+                insert_idx = Some(i);
+                break;
+            }
+        }
+        if let Some(idx) = insert_idx {
+            lines.insert(idx, format!("{} = {}", key, value));
+        }
+    }
+
+    std::fs::write(config_path, lines.join("\n") + "\n")?;
+    Ok(())
+}
+
+/// Update an array value in the TOML config file
+fn update_config_array(
+    config_path: &std::path::Path,
+    section: &str,
+    key: &str,
+    values: &[&str],
+) -> Result<()> {
+    let formatted: Vec<String> = values.iter().map(|v| format!("\"{}\"", v)).collect();
+    let array_str = format!("[{}]", formatted.join(", "));
+    update_config_value(config_path, section, key, &array_str)
+}
+
 fn prompt_api_key() -> Result<String> {
-    use std::io::{self, Write, BufRead};
+    use std::io::{self, BufRead, Write};
     loop {
         print!("  API key (sk-ant-...): ");
         io::stdout().flush()?;
@@ -299,7 +774,9 @@ fn prompt_api_key() -> Result<String> {
             return Ok(key);
         }
         if key.is_empty() {
-            anyhow::bail!("API key is required. Get one at https://console.anthropic.com/settings/keys");
+            anyhow::bail!(
+                "API key is required. Get one at https://console.anthropic.com/settings/keys"
+            );
         }
         println!("  Key should start with 'sk-ant-'. Try again.");
     }
@@ -313,7 +790,11 @@ fn detect_shell_rc() -> Option<PathBuf> {
     } else if shell.contains("bash") {
         let bashrc = home.join(".bashrc");
         let profile = home.join(".bash_profile");
-        if profile.exists() { Some(profile) } else { Some(bashrc) }
+        if profile.exists() {
+            Some(profile)
+        } else {
+            Some(bashrc)
+        }
     } else {
         None
     }
@@ -351,11 +832,15 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
 
     // Load SOUL and MEMORY
     let workspace = shellexpand(&cfg.memory.workspace);
-    let soul = meepo_knowledge::load_soul(&workspace.join(&cfg.agent.system_prompt_file))
+    let soul = meepo_knowledge::load_soul(workspace.join(&cfg.agent.system_prompt_file))
         .unwrap_or_else(|_| "You are Meepo, a helpful AI assistant.".to_string());
-    let memory = meepo_knowledge::load_memory(&workspace.join(&cfg.agent.memory_file))
-        .unwrap_or_default();
-    info!("Loaded SOUL ({} chars) and MEMORY ({} chars)", soul.len(), memory.len());
+    let memory =
+        meepo_knowledge::load_memory(workspace.join(&cfg.agent.memory_file)).unwrap_or_default();
+    info!(
+        "Loaded SOUL ({} chars) and MEMORY ({} chars)",
+        soul.len(),
+        memory.len()
+    );
 
     // Initialize API client
     let api_key = shellexpand_str(&cfg.providers.anthropic.api_key);
@@ -370,15 +855,18 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         );
     }
     let base_url = shellexpand_str(&cfg.providers.anthropic.base_url);
-    let api = meepo_core::api::ApiClient::new(
-        api_key,
-        Some(cfg.agent.default_model.clone()),
-    ).with_max_tokens(cfg.agent.max_tokens)
-     .with_base_url(base_url);
-    info!("Anthropic API client initialized (model: {})", cfg.agent.default_model);
+    let api = meepo_core::api::ApiClient::new(api_key, Some(cfg.agent.default_model.clone()))
+        .with_max_tokens(cfg.agent.max_tokens)
+        .with_base_url(base_url);
+    info!(
+        "Anthropic API client initialized (model: {})",
+        cfg.agent.default_model
+    );
 
     // Initialize Tavily client (optional — web search works only if API key is set)
-    let tavily_client = cfg.providers.tavily
+    let tavily_client = cfg
+        .providers
+        .tavily
         .as_ref()
         .map(|t| shellexpand_str(&t.api_key))
         .filter(|key| !key.is_empty())
@@ -391,10 +879,12 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     }
 
     // Initialize watcher command channel (needed for tool registration)
-    let (watcher_command_tx, mut watcher_command_rx) = tokio::sync::mpsc::channel::<meepo_core::tools::watchers::WatcherCommand>(100);
+    let (watcher_command_tx, mut watcher_command_rx) =
+        tokio::sync::mpsc::channel::<meepo_core::tools::watchers::WatcherCommand>(100);
 
     // Initialize background task command channel
-    let (bg_task_tx, mut bg_task_rx) = tokio::sync::mpsc::channel::<meepo_core::tools::autonomous::BackgroundTaskCommand>(100);
+    let (bg_task_tx, mut bg_task_rx) =
+        tokio::sync::mpsc::channel::<meepo_core::tools::autonomous::BackgroundTaskCommand>(100);
 
     // Build tool registry
     let mut registry = meepo_core::tools::ToolRegistry::new();
@@ -405,9 +895,15 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         registry.register(Arc::new(meepo_core::tools::macos::ReadCalendarTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::SendEmailTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::CreateEventTool::new()));
-        registry.register(Arc::new(meepo_core::tools::accessibility::ReadScreenTool::new()));
-        registry.register(Arc::new(meepo_core::tools::accessibility::ClickElementTool::new()));
-        registry.register(Arc::new(meepo_core::tools::accessibility::TypeTextTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::accessibility::ReadScreenTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::accessibility::ClickElementTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::accessibility::TypeTextTool::new(),
+        ));
     }
     // Clipboard and app launcher are cross-platform (arboard + open crates)
     registry.register(Arc::new(meepo_core::tools::macos::OpenAppTool::new()));
@@ -419,9 +915,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         registry.register(Arc::new(meepo_core::tools::macos::CreateReminderTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::ListNotesTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::CreateNoteTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos::SendNotificationTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos::SendNotificationTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos::ScreenCaptureTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos::GetCurrentTrackTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos::GetCurrentTrackTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos::MusicControlTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
     }
@@ -429,17 +929,39 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     #[cfg(target_os = "macos")]
     if cfg.browser.enabled {
         let browser = &cfg.browser.default_browser;
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserListTabsTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserOpenTabTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserCloseTabTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserSwitchTabTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserGetPageContentTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserExecuteJsTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserClickElementTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserFillFormTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserNavigateTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserGetUrlTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserScreenshotTool::new(browser)));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserListTabsTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserOpenTabTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserCloseTabTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserSwitchTabTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserGetPageContentTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserExecuteJsTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserClickElementTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserFillFormTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserNavigateTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserGetUrlTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserScreenshotTool::new(browser),
+        ));
         info!("Registered browser tools (browser: {})", browser);
     }
     let code_config = meepo_core::tools::code::CodeToolConfig {
@@ -447,17 +969,33 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         gh_path: shellexpand_str(&cfg.code.gh_path),
         default_workspace: shellexpand_str(&cfg.code.default_workspace),
     };
-    registry.register(Arc::new(meepo_core::tools::code::WriteCodeTool::new(code_config.clone())));
-    registry.register(Arc::new(meepo_core::tools::code::MakePrTool::new(code_config.clone())));
-    registry.register(Arc::new(meepo_core::tools::code::ReviewPrTool::new(code_config.clone())));
-    registry.register(Arc::new(meepo_core::tools::code::SpawnClaudeCodeTool::new(
-        code_config.clone(), db.clone(), bg_task_tx.clone(),
+    registry.register(Arc::new(meepo_core::tools::code::WriteCodeTool::new(
+        code_config.clone(),
     )));
-    registry.register(Arc::new(meepo_core::tools::memory::RememberTool::new(db.clone())));
-    registry.register(Arc::new(meepo_core::tools::memory::RecallTool::new(db.clone())));
+    registry.register(Arc::new(meepo_core::tools::code::MakePrTool::new(
+        code_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::code::ReviewPrTool::new(
+        code_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::code::SpawnClaudeCodeTool::new(
+        code_config.clone(),
+        db.clone(),
+        bg_task_tx.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::memory::RememberTool::new(
+        db.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::memory::RecallTool::new(
+        db.clone(),
+    )));
     // Use KnowledgeGraph for SearchKnowledgeTool to enable Tantivy full-text search
-    registry.register(Arc::new(meepo_core::tools::memory::SearchKnowledgeTool::with_graph(knowledge_graph.clone())));
-    registry.register(Arc::new(meepo_core::tools::memory::LinkEntitiesTool::new(db.clone())));
+    registry.register(Arc::new(
+        meepo_core::tools::memory::SearchKnowledgeTool::with_graph(knowledge_graph.clone()),
+    ));
+    registry.register(Arc::new(meepo_core::tools::memory::LinkEntitiesTool::new(
+        db.clone(),
+    )));
     registry.register(Arc::new(meepo_core::tools::system::RunCommandTool));
     registry.register(Arc::new(meepo_core::tools::system::ReadFileTool));
     registry.register(Arc::new(meepo_core::tools::system::WriteFileTool));
@@ -465,32 +1003,58 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     for dir in &cfg.filesystem.allowed_directories {
         let expanded = shellexpand(dir);
         if !expanded.exists() {
-            warn!("Configured allowed directory does not exist: {} (expanded: {})", dir, expanded.display());
+            warn!(
+                "Configured allowed directory does not exist: {} (expanded: {})",
+                dir,
+                expanded.display()
+            );
         }
     }
-    registry.register(Arc::new(meepo_core::tools::filesystem::ListDirectoryTool::new(
-        cfg.filesystem.allowed_directories.clone(),
-    )));
-    registry.register(Arc::new(meepo_core::tools::filesystem::SearchFilesTool::new(
-        cfg.filesystem.allowed_directories.clone(),
-    )));
+    registry.register(Arc::new(
+        meepo_core::tools::filesystem::ListDirectoryTool::new(
+            cfg.filesystem.allowed_directories.clone(),
+        ),
+    ));
+    registry.register(Arc::new(
+        meepo_core::tools::filesystem::SearchFilesTool::new(
+            cfg.filesystem.allowed_directories.clone(),
+        ),
+    ));
     // BrowseUrlTool with optional Tavily extract
     if let Some(ref tavily) = tavily_client {
-        registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::with_tavily(tavily.clone())));
+        registry.register(Arc::new(
+            meepo_core::tools::system::BrowseUrlTool::with_tavily(tavily.clone()),
+        ));
     } else {
         registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::new()));
     }
     // Register web_search tool if Tavily is available
     if let Some(ref tavily) = tavily_client {
-        registry.register(Arc::new(meepo_core::tools::search::WebSearchTool::new(tavily.clone())));
+        registry.register(Arc::new(meepo_core::tools::search::WebSearchTool::new(
+            tavily.clone(),
+        )));
     }
-    registry.register(Arc::new(meepo_core::tools::watchers::CreateWatcherTool::new(db.clone(), watcher_command_tx.clone())));
-    registry.register(Arc::new(meepo_core::tools::watchers::ListWatchersTool::new(db.clone())));
-    registry.register(Arc::new(meepo_core::tools::watchers::CancelWatcherTool::new(db.clone(), watcher_command_tx.clone())));
+    registry.register(Arc::new(
+        meepo_core::tools::watchers::CreateWatcherTool::new(db.clone(), watcher_command_tx.clone()),
+    ));
+    registry.register(Arc::new(
+        meepo_core::tools::watchers::ListWatchersTool::new(db.clone()),
+    ));
+    registry.register(Arc::new(
+        meepo_core::tools::watchers::CancelWatcherTool::new(db.clone(), watcher_command_tx.clone()),
+    ));
     // Autonomous agent management tools
-    registry.register(Arc::new(meepo_core::tools::autonomous::SpawnBackgroundTaskTool::new(db.clone(), bg_task_tx.clone())));
-    registry.register(Arc::new(meepo_core::tools::autonomous::AgentStatusTool::new(db.clone())));
-    registry.register(Arc::new(meepo_core::tools::autonomous::StopTaskTool::new(db.clone(), watcher_command_tx.clone(), bg_task_tx.clone())));
+    registry.register(Arc::new(
+        meepo_core::tools::autonomous::SpawnBackgroundTaskTool::new(db.clone(), bg_task_tx.clone()),
+    ));
+    registry.register(Arc::new(
+        meepo_core::tools::autonomous::AgentStatusTool::new(db.clone()),
+    ));
+    registry.register(Arc::new(meepo_core::tools::autonomous::StopTaskTool::new(
+        db.clone(),
+        watcher_command_tx.clone(),
+        bg_task_tx.clone(),
+    )));
     info!("Registered {} tools", registry.len());
 
     // Initialize progress channel for sub-agent orchestrator
@@ -518,9 +1082,12 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         meepo_core::tools::delegate::DelegateTasksTool::new(
             orchestrator.clone(),
             registry_slot.clone(),
-        )
+        ),
     ));
-    info!("Registered delegate_tasks tool (total: {} tools)", registry.len());
+    info!(
+        "Registered delegate_tasks tool (total: {} tools)",
+        registry.len()
+    );
 
     // ── Phase 2: MCP Clients — connect to external MCP servers ──
     for client_cfg in &cfg.mcp.clients {
@@ -528,38 +1095,56 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
             name: client_cfg.name.clone(),
             command: shellexpand_str(&client_cfg.command),
             args: client_cfg.args.iter().map(|a| shellexpand_str(a)).collect(),
-            env: client_cfg.env.iter().map(|(k, v)| (k.clone(), shellexpand_str(v))).collect(),
+            env: client_cfg
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), shellexpand_str(v)))
+                .collect(),
         };
 
         match meepo_mcp::McpClient::connect(mcp_config).await {
-            Ok(client) => {
-                match client.discover_tools().await {
-                    Ok(tools) => {
-                        let count = tools.len();
-                        for tool in tools {
-                            registry.register(tool);
-                        }
-                        info!("MCP client '{}': registered {} tools", client_cfg.name, count);
+            Ok(client) => match client.discover_tools().await {
+                Ok(tools) => {
+                    let count = tools.len();
+                    for tool in tools {
+                        registry.register(tool);
                     }
-                    Err(e) => warn!("MCP client '{}': failed to discover tools: {}", client_cfg.name, e),
+                    info!(
+                        "MCP client '{}': registered {} tools",
+                        client_cfg.name, count
+                    );
                 }
-            }
+                Err(e) => warn!(
+                    "MCP client '{}': failed to discover tools: {}",
+                    client_cfg.name, e
+                ),
+            },
             Err(e) => warn!("MCP client '{}': failed to connect: {}", client_cfg.name, e),
         }
     }
 
     // ── Phase 3: A2A — register delegate_to_agent tool ──────────
     if cfg.a2a.enabled {
-        let peers: Vec<meepo_a2a::PeerAgentConfig> = cfg.a2a.agents.iter().map(|a| {
-            meepo_a2a::PeerAgentConfig {
+        let peers: Vec<meepo_a2a::PeerAgentConfig> = cfg
+            .a2a
+            .agents
+            .iter()
+            .map(|a| meepo_a2a::PeerAgentConfig {
                 name: a.name.clone(),
                 url: shellexpand_str(&a.url),
-                token: if a.token.is_empty() { None } else { Some(shellexpand_str(&a.token)) },
-            }
-        }).collect();
+                token: if a.token.is_empty() {
+                    None
+                } else {
+                    Some(shellexpand_str(&a.token))
+                },
+            })
+            .collect();
 
         registry.register(Arc::new(meepo_a2a::DelegateToAgentTool::new(peers)));
-        info!("A2A: registered delegate_to_agent tool ({} peer agents)", cfg.a2a.agents.len());
+        info!(
+            "A2A: registered delegate_to_agent tool ({} peer agents)",
+            cfg.a2a.agents.len()
+        );
     }
 
     // ── Phase 4: Skills — load SKILL.md files as tools ──────────
@@ -571,9 +1156,17 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 for tool in skill_tools {
                     registry.register(tool);
                 }
-                info!("Skills: loaded {} tools from {}", count, skills_dir.display());
+                info!(
+                    "Skills: loaded {} tools from {}",
+                    count,
+                    skills_dir.display()
+                );
             }
-            Err(e) => warn!("Skills: failed to load from {}: {}", skills_dir.display(), e),
+            Err(e) => warn!(
+                "Skills: failed to load from {}: {}",
+                skills_dir.display(),
+                e
+            ),
         }
     }
 
@@ -581,7 +1174,10 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
 
     // Initialize agent
     let registry = Arc::new(registry);
-    assert!(registry_slot.set(registry.clone()).is_ok(), "registry slot already set");
+    assert!(
+        registry_slot.set(registry.clone()).is_ok(),
+        "registry slot already set"
+    );
 
     let agent = Arc::new(meepo_core::agent::Agent::new(
         api,
@@ -599,11 +1195,12 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
 
     // Initialize scheduler database (kept alive for runtime persistence)
     let sched_db = Arc::new(std::sync::Mutex::new(rusqlite::Connection::open(&db_path)?));
-    {
+    let watchers = {
         let conn = sched_db.lock().unwrap();
         meepo_scheduler::persistence::init_watcher_tables(&conn)?;
-        let watchers = meepo_scheduler::persistence::get_active_watchers(&conn)?;
-        drop(conn); // release lock before async runner.lock()
+        meepo_scheduler::persistence::get_active_watchers(&conn)?
+    }; // conn dropped here before any await
+    {
         let runner = watcher_runner.lock().await;
         for w in watchers {
             if let Err(e) = runner.start_watcher(w.clone()).await {
@@ -664,7 +1261,9 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     }
     #[cfg(not(target_os = "macos"))]
     if cfg.channels.email.enabled {
-        warn!("Email channel (Mail.app) is only available on macOS — use the read_emails/send_email tools for Outlook on Windows");
+        warn!(
+            "Email channel (Mail.app) is only available on macOS — use the read_emails/send_email tools for Outlook on Windows"
+        );
     }
 
     // Start all channels
@@ -680,8 +1279,10 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     // ── Autonomous Loop ─────────────────────────────────────────
     let bus_sender_for_progress = bus_sender.clone();
 
-    let (loop_msg_tx, loop_msg_rx) = tokio::sync::mpsc::channel::<meepo_core::types::IncomingMessage>(256);
-    let (loop_resp_tx, mut loop_resp_rx) = tokio::sync::mpsc::channel::<meepo_core::types::OutgoingMessage>(256);
+    let (loop_msg_tx, loop_msg_rx) =
+        tokio::sync::mpsc::channel::<meepo_core::types::IncomingMessage>(256);
+    let (loop_resp_tx, mut loop_resp_rx) =
+        tokio::sync::mpsc::channel::<meepo_core::types::OutgoingMessage>(256);
     let wake = meepo_core::autonomy::AutonomousLoop::create_wake_handle();
 
     // Forward incoming bus messages to the autonomous loop
@@ -836,20 +1437,20 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                         active: true,
                                         created_at: chrono::Utc::now(),
                                     };
-                                    if let Ok(conn) = sched_db.lock() {
-                                        if let Err(e) = meepo_scheduler::persistence::save_watcher(&conn, &watcher) {
-                                            error!("Failed to persist watcher {}: {}", watcher.id, e);
-                                        }
+                                    if let Ok(conn) = sched_db.lock()
+                                        && let Err(e) = meepo_scheduler::persistence::save_watcher(&conn, &watcher)
+                                    {
+                                        error!("Failed to persist watcher {}: {}", watcher.id, e);
                                     }
                                     if let Err(e) = runner.lock().await.start_watcher(watcher).await {
                                         error!("Failed to start watcher: {}", e);
                                     }
                                 }
                                 WatcherCommand::Cancel { id } => {
-                                    if let Ok(conn) = sched_db.lock() {
-                                        if let Err(e) = meepo_scheduler::persistence::deactivate_watcher(&conn, &id) {
-                                            error!("Failed to deactivate watcher {} in scheduler DB: {}", id, e);
-                                        }
+                                    if let Ok(conn) = sched_db.lock()
+                                        && let Err(e) = meepo_scheduler::persistence::deactivate_watcher(&conn, &id)
+                                    {
+                                        error!("Failed to deactivate watcher {} in scheduler DB: {}", id, e);
                                     }
                                     if let Err(e) = runner.lock().await.stop_watcher(&id).await {
                                         error!("Failed to stop watcher {}: {}", id, e);
@@ -877,9 +1478,10 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     };
     let bg_task_handler = tokio::spawn(async move {
         // Track cancellation tokens for background tasks
-        let task_cancels = Arc::new(tokio::sync::Mutex::new(
-            std::collections::HashMap::<String, tokio_util::sync::CancellationToken>::new()
-        ));
+        let task_cancels = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+            String,
+            tokio_util::sync::CancellationToken,
+        >::new()));
 
         loop {
             tokio::select! {
@@ -1197,7 +1799,10 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 return;
             }
 
-            info!("Digest runner started (morning: {}, evening: {})", morning_cron, evening_cron);
+            info!(
+                "Digest runner started (morning: {}, evening: {})",
+                morning_cron, evening_cron
+            );
 
             loop {
                 // Find the next digest time
@@ -1206,7 +1811,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 let next_evening = evening_schedule.as_ref().and_then(|s| s.after(&now).next());
 
                 let (next_time, is_morning) = match (next_morning, next_evening) {
-                    (Some(m), Some(e)) => if m < e { (m, true) } else { (e, false) },
+                    (Some(m), Some(e)) => {
+                        if m < e {
+                            (m, true)
+                        } else {
+                            (e, false)
+                        }
+                    }
                     (Some(m), None) => (m, true),
                     (None, Some(e)) => (e, false),
                     (None, None) => {
@@ -1215,10 +1826,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                     }
                 };
 
-                let duration = (next_time - now).to_std().unwrap_or(std::time::Duration::from_secs(60));
+                let duration = (next_time - now)
+                    .to_std()
+                    .unwrap_or(std::time::Duration::from_secs(60));
                 let wake_time = tokio::time::Instant::now() + duration;
 
-                debug!("Next digest at {} ({}, in {:?})",
+                debug!(
+                    "Next digest at {} ({}, in {:?})",
                     next_time,
                     if is_morning { "morning" } else { "evening" },
                     duration
@@ -1254,7 +1868,8 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     if cfg.a2a.enabled {
         let a2a_card = meepo_a2a::AgentCard {
             name: "meepo".to_string(),
-            description: "Personal AI agent with macOS integration, code tools, and web search".to_string(),
+            description: "Personal AI agent with macOS integration, code tools, and web search"
+                .to_string(),
             url: format!("http://localhost:{}", cfg.a2a.port),
             capabilities: vec![
                 "file_operations".to_string(),
@@ -1264,7 +1879,11 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 "code_review".to_string(),
             ],
             authentication: meepo_a2a::AuthConfig {
-                schemes: if cfg.a2a.auth_token.is_empty() { vec![] } else { vec!["bearer".to_string()] },
+                schemes: if cfg.a2a.auth_token.is_empty() {
+                    vec![]
+                } else {
+                    vec!["bearer".to_string()]
+                },
             },
         };
 
@@ -1296,7 +1915,15 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     cancel.cancel();
 
     // Wait for all tasks
-    let _ = tokio::join!(loop_task, bus_to_loop, watcher_to_loop, resp_to_bus, watcher_cmd_task, progress_task, bg_task_handler);
+    let _ = tokio::join!(
+        loop_task,
+        bus_to_loop,
+        watcher_to_loop,
+        resp_to_bus,
+        watcher_cmd_task,
+        progress_task,
+        bg_task_handler
+    );
     if let Some(dt) = digest_task {
         let _ = dt.await;
     }
@@ -1430,18 +2057,16 @@ async fn cmd_ask(config_path: &Option<PathBuf>, message: &str) -> Result<()> {
         );
     }
     let base_url = shellexpand_str(&cfg.providers.anthropic.base_url);
-    let api = meepo_core::api::ApiClient::new(
-        api_key,
-        Some(cfg.agent.default_model.clone()),
-    ).with_max_tokens(cfg.agent.max_tokens)
-     .with_base_url(base_url);
+    let api = meepo_core::api::ApiClient::new(api_key, Some(cfg.agent.default_model.clone()))
+        .with_max_tokens(cfg.agent.max_tokens)
+        .with_base_url(base_url);
 
     // Load context
     let workspace = shellexpand(&cfg.memory.workspace);
-    let soul = meepo_knowledge::load_soul(&workspace.join(&cfg.agent.system_prompt_file))
+    let soul = meepo_knowledge::load_soul(workspace.join(&cfg.agent.system_prompt_file))
         .unwrap_or_else(|_| "You are Meepo, a helpful AI assistant.".to_string());
-    let memory = meepo_knowledge::load_memory(&workspace.join(&cfg.agent.memory_file))
-        .unwrap_or_default();
+    let memory =
+        meepo_knowledge::load_memory(workspace.join(&cfg.agent.memory_file)).unwrap_or_default();
 
     let system = format!("{}\n\n## Current Memory\n{}", soul, memory);
 
@@ -1483,14 +2108,17 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
     let db = knowledge_graph.db();
 
     // Tavily client (optional)
-    let tavily_client = cfg.providers.tavily
+    let tavily_client = cfg
+        .providers
+        .tavily
         .as_ref()
         .map(|t| shellexpand_str(&t.api_key))
         .filter(|key| !key.is_empty())
         .map(|key| Arc::new(meepo_core::tavily::TavilyClient::new(key)));
 
     // Watcher command channel (needed for tool registration even in MCP mode)
-    let (watcher_command_tx, _watcher_command_rx) = tokio::sync::mpsc::channel::<meepo_core::tools::watchers::WatcherCommand>(100);
+    let (watcher_command_tx, _watcher_command_rx) =
+        tokio::sync::mpsc::channel::<meepo_core::tools::watchers::WatcherCommand>(100);
 
     let mut registry = meepo_core::tools::ToolRegistry::new();
 
@@ -1500,9 +2128,15 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         registry.register(Arc::new(meepo_core::tools::macos::ReadCalendarTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::SendEmailTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::CreateEventTool::new()));
-        registry.register(Arc::new(meepo_core::tools::accessibility::ReadScreenTool::new()));
-        registry.register(Arc::new(meepo_core::tools::accessibility::ClickElementTool::new()));
-        registry.register(Arc::new(meepo_core::tools::accessibility::TypeTextTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::accessibility::ReadScreenTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::accessibility::ClickElementTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::accessibility::TypeTextTool::new(),
+        ));
     }
     registry.register(Arc::new(meepo_core::tools::macos::OpenAppTool::new()));
     registry.register(Arc::new(meepo_core::tools::macos::GetClipboardTool::new()));
@@ -1512,9 +2146,13 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         registry.register(Arc::new(meepo_core::tools::macos::CreateReminderTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::ListNotesTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::CreateNoteTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos::SendNotificationTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos::SendNotificationTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos::ScreenCaptureTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos::GetCurrentTrackTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos::GetCurrentTrackTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos::MusicControlTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
     }
@@ -1522,50 +2160,102 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
     #[cfg(target_os = "macos")]
     if cfg.browser.enabled {
         let browser = &cfg.browser.default_browser;
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserListTabsTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserOpenTabTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserCloseTabTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserSwitchTabTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserGetPageContentTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserExecuteJsTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserClickElementTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserFillFormTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserNavigateTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserGetUrlTool::new(browser)));
-        registry.register(Arc::new(meepo_core::tools::browser::BrowserScreenshotTool::new(browser)));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserListTabsTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserOpenTabTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserCloseTabTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserSwitchTabTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserGetPageContentTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserExecuteJsTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserClickElementTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserFillFormTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserNavigateTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserGetUrlTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserScreenshotTool::new(browser),
+        ));
     }
     let code_config = meepo_core::tools::code::CodeToolConfig {
         claude_code_path: shellexpand_str(&cfg.code.claude_code_path),
         gh_path: shellexpand_str(&cfg.code.gh_path),
         default_workspace: shellexpand_str(&cfg.code.default_workspace),
     };
-    registry.register(Arc::new(meepo_core::tools::code::WriteCodeTool::new(code_config.clone())));
-    registry.register(Arc::new(meepo_core::tools::code::MakePrTool::new(code_config.clone())));
-    registry.register(Arc::new(meepo_core::tools::code::ReviewPrTool::new(code_config)));
-    registry.register(Arc::new(meepo_core::tools::memory::RememberTool::new(db.clone())));
-    registry.register(Arc::new(meepo_core::tools::memory::RecallTool::new(db.clone())));
-    registry.register(Arc::new(meepo_core::tools::memory::SearchKnowledgeTool::with_graph(knowledge_graph.clone())));
-    registry.register(Arc::new(meepo_core::tools::memory::LinkEntitiesTool::new(db.clone())));
+    registry.register(Arc::new(meepo_core::tools::code::WriteCodeTool::new(
+        code_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::code::MakePrTool::new(
+        code_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::code::ReviewPrTool::new(
+        code_config,
+    )));
+    registry.register(Arc::new(meepo_core::tools::memory::RememberTool::new(
+        db.clone(),
+    )));
+    registry.register(Arc::new(meepo_core::tools::memory::RecallTool::new(
+        db.clone(),
+    )));
+    registry.register(Arc::new(
+        meepo_core::tools::memory::SearchKnowledgeTool::with_graph(knowledge_graph.clone()),
+    ));
+    registry.register(Arc::new(meepo_core::tools::memory::LinkEntitiesTool::new(
+        db.clone(),
+    )));
     registry.register(Arc::new(meepo_core::tools::system::RunCommandTool));
     registry.register(Arc::new(meepo_core::tools::system::ReadFileTool));
     registry.register(Arc::new(meepo_core::tools::system::WriteFileTool));
-    registry.register(Arc::new(meepo_core::tools::filesystem::ListDirectoryTool::new(
-        cfg.filesystem.allowed_directories.clone(),
-    )));
-    registry.register(Arc::new(meepo_core::tools::filesystem::SearchFilesTool::new(
-        cfg.filesystem.allowed_directories.clone(),
-    )));
+    registry.register(Arc::new(
+        meepo_core::tools::filesystem::ListDirectoryTool::new(
+            cfg.filesystem.allowed_directories.clone(),
+        ),
+    ));
+    registry.register(Arc::new(
+        meepo_core::tools::filesystem::SearchFilesTool::new(
+            cfg.filesystem.allowed_directories.clone(),
+        ),
+    ));
     if let Some(ref tavily) = tavily_client {
-        registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::with_tavily(tavily.clone())));
-        registry.register(Arc::new(meepo_core::tools::search::WebSearchTool::new(tavily.clone())));
+        registry.register(Arc::new(
+            meepo_core::tools::system::BrowseUrlTool::with_tavily(tavily.clone()),
+        ));
+        registry.register(Arc::new(meepo_core::tools::search::WebSearchTool::new(
+            tavily.clone(),
+        )));
     } else {
         registry.register(Arc::new(meepo_core::tools::system::BrowseUrlTool::new()));
     }
-    registry.register(Arc::new(meepo_core::tools::watchers::CreateWatcherTool::new(db.clone(), watcher_command_tx.clone())));
-    registry.register(Arc::new(meepo_core::tools::watchers::ListWatchersTool::new(db.clone())));
-    registry.register(Arc::new(meepo_core::tools::watchers::CancelWatcherTool::new(db.clone(), watcher_command_tx.clone())));
+    registry.register(Arc::new(
+        meepo_core::tools::watchers::CreateWatcherTool::new(db.clone(), watcher_command_tx.clone()),
+    ));
+    registry.register(Arc::new(
+        meepo_core::tools::watchers::ListWatchersTool::new(db.clone()),
+    ));
+    registry.register(Arc::new(
+        meepo_core::tools::watchers::CancelWatcherTool::new(db.clone(), watcher_command_tx.clone()),
+    ));
     // Autonomous tools — agent_status works in MCP mode, spawn/stop won't have handlers
-    registry.register(Arc::new(meepo_core::tools::autonomous::AgentStatusTool::new(db.clone())));
+    registry.register(Arc::new(
+        meepo_core::tools::autonomous::AgentStatusTool::new(db.clone()),
+    ));
 
     // Load skills if enabled
     if cfg.skills.enabled {
@@ -1601,7 +2291,11 @@ async fn cmd_template(action: TemplateAction) -> Result<()> {
                 println!("  {:20} ({}) — {}", name, source, description);
             }
             if let Some(active) = template::get_active_template() {
-                println!("\n  Active: {} (since {})", active.name, &active.activated_at[..10]);
+                println!(
+                    "\n  Active: {} (since {})",
+                    active.name,
+                    &active.activated_at[..10]
+                );
             }
             println!();
             Ok(())
@@ -1667,11 +2361,14 @@ async fn cmd_template(action: TemplateAction) -> Result<()> {
                             goal.success_criteria.as_deref(),
                             None,
                             &source,
-                        ).await?;
+                        )
+                        .await?;
                     }
                     println!("  Injected {} goals", t.goals.len());
                 } else {
-                    println!("  Note: knowledge.db not found — goals will be injected on first `meepo start`");
+                    println!(
+                        "  Note: knowledge.db not found — goals will be injected on first `meepo start`"
+                    );
                 }
             }
 
@@ -1697,7 +2394,9 @@ async fn cmd_template(action: TemplateAction) -> Result<()> {
             template::set_active_template(&t.metadata.name, "local")?;
 
             println!("\n  Template '{}' activated!", t.metadata.name);
-            println!("  Restart the daemon for changes to take effect: meepo stop && meepo start\n");
+            println!(
+                "  Restart the daemon for changes to take effect: meepo stop && meepo start\n"
+            );
             Ok(())
         }
         TemplateAction::Info { name } => {
@@ -1713,14 +2412,17 @@ async fn cmd_template(action: TemplateAction) -> Result<()> {
             }
             println!("\n  Goals ({}):", t.goals.len());
             for goal in &t.goals {
-                println!("    - [P{}] {} (every {}s)", goal.priority, goal.description, goal.check_interval_secs);
+                println!(
+                    "    - [P{}] {} (every {}s)",
+                    goal.priority, goal.description, goal.check_interval_secs
+                );
             }
-            if let Some(overlay) = t.config_overlay.as_table() {
-                if !overlay.is_empty() {
-                    println!("\n  Config overlay:");
-                    for key in overlay.keys() {
-                        println!("    [{}]", key);
-                    }
+            if let Some(overlay) = t.config_overlay.as_table()
+                && !overlay.is_empty()
+            {
+                println!("\n  Config overlay:");
+                for key in overlay.keys() {
+                    println!("    [{}]", key);
                 }
             }
             if let Some(soul) = template::get_template_soul(&t)? {
@@ -1786,7 +2488,11 @@ async fn cmd_template(action: TemplateAction) -> Result<()> {
             let template_dir = config_dir.join("templates").join(&name);
 
             if template_dir.exists() {
-                bail!("Template '{}' already exists at {}", name, template_dir.display());
+                bail!(
+                    "Template '{}' already exists at {}",
+                    name,
+                    template_dir.display()
+                );
             }
 
             std::fs::create_dir_all(&template_dir)?;
@@ -1820,7 +2526,10 @@ tags = []
             );
             std::fs::write(template_dir.join("template.toml"), template_toml)?;
 
-            println!("\n  Created template scaffold at {}", template_dir.display());
+            println!(
+                "\n  Created template scaffold at {}",
+                template_dir.display()
+            );
             println!("  Edit template.toml and SOUL.md, then activate with:");
             println!("    meepo template use {}\n", name);
             Ok(())
@@ -1828,14 +2537,21 @@ tags = []
         TemplateAction::Remove { name } => {
             let template_dir = config::config_dir().join("templates").join(&name);
             if !template_dir.exists() {
-                bail!("Template '{}' not found at {}", name, template_dir.display());
+                bail!(
+                    "Template '{}' not found at {}",
+                    name,
+                    template_dir.display()
+                );
             }
 
             // Check if active
-            if let Some(active) = template::get_active_template() {
-                if active.name == name {
-                    bail!("Template '{}' is currently active. Run `meepo template reset` first.", name);
-                }
+            if let Some(active) = template::get_active_template()
+                && active.name == name
+            {
+                bail!(
+                    "Template '{}' is currently active. Run `meepo template reset` first.",
+                    name
+                );
             }
 
             std::fs::remove_dir_all(&template_dir)?;
@@ -1867,10 +2583,10 @@ fn shellexpand(s: &str) -> PathBuf {
 
 fn shellexpand_str(s: &str) -> String {
     let mut result = s.to_string();
-    if result.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            result = format!("{}{}", home.display(), &result[1..]);
-        }
+    if result.starts_with("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        result = format!("{}{}", home.display(), &result[1..]);
     }
     // Expand ${VAR} patterns with position tracking to avoid infinite loops
     let mut pos = 0;
@@ -1881,7 +2597,12 @@ fn shellexpand_str(s: &str) -> String {
                 let var_name = &result[abs_start + 2..abs_start + end];
                 let value = std::env::var(var_name).unwrap_or_default();
                 let value_len = value.len();
-                result = format!("{}{}{}", &result[..abs_start], value, &result[abs_start + end + 1..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..abs_start],
+                    value,
+                    &result[abs_start + end + 1..]
+                );
                 pos = abs_start + value_len; // Skip past the expanded value
             } else {
                 break;

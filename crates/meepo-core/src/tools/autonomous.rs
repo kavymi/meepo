@@ -1,14 +1,14 @@
 //! Tools for autonomous agent management — spawn tasks, view status, stop anything
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::{Result, Context};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use meepo_knowledge::KnowledgeDb;
 use super::{ToolHandler, json_schema};
+use meepo_knowledge::KnowledgeDb;
 
 /// Commands for background task management
 #[derive(Debug, Clone)]
@@ -71,15 +71,20 @@ impl ToolHandler for SpawnBackgroundTaskTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let description = input.get("description")
+        let description = input
+            .get("description")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'description' parameter"))?;
-        let reply_channel = input.get("reply_channel")
+        let reply_channel = input
+            .get("reply_channel")
             .and_then(|v| v.as_str())
             .unwrap_or("internal");
 
         if description.len() > 10_000 {
-            return Err(anyhow::anyhow!("Description too long ({} chars, max 10,000)", description.len()));
+            return Err(anyhow::anyhow!(
+                "Description too long ({} chars, max 10,000)",
+                description.len()
+            ));
         }
 
         let task_id = format!("t-{}", uuid::Uuid::new_v4());
@@ -87,19 +92,25 @@ impl ToolHandler for SpawnBackgroundTaskTool {
         debug!("Spawning background task {}: {}", task_id, description);
 
         // Store in database
-        self.db.insert_background_task(&task_id, description, reply_channel, "agent").await
+        self.db
+            .insert_background_task(&task_id, description, reply_channel, "agent")
+            .await
             .context("Failed to create background task in database")?;
 
         // Send spawn command to main loop
-        self.command_tx.send(BackgroundTaskCommand::Spawn {
-            id: task_id.clone(),
-            description: description.to_string(),
-            reply_channel: reply_channel.to_string(),
-        })
-        .await
-        .context("Failed to send background task command")?;
+        self.command_tx
+            .send(BackgroundTaskCommand::Spawn {
+                id: task_id.clone(),
+                description: description.to_string(),
+                reply_channel: reply_channel.to_string(),
+            })
+            .await
+            .context("Failed to send background task command")?;
 
-        Ok(format!("Spawned background task [{}]: {}", task_id, description))
+        Ok(format!(
+            "Spawned background task [{}]: {}",
+            task_id, description
+        ))
     }
 }
 
@@ -136,7 +147,10 @@ impl ToolHandler for AgentStatusTool {
         let mut output = String::new();
 
         // Active watchers
-        let watchers = self.db.get_active_watchers().await
+        let watchers = self
+            .db
+            .get_active_watchers()
+            .await
             .context("Failed to get active watchers")?;
 
         if watchers.is_empty() {
@@ -154,7 +168,10 @@ impl ToolHandler for AgentStatusTool {
         }
 
         // Running background tasks
-        let tasks = self.db.get_active_background_tasks().await
+        let tasks = self
+            .db
+            .get_active_background_tasks()
+            .await
             .context("Failed to get active background tasks")?;
 
         if tasks.is_empty() {
@@ -172,20 +189,38 @@ impl ToolHandler for AgentStatusTool {
         }
 
         // Recently completed tasks
-        let recent = self.db.get_recent_background_tasks(5).await
+        let recent = self
+            .db
+            .get_recent_background_tasks(5)
+            .await
             .context("Failed to get recent background tasks")?;
 
         if !recent.is_empty() {
             output.push_str(&format!("## Recently Completed ({})\n", recent.len()));
             for t in &recent {
                 let age = format_age(t.updated_at);
-                let result_preview = t.result.as_deref()
-                    .map(|r| if r.len() > 80 { format!("{}...", &r[..80]) } else { r.to_string() })
+                let result_preview = t
+                    .result
+                    .as_deref()
+                    .map(|r| {
+                        if r.len() > 80 {
+                            format!("{}...", &r[..80])
+                        } else {
+                            r.to_string()
+                        }
+                    })
                     .unwrap_or_default();
                 output.push_str(&format!(
                     "- [{}] {} — {} {}{}\n",
-                    t.id, t.description, t.status, age,
-                    if result_preview.is_empty() { String::new() } else { format!("\n  Result: {}", result_preview) }
+                    t.id,
+                    t.description,
+                    t.status,
+                    age,
+                    if result_preview.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n  Result: {}", result_preview)
+                    }
                 ));
             }
         }
@@ -213,7 +248,11 @@ impl StopTaskTool {
         watcher_tx: mpsc::Sender<super::watchers::WatcherCommand>,
         task_tx: mpsc::Sender<BackgroundTaskCommand>,
     ) -> Self {
-        Self { db, watcher_tx, task_tx }
+        Self {
+            db,
+            watcher_tx,
+            task_tx,
+        }
     }
 }
 
@@ -242,7 +281,8 @@ impl ToolHandler for StopTaskTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let task_id = input.get("task_id")
+        let task_id = input
+            .get("task_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'task_id' parameter"))?;
 
@@ -250,30 +290,39 @@ impl ToolHandler for StopTaskTool {
 
         if task_id.starts_with("w-") {
             // Cancel watcher
-            self.db.update_watcher_active(task_id, false).await
+            self.db
+                .update_watcher_active(task_id, false)
+                .await
                 .context("Failed to deactivate watcher")?;
 
-            self.watcher_tx.send(super::watchers::WatcherCommand::Cancel {
-                id: task_id.to_string(),
-            })
-            .await
-            .context("Failed to send cancel command to scheduler")?;
+            self.watcher_tx
+                .send(super::watchers::WatcherCommand::Cancel {
+                    id: task_id.to_string(),
+                })
+                .await
+                .context("Failed to send cancel command to scheduler")?;
 
             Ok(format!("Stopped watcher [{}]", task_id))
         } else if task_id.starts_with("t-") {
             // Cancel background task
-            self.db.update_background_task(task_id, "cancelled", None).await
+            self.db
+                .update_background_task(task_id, "cancelled", None)
+                .await
                 .context("Failed to cancel background task")?;
 
-            self.task_tx.send(BackgroundTaskCommand::Cancel {
-                id: task_id.to_string(),
-            })
-            .await
-            .context("Failed to send cancel command")?;
+            self.task_tx
+                .send(BackgroundTaskCommand::Cancel {
+                    id: task_id.to_string(),
+                })
+                .await
+                .context("Failed to send cancel command")?;
 
             Ok(format!("Stopped background task [{}]", task_id))
         } else {
-            Err(anyhow::anyhow!("Invalid task ID '{}'. Must start with 'w-' (watcher) or 't-' (background task).", task_id))
+            Err(anyhow::anyhow!(
+                "Invalid task ID '{}'. Must start with 'w-' (watcher) or 't-' (background task).",
+                task_id
+            ))
         }
     }
 }
@@ -327,7 +376,9 @@ mod tests {
         let (task_tx, _) = mpsc::channel(1);
         let tool = StopTaskTool::new(db, watcher_tx, task_tx);
 
-        let result = tool.execute(serde_json::json!({"task_id": "invalid-123"})).await;
+        let result = tool
+            .execute(serde_json::json!({"task_id": "invalid-123"}))
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid task ID"));
     }
@@ -339,10 +390,13 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(1);
         let tool = SpawnBackgroundTaskTool::new(db.clone(), tx);
 
-        let result = tool.execute(serde_json::json!({
-            "description": "Research competitors",
-            "reply_channel": "slack"
-        })).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({
+                "description": "Research competitors",
+                "reply_channel": "slack"
+            }))
+            .await
+            .unwrap();
 
         assert!(result.contains("t-"));
         assert!(result.contains("Research competitors"));
@@ -350,7 +404,11 @@ mod tests {
         // Check command was sent
         let cmd = rx.try_recv().unwrap();
         match cmd {
-            BackgroundTaskCommand::Spawn { id, description, reply_channel } => {
+            BackgroundTaskCommand::Spawn {
+                id,
+                description,
+                reply_channel,
+            } => {
                 assert!(id.starts_with("t-"));
                 assert_eq!(description, "Research competitors");
                 assert_eq!(reply_channel, "slack");

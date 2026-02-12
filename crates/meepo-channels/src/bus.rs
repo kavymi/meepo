@@ -1,13 +1,13 @@
 //! Central message bus for routing messages between channels and the agent
 
-use meepo_core::types::{IncomingMessage, OutgoingMessage, ChannelType};
+use anyhow::{Result, anyhow};
+use async_trait::async_trait;
 #[cfg(test)]
 use meepo_core::types::MessageKind;
-use tokio::sync::mpsc;
+use meepo_core::types::{ChannelType, IncomingMessage, OutgoingMessage};
 use std::collections::HashMap;
-use async_trait::async_trait;
-use anyhow::{Result, anyhow};
-use tracing::{info, error, debug};
+use tokio::sync::mpsc;
+use tracing::{debug, error, info};
 
 /// Trait that all channel adapters implement
 #[async_trait]
@@ -88,7 +88,8 @@ impl MessageBus {
         let channel_type = &msg.channel;
         debug!("Routing outgoing message to channel: {}", channel_type);
 
-        let channel = self.channels
+        let channel = self
+            .channels
             .get(channel_type)
             .ok_or_else(|| anyhow!("No channel registered for type: {}", channel_type))?;
 
@@ -129,7 +130,8 @@ impl BusSender {
         let channel_type = &msg.channel;
         debug!("Routing outgoing message to channel: {}", channel_type);
 
-        let channel = self.channels
+        let channel = self
+            .channels
             .get(channel_type)
             .ok_or_else(|| anyhow!("No channel registered for type: {}", channel_type))?;
 
@@ -146,8 +148,8 @@ impl BusSender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     /// Mock channel for testing
     struct MockChannel {
@@ -162,7 +164,6 @@ mod tests {
                 sent: Arc::new(AtomicBool::new(false)),
             }
         }
-
     }
 
     #[async_trait]

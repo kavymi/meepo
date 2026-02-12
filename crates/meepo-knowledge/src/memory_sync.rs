@@ -10,7 +10,10 @@ pub fn load_memory<P: AsRef<Path>>(path: P) -> Result<String> {
     debug!("Loading memory from {:?}", path);
 
     if !path.exists() {
-        warn!("Memory file does not exist at {:?}, returning empty string", path);
+        warn!(
+            "Memory file does not exist at {:?}, returning empty string",
+            path
+        );
         return Ok(String::new());
     }
 
@@ -32,8 +35,7 @@ pub fn save_memory<P: AsRef<Path>>(path: P, content: &str) -> Result<()> {
             .context(format!("Failed to create directory {:?}", parent))?;
     }
 
-    std::fs::write(path, content)
-        .context(format!("Failed to write memory file at {:?}", path))?;
+    std::fs::write(path, content).context(format!("Failed to write memory file at {:?}", path))?;
 
     info!("Saved {} bytes to memory file", content.len());
     Ok(())
@@ -45,12 +47,15 @@ pub fn load_soul<P: AsRef<Path>>(path: P) -> Result<String> {
     debug!("Loading soul from {:?}", path);
 
     if !path.exists() {
-        warn!("Soul file does not exist at {:?}, returning empty string", path);
+        warn!(
+            "Soul file does not exist at {:?}, returning empty string",
+            path
+        );
         return Ok(String::new());
     }
 
-    let content = std::fs::read_to_string(path)
-        .context(format!("Failed to read soul file at {:?}", path))?;
+    let content =
+        std::fs::read_to_string(path).context(format!("Failed to read soul file at {:?}", path))?;
 
     info!("Loaded {} bytes from soul file", content.len());
     Ok(content)

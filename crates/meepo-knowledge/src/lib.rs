@@ -6,16 +6,19 @@
 //! - Knowledge graph operations combining both
 //! - MEMORY.md synchronization
 
-pub mod sqlite;
-pub mod tantivy;
 pub mod graph;
 pub mod memory_sync;
+pub mod sqlite;
+pub mod tantivy;
 
 // Re-export main types
-pub use sqlite::{KnowledgeDb, Entity, Relationship, Conversation, Watcher, Goal, UserPreference, ActionLogEntry, BackgroundTask};
-pub use tantivy::{TantivyIndex, SearchResult};
 pub use graph::KnowledgeGraph;
-pub use memory_sync::{load_memory, save_memory, load_soul};
+pub use memory_sync::{load_memory, load_soul, save_memory};
+pub use sqlite::{
+    ActionLogEntry, BackgroundTask, Conversation, Entity, Goal, KnowledgeDb, Relationship,
+    UserPreference, Watcher,
+};
+pub use tantivy::{SearchResult, TantivyIndex};
 
 #[cfg(test)]
 mod tests {

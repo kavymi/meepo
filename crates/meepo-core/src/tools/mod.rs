@@ -1,25 +1,25 @@
 //! Tool registry and executor system
 
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::Value;
-use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
 use crate::api::ToolDefinition;
 
-pub mod macos;
 pub mod accessibility;
+pub mod autonomous;
 pub mod browser;
 pub mod code;
-pub mod memory;
-pub mod watchers;
 pub mod delegate;
-pub mod system;
-pub mod search;
 pub mod filesystem;
-pub mod autonomous;
+pub mod macos;
+pub mod memory;
+pub mod search;
+pub mod system;
+pub mod watchers;
 
 /// Trait for executing tools
 #[async_trait]
@@ -74,7 +74,8 @@ impl ToolRegistry {
 
     /// Get tool definitions for only the named tools
     pub fn filter_tools(&self, names: &[String]) -> Vec<ToolDefinition> {
-        names.iter()
+        names
+            .iter()
             .filter_map(|name| self.tools.get(name))
             .map(|handler| ToolDefinition {
                 name: handler.name().to_string(),
@@ -96,7 +97,9 @@ impl ToolExecutor for ToolRegistry {
     async fn execute(&self, tool_name: &str, input: Value) -> Result<String> {
         debug!("Executing tool: {} with input: {:?}", tool_name, input);
 
-        let handler = self.tools.get(tool_name)
+        let handler = self
+            .tools
+            .get(tool_name)
             .ok_or_else(|| anyhow!("Unknown tool: {}", tool_name))?;
 
         match handler.execute(input).await {
@@ -112,7 +115,8 @@ impl ToolExecutor for ToolRegistry {
     }
 
     fn list_tools(&self) -> Vec<ToolDefinition> {
-        self.tools.values()
+        self.tools
+            .values()
             .map(|handler| ToolDefinition {
                 name: handler.name().to_string(),
                 description: handler.description().to_string(),
@@ -171,7 +175,9 @@ mod tests {
 
         assert_eq!(registry.len(), 1);
 
-        let result = registry.execute("dummy", serde_json::json!({"message": "test"})).await;
+        let result = registry
+            .execute("dummy", serde_json::json!({"message": "test"}))
+            .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "dummy result");
     }

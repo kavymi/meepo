@@ -1,19 +1,22 @@
 //! macOS platform implementations using AppleScript
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
 use tokio::process::Command;
 use tracing::{debug, warn};
 
-use super::{EmailProvider, CalendarProvider, UiAutomation, RemindersProvider, NotesProvider, NotificationProvider, ScreenCaptureProvider, MusicProvider, ContactsProvider, BrowserProvider, BrowserTab, PageContent, BrowserCookie};
+use super::{
+    BrowserCookie, BrowserProvider, BrowserTab, CalendarProvider, ContactsProvider, EmailProvider,
+    MusicProvider, NotesProvider, NotificationProvider, PageContent, RemindersProvider,
+    ScreenCaptureProvider, UiAutomation,
+};
 
 /// Sanitize a string for safe use in AppleScript
 fn sanitize_applescript_string(input: &str) -> String {
     input
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
         .chars()
         .filter(|&c| c >= ' ' || c == '\t')
         .collect()
@@ -22,7 +25,9 @@ fn sanitize_applescript_string(input: &str) -> String {
 /// Validate screenshot output path to prevent writing to sensitive locations
 fn validate_screenshot_path(path: &str) -> Result<()> {
     if path.contains("..") {
-        return Err(anyhow::anyhow!("Screenshot path contains '..' which is not allowed"));
+        return Err(anyhow::anyhow!(
+            "Screenshot path contains '..' which is not allowed"
+        ));
     }
 
     let path_buf = std::path::PathBuf::from(path);
@@ -32,7 +37,8 @@ fn validate_screenshot_path(path: &str) -> Result<()> {
         if parent.as_os_str().is_empty() || !parent.exists() {
             path_buf.clone()
         } else {
-            parent.canonicalize()
+            parent
+                .canonicalize()
                 .unwrap_or_else(|_| parent.to_path_buf())
                 .join(path_buf.file_name().unwrap_or_default())
         }
@@ -40,8 +46,8 @@ fn validate_screenshot_path(path: &str) -> Result<()> {
         path_buf.clone()
     };
 
-    let home_dir = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    let home_dir =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
     let temp_dir = std::env::temp_dir()
         .canonicalize()
         .unwrap_or_else(|_| std::env::temp_dir());
@@ -51,16 +57,26 @@ fn validate_screenshot_path(path: &str) -> Result<()> {
 
     if !is_in_home && !is_in_temp {
         return Err(anyhow::anyhow!(
-            "Screenshot path '{}' must be within home or temp directory", path
+            "Screenshot path '{}' must be within home or temp directory",
+            path
         ));
     }
 
     // Block system directories even if under home
-    let system_dirs = ["/etc", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/System", "/Library"];
+    let system_dirs = [
+        "/etc",
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/System",
+        "/Library",
+    ];
     for sys_dir in &system_dirs {
         if check_path.starts_with(sys_dir) {
             return Err(anyhow::anyhow!(
-                "Screenshot path cannot target system directory '{}'", sys_dir
+                "Screenshot path cannot target system directory '{}'",
+                sys_dir
             ));
         }
     }
@@ -72,10 +88,7 @@ fn validate_screenshot_path(path: &str) -> Result<()> {
 async fn run_applescript(script: &str) -> Result<String> {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
-        Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .output()
+        Command::new("osascript").arg("-e").arg(script).output(),
     )
     .await
     .map_err(|_| anyhow::anyhow!("AppleScript execution timed out after 30 seconds"))?
@@ -104,12 +117,16 @@ impl EmailProvider for MacOsEmailProvider {
         };
         let filter_clause = if let Some(term) = search {
             let safe_term = sanitize_applescript_string(term);
-            format!(r#" whose (subject contains "{}" or sender contains "{}")"#, safe_term, safe_term)
+            format!(
+                r#" whose (subject contains "{}" or sender contains "{}")"#,
+                safe_term, safe_term
+            )
         } else {
             String::new()
         };
         debug!("Reading {} emails from Mail.app ({})", limit, mailbox);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Mail"
     try
         set msgs to (messages 1 thru {} of {}{})
@@ -130,11 +147,20 @@ tell application "Mail"
         return "Error: " & errMsg
     end try
 end tell
-"#, limit, safe_mailbox, filter_clause);
+"#,
+            limit, safe_mailbox, filter_clause
+        );
         run_applescript(&script).await
     }
 
-    async fn send_email(&self, to: &str, subject: &str, body: &str, cc: Option<&str>, in_reply_to: Option<&str>) -> Result<String> {
+    async fn send_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+        cc: Option<&str>,
+        in_reply_to: Option<&str>,
+    ) -> Result<String> {
         let safe_to = sanitize_applescript_string(to);
         let safe_subject = sanitize_applescript_string(subject);
         let safe_body = sanitize_applescript_string(body);
@@ -142,7 +168,8 @@ end tell
         let script = if let Some(reply_subject) = in_reply_to {
             let safe_reply_subject = sanitize_applescript_string(reply_subject);
             debug!("Replying to email with subject: {}", reply_subject);
-            format!(r#"
+            format!(
+                r#"
 tell application "Mail"
     try
         set targetMsgs to (every message of inbox whose subject contains "{}")
@@ -164,17 +191,23 @@ tell application "Mail"
         return "Error: " & errMsg
     end try
 end tell
-"#, safe_reply_subject, safe_body, safe_subject, safe_body, safe_to)
+"#,
+                safe_reply_subject, safe_body, safe_subject, safe_body, safe_to
+            )
         } else {
             debug!("Sending new email to: {}", to);
             let cc_block = if let Some(cc_addr) = cc {
                 let safe_cc = sanitize_applescript_string(cc_addr);
-                format!(r#"
-                make new cc recipient at end of cc recipients with properties {{address:"{}"}}"#, safe_cc)
+                format!(
+                    r#"
+                make new cc recipient at end of cc recipients with properties {{address:"{}"}}"#,
+                    safe_cc
+                )
             } else {
                 String::new()
             };
-            format!(r#"
+            format!(
+                r#"
 tell application "Mail"
     try
         set newMessage to make new outgoing message with properties {{subject:"{}", content:"{}", visible:true}}
@@ -187,7 +220,9 @@ tell application "Mail"
         return "Error: " & errMsg
     end try
 end tell
-"#, safe_subject, safe_body, safe_to, cc_block)
+"#,
+                safe_subject, safe_body, safe_to, cc_block
+            )
         };
         run_applescript(&script).await
     }
@@ -199,7 +234,8 @@ pub struct MacOsCalendarProvider;
 impl CalendarProvider for MacOsCalendarProvider {
     async fn read_events(&self, days_ahead: u64) -> Result<String> {
         debug!("Reading calendar events for next {} days", days_ahead);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Calendar"
     try
         set startDate to current date
@@ -217,15 +253,23 @@ tell application "Calendar"
         return "Error: " & errMsg
     end try
 end tell
-"#, days_ahead);
+"#,
+            days_ahead
+        );
         run_applescript(&script).await
     }
 
-    async fn create_event(&self, summary: &str, start_time: &str, duration_minutes: u64) -> Result<String> {
+    async fn create_event(
+        &self,
+        summary: &str,
+        start_time: &str,
+        duration_minutes: u64,
+    ) -> Result<String> {
         debug!("Creating calendar event: {}", summary);
         let safe_summary = sanitize_applescript_string(summary);
         let safe_start_time = sanitize_applescript_string(start_time);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Calendar"
     try
         set startDate to date "{}"
@@ -238,18 +282,42 @@ tell application "Calendar"
         return "Error: " & errMsg
     end try
 end tell
-"#, safe_start_time, duration_minutes, safe_summary);
+"#,
+            safe_start_time, duration_minutes, safe_summary
+        );
         run_applescript(&script).await
     }
 }
 
 /// Allowlist of valid UI element types for macOS accessibility
 const VALID_ELEMENT_TYPES: &[&str] = &[
-    "button", "checkbox", "radio button", "text field", "text area",
-    "pop up button", "menu item", "menu button", "slider", "tab group",
-    "table", "outline", "list", "scroll area", "group", "window",
-    "sheet", "toolbar", "static text", "image", "link", "cell", "row",
-    "column", "combo box", "incrementor", "relevance indicator",
+    "button",
+    "checkbox",
+    "radio button",
+    "text field",
+    "text area",
+    "pop up button",
+    "menu item",
+    "menu button",
+    "slider",
+    "tab group",
+    "table",
+    "outline",
+    "list",
+    "scroll area",
+    "group",
+    "window",
+    "sheet",
+    "toolbar",
+    "static text",
+    "image",
+    "link",
+    "cell",
+    "row",
+    "column",
+    "combo box",
+    "incrementor",
+    "relevance indicator",
 ];
 
 pub struct MacOsUiAutomation;
@@ -278,12 +346,16 @@ end tell
     }
 
     async fn click_element(&self, element_name: &str, element_type: &str) -> Result<String> {
-        if !VALID_ELEMENT_TYPES.iter().any(|&valid| valid.eq_ignore_ascii_case(element_type)) {
+        if !VALID_ELEMENT_TYPES
+            .iter()
+            .any(|&valid| valid.eq_ignore_ascii_case(element_type))
+        {
             return Err(anyhow::anyhow!("Invalid element type: {}", element_type));
         }
         debug!("Clicking {} element: {}", element_type, element_name);
         let safe_element_name = sanitize_applescript_string(element_name);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "System Events"
     try
         set frontApp to first application process whose frontmost is true
@@ -295,14 +367,17 @@ tell application "System Events"
         return "Error: " & errMsg
     end try
 end tell
-"#, element_type, safe_element_name);
+"#,
+            element_type, safe_element_name
+        );
         run_applescript(&script).await
     }
 
     async fn type_text(&self, text: &str) -> Result<String> {
         debug!("Typing text ({} chars)", text.len());
         let safe_text = sanitize_applescript_string(text);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "System Events"
     try
         keystroke "{}"
@@ -311,7 +386,9 @@ tell application "System Events"
         return "Error: " & errMsg
     end try
 end tell
-"#, safe_text.replace('\n', "\" & return & \""));
+"#,
+            safe_text.replace('\n', "\" & return & \"")
+        );
         run_applescript(&script).await
     }
 }
@@ -328,7 +405,8 @@ impl RemindersProvider for MacOsRemindersProvider {
             "default list".to_string()
         };
         debug!("Listing reminders from {}", list_clause);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Reminders"
     try
         set theList to {}
@@ -355,11 +433,19 @@ tell application "Reminders"
         return "Error: " & errMsg
     end try
 end tell
-"#, list_clause);
+"#,
+            list_clause
+        );
         run_applescript(&script).await
     }
 
-    async fn create_reminder(&self, name: &str, list_name: Option<&str>, due_date: Option<&str>, notes: Option<&str>) -> Result<String> {
+    async fn create_reminder(
+        &self,
+        name: &str,
+        list_name: Option<&str>,
+        due_date: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<String> {
         let safe_name = sanitize_applescript_string(name);
         let list_clause = if let Some(ln) = list_name {
             let safe = sanitize_applescript_string(ln);
@@ -378,13 +464,17 @@ end tell
         };
         let due_clause = if let Some(due) = due_date {
             let safe_due = sanitize_applescript_string(due);
-            format!(r#"
-            set due date of newReminder to date "{}""#, safe_due)
+            format!(
+                r#"
+            set due date of newReminder to date "{}""#,
+                safe_due
+            )
         } else {
             String::new()
         };
         debug!("Creating reminder: {}", name);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Reminders"
     try
         set newReminder to make new reminder at end of {} with properties {}{}
@@ -393,7 +483,9 @@ tell application "Reminders"
         return "Error: " & errMsg
     end try
 end tell
-"#, list_clause, props, due_clause);
+"#,
+            list_clause, props, due_clause
+        );
         run_applescript(&script).await
     }
 }
@@ -411,7 +503,8 @@ impl NotesProvider for MacOsNotesProvider {
             "notes".to_string()
         };
         debug!("Listing {} notes", limit);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Notes"
     try
         set allNotes to {}
@@ -438,14 +531,20 @@ tell application "Notes"
         return "Error: " & errMsg
     end try
 end tell
-"#, folder_clause, limit);
+"#,
+            folder_clause, limit
+        );
         run_applescript(&script).await
     }
 
     async fn create_note(&self, title: &str, body: &str, folder: Option<&str>) -> Result<String> {
         let safe_title = sanitize_applescript_string(title);
         let safe_body = sanitize_applescript_string(body);
-        let html_body = format!("<h1>{}</h1><br>{}", safe_title, safe_body.replace('\n', "<br>"));
+        let html_body = format!(
+            "<h1>{}</h1><br>{}",
+            safe_title,
+            safe_body.replace('\n', "<br>")
+        );
         let folder_clause = if let Some(f) = folder {
             let safe = sanitize_applescript_string(f);
             format!(r#" in folder "{}""#, safe)
@@ -453,7 +552,8 @@ end tell
             String::new()
         };
         debug!("Creating note: {}", title);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Notes"
     try
         make new note{} with properties {{name:"{}", body:"{}"}}
@@ -462,7 +562,9 @@ tell application "Notes"
         return "Error: " & errMsg
     end try
 end tell
-"#, folder_clause, safe_title, html_body, safe_title);
+"#,
+            folder_clause, safe_title, html_body, safe_title
+        );
         run_applescript(&script).await
     }
 }
@@ -471,7 +573,12 @@ pub struct MacOsNotificationProvider;
 
 #[async_trait]
 impl NotificationProvider for MacOsNotificationProvider {
-    async fn send_notification(&self, title: &str, message: &str, sound: Option<&str>) -> Result<String> {
+    async fn send_notification(
+        &self,
+        title: &str,
+        message: &str,
+        sound: Option<&str>,
+    ) -> Result<String> {
         let safe_title = sanitize_applescript_string(title);
         let safe_message = sanitize_applescript_string(message);
         let sound_clause = if let Some(s) = sound {
@@ -509,7 +616,7 @@ impl ScreenCaptureProvider for MacOsScreenCaptureProvider {
             Command::new("screencapture")
                 .arg("-x") // silent (no shutter sound)
                 .arg(&output_path)
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Screen capture timed out"))?
@@ -563,10 +670,16 @@ end tell
             "stop" => "stop",
             "next" | "skip" => "next track",
             "previous" | "prev" | "back" => "previous track",
-            _ => return Err(anyhow::anyhow!("Invalid action: {}. Use: play, pause, stop, next, previous", action)),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Invalid action: {}. Use: play, pause, stop, next, previous",
+                    action
+                ));
+            }
         };
         debug!("Music control: {}", command);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Music"
     try
         {}
@@ -575,7 +688,9 @@ tell application "Music"
         return "Error: " & errMsg
     end try
 end tell
-"#, command, command);
+"#,
+            command, command
+        );
         run_applescript(&script).await
     }
 }
@@ -587,7 +702,8 @@ impl ContactsProvider for MacOsContactsProvider {
     async fn search_contacts(&self, query: &str) -> Result<String> {
         let safe_query = sanitize_applescript_string(query);
         debug!("Searching contacts for: {}", query);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Contacts"
     try
         set results to (every person whose name contains "{}")
@@ -615,7 +731,9 @@ tell application "Contacts"
         return "Error: " & errMsg
     end try
 end tell
-"#, safe_query, safe_query);
+"#,
+            safe_query, safe_query
+        );
         run_applescript(&script).await
     }
 }
@@ -665,7 +783,8 @@ end tell
 
     async fn open_tab(&self, url: &str) -> Result<BrowserTab> {
         let safe_url = sanitize_applescript_string(url);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Safari"
     activate
     tell window 1
@@ -674,7 +793,9 @@ tell application "Safari"
         return (name of newTab) & "|" & (URL of newTab)
     end tell
 end tell
-"#, safe_url);
+"#,
+            safe_url
+        );
         let raw = run_applescript(&script).await?;
         let parts: Vec<&str> = raw.splitn(2, '|').collect();
         Ok(BrowserTab {
@@ -688,29 +809,36 @@ end tell
 
     async fn close_tab(&self, tab_id: &str) -> Result<()> {
         let (win, tab) = parse_safari_tab_id(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Safari"
     close tab {} of window {}
 end tell
-"#, tab, win);
+"#,
+            tab, win
+        );
         run_applescript(&script).await?;
         Ok(())
     }
 
     async fn switch_tab(&self, tab_id: &str) -> Result<()> {
         let (win, tab) = parse_safari_tab_id(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Safari"
     set current tab of window {} to tab {} of window {}
 end tell
-"#, win, tab, win);
+"#,
+            win, tab, win
+        );
         run_applescript(&script).await?;
         Ok(())
     }
 
     async fn get_page_content(&self, tab_id: Option<&str>) -> Result<PageContent> {
         let tab_clause = safari_tab_clause(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Safari"
     set t to {}
     set pageTitle to name of t
@@ -719,7 +847,9 @@ tell application "Safari"
     set pageHtml to do JavaScript "document.documentElement.outerHTML.substring(0, 50000)" in t
     return pageTitle & "|||" & pageUrl & "|||" & pageText & "|||" & pageHtml
 end tell
-"#, tab_clause);
+"#,
+            tab_clause
+        );
         let raw = run_applescript(&script).await?;
         let parts: Vec<&str> = raw.splitn(4, "|||").collect();
         Ok(PageContent {
@@ -733,12 +863,15 @@ end tell
     async fn execute_javascript(&self, tab_id: Option<&str>, script: &str) -> Result<String> {
         let tab_clause = safari_tab_clause(tab_id)?;
         let safe_script = sanitize_applescript_string(script);
-        let applescript = format!(r#"
+        let applescript = format!(
+            r#"
 tell application "Safari"
     set t to {}
     do JavaScript "{}" in t
 end tell
-"#, tab_clause, safe_script);
+"#,
+            tab_clause, safe_script
+        );
         run_applescript(&applescript).await
     }
 
@@ -770,7 +903,7 @@ end tell
             Command::new("screencapture")
                 .arg("-x")
                 .arg(&output_path)
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Screenshot timed out"))?
@@ -800,7 +933,8 @@ end tell
 
     async fn get_cookies(&self, tab_id: Option<&str>) -> Result<Vec<BrowserCookie>> {
         let raw = self.execute_javascript(tab_id, "document.cookie").await?;
-        let cookies = raw.split(';')
+        let cookies = raw
+            .split(';')
             .filter_map(|c| {
                 let parts: Vec<&str> = c.splitn(2, '=').collect();
                 if parts.len() == 2 {
@@ -820,11 +954,14 @@ end tell
 
     async fn get_page_url(&self, tab_id: Option<&str>) -> Result<String> {
         let tab_clause = safari_tab_clause(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Safari"
     return URL of {}
 end tell
-"#, tab_clause);
+"#,
+            tab_clause
+        );
         let url = run_applescript(&script).await?;
         Ok(url.trim().to_string())
     }
@@ -834,11 +971,17 @@ end tell
 fn parse_safari_tab_id(tab_id: &str) -> Result<(u32, u32)> {
     let parts: Vec<&str> = tab_id.split(':').collect();
     if parts.len() >= 3 && parts[0] == "safari" {
-        let win: u32 = parts[1].parse().map_err(|_| anyhow::anyhow!("Invalid window index in tab_id"))?;
-        let tab: u32 = parts[2].parse().map_err(|_| anyhow::anyhow!("Invalid tab index in tab_id"))?;
+        let win: u32 = parts[1]
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid window index in tab_id"))?;
+        let tab: u32 = parts[2]
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid tab index in tab_id"))?;
         Ok((win, tab))
     } else {
-        Err(anyhow::anyhow!("Invalid Safari tab_id format: expected 'safari:window:tab'"))
+        Err(anyhow::anyhow!(
+            "Invalid Safari tab_id format: expected 'safari:window:tab'"
+        ))
     }
 }
 
@@ -898,7 +1041,8 @@ end tell
 
     async fn open_tab(&self, url: &str) -> Result<BrowserTab> {
         let safe_url = sanitize_applescript_string(url);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Google Chrome"
     activate
     tell window 1
@@ -906,7 +1050,9 @@ tell application "Google Chrome"
         return (title of newTab) & "|" & (URL of newTab)
     end tell
 end tell
-"#, safe_url);
+"#,
+            safe_url
+        );
         let raw = run_applescript(&script).await?;
         let parts: Vec<&str> = raw.splitn(2, '|').collect();
         Ok(BrowserTab {
@@ -920,29 +1066,36 @@ end tell
 
     async fn close_tab(&self, tab_id: &str) -> Result<()> {
         let (win, tab) = parse_chrome_tab_id(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Google Chrome"
     close tab {} of window {}
 end tell
-"#, tab, win);
+"#,
+            tab, win
+        );
         run_applescript(&script).await?;
         Ok(())
     }
 
     async fn switch_tab(&self, tab_id: &str) -> Result<()> {
         let (win, tab) = parse_chrome_tab_id(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Google Chrome"
     set active tab index of window {} to {}
 end tell
-"#, win, tab);
+"#,
+            win, tab
+        );
         run_applescript(&script).await?;
         Ok(())
     }
 
     async fn get_page_content(&self, tab_id: Option<&str>) -> Result<PageContent> {
         let tab_clause = chrome_tab_clause(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Google Chrome"
     set t to {}
     set pageTitle to title of t
@@ -951,7 +1104,9 @@ tell application "Google Chrome"
     set pageHtml to execute t javascript "document.documentElement.outerHTML.substring(0, 50000)"
     return pageTitle & "|||" & pageUrl & "|||" & pageText & "|||" & pageHtml
 end tell
-"#, tab_clause);
+"#,
+            tab_clause
+        );
         let raw = run_applescript(&script).await?;
         let parts: Vec<&str> = raw.splitn(4, "|||").collect();
         Ok(PageContent {
@@ -965,12 +1120,15 @@ end tell
     async fn execute_javascript(&self, tab_id: Option<&str>, script: &str) -> Result<String> {
         let tab_clause = chrome_tab_clause(tab_id)?;
         let safe_script = sanitize_applescript_string(script);
-        let applescript = format!(r#"
+        let applescript = format!(
+            r#"
 tell application "Google Chrome"
     set t to {}
     execute t javascript "{}"
 end tell
-"#, tab_clause, safe_script);
+"#,
+            tab_clause, safe_script
+        );
         run_applescript(&applescript).await
     }
 
@@ -1002,7 +1160,7 @@ end tell
             Command::new("screencapture")
                 .arg("-x")
                 .arg(&output_path)
-                .output()
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Screenshot timed out"))?
@@ -1032,7 +1190,8 @@ end tell
 
     async fn get_cookies(&self, tab_id: Option<&str>) -> Result<Vec<BrowserCookie>> {
         let raw = self.execute_javascript(tab_id, "document.cookie").await?;
-        let cookies = raw.split(';')
+        let cookies = raw
+            .split(';')
             .filter_map(|c| {
                 let parts: Vec<&str> = c.splitn(2, '=').collect();
                 if parts.len() == 2 {
@@ -1052,11 +1211,14 @@ end tell
 
     async fn get_page_url(&self, tab_id: Option<&str>) -> Result<String> {
         let tab_clause = chrome_tab_clause(tab_id)?;
-        let script = format!(r#"
+        let script = format!(
+            r#"
 tell application "Google Chrome"
     return URL of {}
 end tell
-"#, tab_clause);
+"#,
+            tab_clause
+        );
         let url = run_applescript(&script).await?;
         Ok(url.trim().to_string())
     }
@@ -1066,11 +1228,17 @@ end tell
 fn parse_chrome_tab_id(tab_id: &str) -> Result<(u32, u32)> {
     let parts: Vec<&str> = tab_id.split(':').collect();
     if parts.len() >= 3 && parts[0] == "chrome" {
-        let win: u32 = parts[1].parse().map_err(|_| anyhow::anyhow!("Invalid window index in tab_id"))?;
-        let tab: u32 = parts[2].parse().map_err(|_| anyhow::anyhow!("Invalid tab index in tab_id"))?;
+        let win: u32 = parts[1]
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid window index in tab_id"))?;
+        let tab: u32 = parts[2]
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid tab index in tab_id"))?;
         Ok((win, tab))
     } else {
-        Err(anyhow::anyhow!("Invalid Chrome tab_id format: expected 'chrome:window:tab'"))
+        Err(anyhow::anyhow!(
+            "Invalid Chrome tab_id format: expected 'chrome:window:tab'"
+        ))
     }
 }
 

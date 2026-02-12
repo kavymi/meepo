@@ -8,9 +8,7 @@ use chrono::Utc;
 use serde_json::Value;
 use tracing::info;
 
-use crate::orchestrator::{
-    ExecutionMode, SubTask, TaskGroup, TaskOrchestrator,
-};
+use crate::orchestrator::{ExecutionMode, SubTask, TaskGroup, TaskOrchestrator};
 use crate::tools::{ToolHandler, ToolRegistry};
 use crate::types::ChannelType;
 
@@ -99,15 +97,21 @@ impl ToolHandler for DelegateTasksTool {
     async fn execute(&self, input: Value) -> Result<String> {
         let registry = self.registry()?;
 
-        let mode_str = input.get("mode")
+        let mode_str = input
+            .get("mode")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'mode' parameter"))?;
 
-        let mode: ExecutionMode = serde_json::from_value(
-            Value::String(mode_str.to_string())
-        ).map_err(|_| anyhow!("Invalid mode '{}'. Must be 'parallel' or 'background'.", mode_str))?;
+        let mode: ExecutionMode = serde_json::from_value(Value::String(mode_str.to_string()))
+            .map_err(|_| {
+                anyhow!(
+                    "Invalid mode '{}'. Must be 'parallel' or 'background'.",
+                    mode_str
+                )
+            })?;
 
-        let tasks_value = input.get("tasks")
+        let tasks_value = input
+            .get("tasks")
             .and_then(|v| v.as_array())
             .ok_or_else(|| anyhow!("Missing or invalid 'tasks' parameter"))?;
 
@@ -117,22 +121,26 @@ impl ToolHandler for DelegateTasksTool {
 
         let mut tasks = Vec::new();
         for (i, task_value) in tasks_value.iter().enumerate() {
-            let task_id = task_value.get("task_id")
+            let task_id = task_value
+                .get("task_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("Task {} missing 'task_id'", i))?
                 .to_string();
 
-            let prompt = task_value.get("prompt")
+            let prompt = task_value
+                .get("prompt")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("Task {} missing 'prompt'", i))?
                 .to_string();
 
-            let context_summary = task_value.get("context_summary")
+            let context_summary = task_value
+                .get("context_summary")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
 
-            let tools: Vec<String> = task_value.get("tools")
+            let tools: Vec<String> = task_value
+                .get("tools")
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| anyhow!("Task {} missing 'tools'", i))?
                 .iter()
@@ -149,7 +157,12 @@ impl ToolHandler for DelegateTasksTool {
         }
 
         let group_id = format!("{}-{}", mode_str, &uuid::Uuid::new_v4().to_string()[..8]);
-        info!("Delegating {} tasks in {} mode (group: {})", tasks.len(), mode_str, group_id);
+        info!(
+            "Delegating {} tasks in {} mode (group: {})",
+            tasks.len(),
+            mode_str,
+            group_id
+        );
 
         let group = TaskGroup {
             group_id,
@@ -173,19 +186,16 @@ mod tests {
 
     #[test]
     fn test_parse_execution_mode() {
-        let parallel: ExecutionMode = serde_json::from_value(
-            Value::String("parallel".to_string())
-        ).unwrap();
+        let parallel: ExecutionMode =
+            serde_json::from_value(Value::String("parallel".to_string())).unwrap();
         assert_eq!(parallel, ExecutionMode::Parallel);
 
-        let background: ExecutionMode = serde_json::from_value(
-            Value::String("background".to_string())
-        ).unwrap();
+        let background: ExecutionMode =
+            serde_json::from_value(Value::String("background".to_string())).unwrap();
         assert_eq!(background, ExecutionMode::Background);
 
-        let invalid: std::result::Result<ExecutionMode, _> = serde_json::from_value(
-            Value::String("invalid".to_string())
-        );
+        let invalid: std::result::Result<ExecutionMode, _> =
+            serde_json::from_value(Value::String("invalid".to_string()));
         assert!(invalid.is_err());
     }
 
@@ -215,7 +225,8 @@ mod tests {
         let api = crate::api::ApiClient::new("key".to_string(), None);
         let (tx, _rx) = tokio::sync::mpsc::channel(1);
         let orch = Arc::new(TaskOrchestrator::new(
-            api, tx,
+            api,
+            tx,
             crate::orchestrator::OrchestratorConfig::default(),
         ));
         let tool = DelegateTasksTool::new(orch, slot);
@@ -235,7 +246,8 @@ mod tests {
         let api = crate::api::ApiClient::new("key".to_string(), None);
         let (tx, _rx) = tokio::sync::mpsc::channel(1);
         let orch = Arc::new(TaskOrchestrator::new(
-            api, tx,
+            api,
+            tx,
             crate::orchestrator::OrchestratorConfig::default(),
         ));
         let tool = DelegateTasksTool::new(orch, slot.clone());
@@ -258,7 +270,8 @@ mod tests {
         let api = crate::api::ApiClient::new("key".to_string(), None);
         let (tx, _rx) = tokio::sync::mpsc::channel(1);
         let orch = Arc::new(TaskOrchestrator::new(
-            api, tx,
+            api,
+            tx,
             crate::orchestrator::OrchestratorConfig::default(),
         ));
         let tool = DelegateTasksTool::new(orch, slot.clone());
@@ -281,7 +294,9 @@ mod tests {
         // We test this by directly checking the filter logic rather than
         // going through the full execute path (which requires a real API).
         let tools_json = serde_json::json!(["read_file", "delegate_tasks", "browse_url"]);
-        let tools: Vec<String> = tools_json.as_array().unwrap()
+        let tools: Vec<String> = tools_json
+            .as_array()
+            .unwrap()
             .iter()
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .filter(|t| t != "delegate_tasks")
