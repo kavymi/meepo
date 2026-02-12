@@ -210,6 +210,37 @@ fi
 command -v gh &>/dev/null && print_ok "GitHub CLI" || print_dim "gh not found (optional — brew install gh)"
 command -v claude &>/dev/null && print_ok "Claude CLI" || print_dim "claude not found (optional — npm i -g @anthropic-ai/claude-code)"
 
+# Tart VM detection
+IS_VM=false
+if [[ "$(uname)" == "Darwin" ]]; then
+    VM_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)
+    HW_MODEL=$(system_profiler SPHardwareDataType 2>/dev/null | grep "Model Identifier" || true)
+    if [[ "$HW_MODEL" == *"VirtualMac"* ]] || [[ "$HW_MODEL" == *"Virtual"* ]] || [[ -d "/opt/homebrew/Caskroom/tart" ]] || [[ "${TART_VM:-}" == "1" ]]; then
+        IS_VM=true
+    fi
+fi
+
+if $IS_VM; then
+    echo ""
+    print_warn "Running inside a macOS VM (Tart detected)"
+    echo ""
+    echo -e "  ${BOLD}What works in a VM:${NC}"
+    echo -e "  ${GREEN}✓${NC} CLI, Discord, Slack, Email channels"
+    echo -e "  ${GREEN}✓${NC} Knowledge graph, watchers, MCP, A2A"
+    echo -e "  ${GREEN}✓${NC} iMessage (requires Apple ID sign-in + Full Disk Access)"
+    echo ""
+    echo -e "  ${BOLD}GUI mode only (tart run):${NC}"
+    echo -e "  ${YELLOW}~${NC} Browser automation, screen capture, UI automation, music"
+    echo ""
+    echo -e "  ${BOLD}Headless mode (tart run --no-graphics):${NC}"
+    echo -e "  ${RED}✗${NC} Browser automation, screen capture, UI automation, music"
+    echo ""
+    echo -e "  ${BOLD}Networking:${NC}"
+    echo -e "  ${DIM}Tart uses NAT by default. For A2A (port 8081) from the host:${NC}"
+    echo -e "  ${DIM}  tart run <vm> --net-softnet${NC}"
+    echo ""
+fi
+
 # ── Step 2: Build ───────────────────────────────────────────────
 
 print_step 2 "Build"
@@ -219,7 +250,6 @@ BINARY_PATH="$REPO_DIR/target/release/meepo"
 if [ -f "$BINARY_PATH" ]; then
     print_ok "Binary exists at $BINARY_PATH"
     if ask_yn "Rebuild?"; then
-<<<<<<< Updated upstream
         echo -e "  ${DIM}Building...${NC}"
         (cd "$REPO_DIR" && cargo build --release 2>&1 | tail -1)
         print_ok "Build complete"
@@ -228,20 +258,6 @@ else
     echo -e "  ${DIM}First build — this takes ~2 minutes...${NC}"
     (cd "$REPO_DIR" && cargo build --release 2>&1 | tail -1)
     print_ok "Built $BINARY_PATH"
-=======
-        echo "  Building (this takes ~2 minutes)..."
-        echo ""
-        (cd "$REPO_DIR" && cargo build --release)
-        echo ""
-        print_ok "Build complete"
-    fi
-else
-    echo "  Building (this takes ~2 minutes on first build)..."
-    echo ""
-    (cd "$REPO_DIR" && cargo build --release)
-    echo ""
-    print_ok "Build complete: $BINARY_PATH"
->>>>>>> Stashed changes
 fi
 
 # ── Step 3: Config ──────────────────────────────────────────────
@@ -395,7 +411,6 @@ if ask_yn "Enable iMessage?"; then
     echo -e "  ${BOLD}Requires:${NC} Full Disk Access for your terminal app."
     print_url "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
 
-<<<<<<< Updated upstream
     if ask_yn "Open System Settings → Full Disk Access?"; then
         open_url "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
         print_dim "Opened System Settings — toggle ON for your terminal"
@@ -404,9 +419,6 @@ if ask_yn "Enable iMessage?"; then
     echo ""
     CONTACTS=$(ask_value "Allowed contacts (comma-separated phones/emails, or Enter for all)" "")
     PREFIX=$(ask_value "Trigger prefix" "/d")
-=======
-    CONTACTS=$(ask_value "Allowed contacts (comma-separated phones/emails)" "")
->>>>>>> Stashed changes
 
     sed -i '' '/^\[channels\.imessage\]$/,/^\[/{s/^enabled = false/enabled = true/;}' "$CONFIG_FILE"
 
@@ -415,15 +427,11 @@ if ask_yn "Enable iMessage?"; then
         sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^allowed_contacts = \[\]|allowed_contacts = $TOML_CONTACTS|;}" "$CONFIG_FILE"
     fi
 
-<<<<<<< Updated upstream
     if [ "$PREFIX" != "/d" ]; then
         sed -i '' "/^\[channels\.imessage\]$/,/^\[/{s|^trigger_prefix = \"/d\"|trigger_prefix = \"$PREFIX\"|;}" "$CONFIG_FILE"
     fi
 
     print_ok "iMessage enabled"
-=======
-    print_ok "iMessage enabled in config"
->>>>>>> Stashed changes
 fi
 
 # ── Step 7: Verify ──────────────────────────────────────────────

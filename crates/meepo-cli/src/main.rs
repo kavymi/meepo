@@ -174,6 +174,26 @@ async fn cmd_setup() -> Result<()> {
     println!("    • Verify everything works");
     println!();
 
+    // ── Tart VM detection ───────────────────────────────────────
+    #[cfg(target_os = "macos")]
+    {
+        let is_vm = detect_tart_vm();
+        if is_vm {
+            println!("  ┌─ Tart VM Detected ──────────────────────────────────┐");
+            println!("  │ Running inside a macOS virtual machine.             │");
+            println!("  │                                                     │");
+            println!("  │ ✓ CLI, Discord, Slack, Email, MCP, A2A             │");
+            println!("  │ ✓ Knowledge graph, watchers, iMessage              │");
+            println!("  │ ~ Browser, screen capture, UI (GUI mode only)      │");
+            println!("  │ ✗ Browser, screen capture, UI (headless mode)      │");
+            println!("  │                                                     │");
+            println!("  │ Networking: Tart uses NAT by default.              │");
+            println!("  │ For A2A from host: tart run <vm> --net-softnet     │");
+            println!("  └─────────────────────────────────────────────────────┘");
+            println!();
+        }
+    }
+
     // ── Step 1: Init config ─────────────────────────────────────
     setup_step(1, total_steps, "Initialize config files");
     cmd_init().await?;
@@ -619,6 +639,27 @@ fn prompt_yes_no() -> Result<bool> {
     io::stdin().lock().read_line(&mut answer)?;
     let answer = answer.trim().to_lowercase();
     Ok(answer == "y" || answer == "yes")
+}
+
+/// Detect if running inside a Tart (or other) macOS virtual machine.
+/// Checks the hardware model identifier for "VirtualMac" and the TART_VM env var.
+#[cfg(target_os = "macos")]
+fn detect_tart_vm() -> bool {
+    // Check explicit env var first (set by user or CI)
+    if std::env::var("TART_VM").unwrap_or_default() == "1" {
+        return true;
+    }
+    // Check hardware model — Tart VMs report "VirtualMac2,1" or similar
+    let output = std::process::Command::new("system_profiler")
+        .args(["SPHardwareDataType"])
+        .output();
+    if let Ok(o) = output {
+        let text = String::from_utf8_lossy(&o.stdout);
+        if text.contains("VirtualMac") || text.contains("Virtual Machine") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Detect which terminal app the user is running (for permission guidance)

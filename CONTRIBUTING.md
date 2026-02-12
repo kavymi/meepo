@@ -190,6 +190,43 @@ cargo run -- ask "Hello, what tools do you have?"
 ```
 This builds the binary, initializes config, walks through API keys, and tests the connection.
 
+## Development in a Tart VM
+
+[Tart](https://tart.run) lets you run macOS VMs on Apple Silicon. This is useful for testing Meepo in a clean environment or running CI locally.
+
+```bash
+# Create a macOS VM
+tart create meepo-dev --from-oci ghcr.io/cirruslabs/macos-sequoia-xcode:latest
+
+# Boot it (GUI mode — needed for browser/UI tools)
+tart run meepo-dev
+
+# Or headless (CLI, Discord, Slack, MCP, A2A still work)
+tart run meepo-dev --no-graphics
+```
+
+Inside the VM:
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Clone and build
+git clone https://github.com/kavymi/meepo.git && cd meepo
+cargo build
+
+# Run tests
+cargo test --workspace
+
+# Set up and run
+export ANTHROPIC_API_KEY="sk-ant-..."
+cargo run -- setup
+```
+
+The setup wizard (`meepo setup` / `cargo run -- setup`) auto-detects Tart VMs and shows which features work in the current environment. You can also force detection with `TART_VM=1`.
+
+**Networking:** Tart uses NAT by default. For A2A testing from the host, use `tart run meepo-dev --net-softnet`.
+
 ## Adding a New Tool
 
 1. Create a struct in the appropriate file under `crates/meepo-core/src/tools/`

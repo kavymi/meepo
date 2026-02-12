@@ -381,6 +381,54 @@ scripts\install.ps1     # Install and start (requires Administrator)
 scripts\uninstall.ps1   # Remove
 ```
 
+## Running in a Tart VM
+
+[Tart](https://tart.run) is a virtualization toolset for macOS VMs on Apple Silicon. Running Meepo inside a Tart VM is useful for sandboxed testing, CI, or isolating the agent from your host machine.
+
+### Quick Start
+
+```bash
+# On the host — create and boot a macOS VM
+tart create meepo-vm --from-oci ghcr.io/cirruslabs/macos-sequoia-base:latest
+tart run meepo-vm
+
+# Inside the VM — install and set up Meepo
+curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+meepo setup
+meepo start
+```
+
+### What works in a Tart VM
+
+| Feature | GUI mode (`tart run`) | Headless (`tart run --no-graphics`) |
+|---------|----------------------|-------------------------------------|
+| CLI (`meepo ask`, `meepo start`) | ✓ | ✓ |
+| Discord / Slack / Email channels | ✓ | ✓ |
+| Knowledge graph, watchers, MCP, A2A | ✓ | ✓ |
+| iMessage channel | ✓ (requires Apple ID sign-in) | ✓ (requires Apple ID sign-in) |
+| Browser automation (Safari/Chrome) | ✓ | ✗ (no display session) |
+| Screen capture, UI automation | ✓ | ✗ (no display session) |
+| Music control | ✓ | ✗ |
+
+### Permissions in a Tart VM
+
+macOS permissions (Accessibility, Full Disk Access, Automation, Screen Recording) must be granted **inside the VM** just like on a physical Mac. Run `meepo setup` inside the VM — it detects the environment and walks you through each permission.
+
+### Networking
+
+Tart VMs use NAT by default. If you need the A2A server (port 8081) or MCP server accessible from the host:
+
+```bash
+# Use softnet for bridged networking
+tart run meepo-vm --net-softnet
+
+# Or use Tart's built-in port forwarding (Tart 2.0+)
+tart run meepo-vm --rosetta --dir=share:~/shared
+```
+
+> **Tip:** The `meepo setup` wizard detects when running inside a VM and shows relevant guidance automatically.
+
 ## Troubleshooting
 
 **"API key not set" or empty responses**
