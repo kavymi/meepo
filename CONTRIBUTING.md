@@ -42,14 +42,15 @@ cargo build --release
 
 ## Workspace Layout
 
-Meepo is a Cargo workspace with 5 crates. Dependencies flow downward — `meepo-cli` depends on everything, leaf crates have no internal dependencies.
+Meepo is a Cargo workspace with 7 crates. Dependencies flow downward — `meepo-cli` depends on everything, leaf crates have no internal dependencies.
 
 ```
 crates/
 ├── meepo-cli/          # Binary entry point
 │   └── src/
 │       ├── main.rs     # CLI commands, daemon startup, event loop
-│       └── config.rs   # Config loading, env var expansion
+│       ├── config.rs   # Config loading, env var expansion
+│       └── template.rs # Agent template system (parse, activate, reset)
 │
 ├── meepo-core/         # Core agent logic (largest crate)
 │   └── src/
@@ -58,16 +59,36 @@ crates/
 │       ├── api.rs      # Anthropic API client, tool loop
 │       ├── tavily.rs   # Tavily Search/Extract client
 │       ├── orchestrator.rs  # Sub-agent task orchestrator
-│       └── tools/      # All 25 tool implementations
+│       ├── context.rs  # System prompt builder (SOUL + MEMORY)
+│       ├── notifications.rs # Proactive notification service
+│       ├── types.rs    # Shared types (IncomingMessage, OutgoingMessage, ChannelType)
+│       ├── autonomy/   # Autonomous agent loop
+│       │   ├── mod.rs          # AutonomousLoop (observe/think/act cycle)
+│       │   ├── goals.rs        # Goal tracking and evaluation
+│       │   ├── planner.rs      # Action planning
+│       │   ├── user_model.rs   # User preference learning
+│       │   └── action_log.rs   # Action history
+│       ├── platform/   # OS abstraction layer
+│       │   ├── mod.rs          # Trait definitions + factory functions
+│       │   ├── macos.rs        # macOS implementations (AppleScript)
+│       │   └── windows.rs      # Windows implementations (PowerShell/COM)
+│       ├── skills/     # Skill system (OpenClaw-compatible SKILL.md)
+│       │   ├── mod.rs          # Skill loader
+│       │   ├── parser.rs       # YAML frontmatter parser
+│       │   └── skill_tool.rs   # SkillToolHandler wrapper
+│       └── tools/      # All 40+ tool implementations
 │           ├── mod.rs          # ToolHandler trait, ToolRegistry
-│           ├── macos.rs        # Mail, Calendar, Clipboard, Apps (cross-platform via platform layer)
-│           ├── accessibility.rs # Screen reader, click, type (cross-platform via platform layer)
-│           ├── code.rs         # write_code, make_pr, review_pr (3 tools)
-│           ├── search.rs       # web_search via Tavily (1 tool)
+│           ├── macos.rs        # Email, Calendar, Reminders, Notes, Contacts, Music, etc.
+│           ├── accessibility.rs # Screen reader, click, type
+│           ├── browser.rs      # Browser automation (11 tools)
+│           ├── code.rs         # write_code, make_pr, review_pr, spawn_claude_code
+│           ├── search.rs       # web_search via Tavily
 │           ├── memory.rs       # Knowledge graph tools (4 tools)
-│           ├── system.rs       # Commands, files, browse_url (4 tools)
+│           ├── system.rs       # Commands, files, browse_url
+│           ├── filesystem.rs   # list_directory, search_files (sandboxed)
 │           ├── watchers.rs     # Watcher management (3 tools)
-│           └── delegate.rs     # Sub-agent delegation (1 tool)
+│           ├── autonomous.rs   # spawn_background_task, agent_status, stop_task
+│           └── delegate.rs     # Sub-agent delegation
 │
 ├── meepo-channels/     # Messaging adapters
 │   └── src/
@@ -83,11 +104,27 @@ crates/
 │       ├── db.rs       # KnowledgeDb (SQLite operations)
 │       └── search.rs   # TantivyIndex (full-text search)
 │
-└── meepo-scheduler/    # Background watchers
+├── meepo-scheduler/    # Background watchers
+│   └── src/
+│       ├── lib.rs      # WatcherRunner, task management
+│       ├── watchers.rs # 7 watcher types (email, calendar, file, etc.)
+│       └── persistence.rs # Watcher state in SQLite
+│
+├── meepo-mcp/          # MCP server and client
+│   └── src/
+│       ├── lib.rs      # Public exports
+│       ├── server.rs   # MCP server over STDIO (JSON-RPC)
+│       ├── client.rs   # MCP client (spawn external servers)
+│       ├── adapter.rs  # McpToolAdapter (ToolRegistry → MCP format)
+│       └── protocol.rs # MCP protocol types
+│
+└── meepo-a2a/          # A2A (Agent-to-Agent) protocol
     └── src/
-        ├── lib.rs      # WatcherRunner, task management
-        ├── watchers.rs # 7 watcher types (email, calendar, file, etc.)
-        └── persistence.rs # Watcher state in SQLite
+        ├── lib.rs      # Public exports
+        ├── server.rs   # A2A HTTP server (task submission, polling)
+        ├── client.rs   # A2A client (discover + delegate to peers)
+        ├── tool.rs     # DelegateToAgentTool
+        └── protocol.rs # AgentCard, TaskRequest, TaskResponse types
 ```
 
 ## Key Patterns
@@ -98,9 +135,15 @@ crates/
 
 **Secrets in config:** API keys use `${ENV_VAR}` syntax in TOML, expanded at load time. Never hardcode secrets. Structs holding secrets get custom `Debug` impls (not `#[derive(Debug)]`).
 
+**Platform abstraction:** OS-specific code lives behind traits in `meepo-core::platform` (`EmailProvider`, `CalendarProvider`, `BrowserProvider`, etc.). Implementations are selected at compile time via `#[cfg(target_os)]`. Factory functions return `Box<dyn Trait>`.
+
 **Optional providers:** Use `Option<Config>` with `#[serde(default)]` for optional features like Tavily. Construct the client only if the key is non-empty. Conditionally register tools.
 
 **Concurrency:** Use `tokio::sync::Semaphore` for concurrency limits. Use CAS loops (`compare_exchange`) for atomic counters under contention, not load-then-increment.
+
+**Autonomous loop:** The `AutonomousLoop` drives the agent with a tick-based observe/think/act cycle. It drains inputs (user messages + watcher events), checks due goals, and processes everything. A `Notify` handle wakes the loop immediately when new inputs arrive.
+
+**MCP/A2A interop:** `meepo-mcp` exposes tools via STDIO JSON-RPC. `meepo-a2a` exposes an HTTP server for peer agents. Both depend only on `meepo-core`.
 
 ## Running Locally
 

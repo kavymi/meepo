@@ -1,18 +1,25 @@
 # Meepo
 
-A local AI agent for macOS and Windows that connects Claude to your digital life through Discord, Slack, and more.
+A local AI agent for macOS and Windows that connects Claude to your digital life through Discord, Slack, iMessage, email, and more.
 
-Meepo runs as a daemon on your machine, monitoring your configured channels for messages. When you message it, it processes your request using Claude's API with access to 25 tools spanning email, calendar, web search, files, code, and a persistent knowledge graph.
+Meepo runs as a daemon on your machine with an autonomous observe/think/act loop. It monitors channels for messages, pursues goals proactively, and processes requests using Claude's API with access to 40+ tools spanning email, calendar, reminders, notes, browser automation, web search, files, code, music, contacts, and a persistent knowledge graph. It also speaks MCP and A2A protocols — exposing its tools to other AI agents and consuming tools from external MCP servers.
 
 ## Features
 
-- **Multi-channel messaging** — Discord DMs, Slack DMs, iMessage (macOS), or CLI one-shots
-- **25 built-in tools** — Read/send emails, manage calendar events, search the web, run commands, browse URLs, read/write files, manage code PRs, and more
+- **Multi-channel messaging** — Discord DMs, Slack DMs, iMessage (macOS), email (macOS), or CLI one-shots
+- **40+ built-in tools** — Email, calendar, reminders, notes, contacts, browser automation, web search, file browsing, code PRs, music control, screen capture, and more
+- **Autonomous agent loop** — Observe/think/act cycle with goal tracking, proactive actions, and notification alerts
 - **Cross-platform** — macOS (AppleScript) and Windows (PowerShell/Outlook COM) with platform abstraction layer
+- **MCP support** — Expose Meepo's tools as an MCP server (STDIO) for Claude Desktop, Cursor, etc. — and consume tools from external MCP servers
+- **A2A protocol** — Google's Agent-to-Agent protocol for delegating tasks to/from peer AI agents over HTTP
 - **Sub-agent delegation** — Breaks complex tasks into parallel sub-tasks or fires off background work you can check on later
+- **Browser automation** — Full Safari and Chrome control — tabs, navigation, JS execution, form filling, screenshots
 - **Web search** — Search the web and extract clean content from URLs via Tavily
 - **Knowledge graph** — Remembers entities, relationships, and conversations across sessions with Tantivy full-text search
 - **Scheduled watchers** — Monitor email, calendar, GitHub events, files, or run cron tasks
+- **Agent templates** — Swap personalities, goals, and config overlays with `meepo template use`
+- **Skills system** — Import OpenClaw-compatible SKILL.md files as additional tools
+- **Proactive notifications** — iMessage/Discord/Slack alerts for task progress, watcher triggers, and errors (with quiet hours)
 - **Security hardened** — Command allowlists, path traversal protection, SSRF blocking, input sanitization, 30s execution timeouts
 
 ## Requirements
@@ -29,6 +36,12 @@ Meepo runs as a daemon on your machine, monitoring your configured channels for 
 |---------|-------|---------|
 | Email (tool) | Mail.app via AppleScript | Outlook via PowerShell COM |
 | Calendar (tool) | Calendar.app via AppleScript | Outlook via PowerShell COM |
+| Reminders (tool) | Reminders.app via AppleScript | Not available |
+| Notes (tool) | Notes.app via AppleScript | Not available |
+| Contacts (tool) | Contacts.app via AppleScript | Not available |
+| Music (tool) | Apple Music via AppleScript | Not available |
+| Screen capture | `screencapture` CLI | Not available |
+| Notifications | `osascript` display notification | Not available |
 | Clipboard | `arboard` crate (cross-platform) | `arboard` crate (cross-platform) |
 | App launching | `open` crate (cross-platform) | `open` crate (cross-platform) |
 | UI automation | System Events (AppleScript) | System.Windows.Automation (PowerShell) |
@@ -178,6 +191,13 @@ meepo stop
 | `meepo stop` | Stop a running daemon |
 | `meepo ask "..."` | One-shot question (no daemon needed) |
 | `meepo config` | Show loaded configuration |
+| `meepo mcp-server` | Run as an MCP server over STDIO |
+| `meepo template list` | List available agent templates |
+| `meepo template use <name>` | Activate a template (overlay on current config) |
+| `meepo template info <name>` | Show what a template will change |
+| `meepo template reset` | Remove active template, restore previous config |
+| `meepo template create <name>` | Create a new template from current config |
+| `meepo template remove <name>` | Remove an installed template |
 | `meepo --debug <cmd>` | Enable debug logging |
 | `meepo --config <path> <cmd>` | Use custom config file |
 
@@ -211,6 +231,12 @@ poll_interval_secs = 3                 # How often to check for messages
 enabled = false
 allowed_contacts = []                  # Phone numbers or emails
 poll_interval_secs = 3
+trigger_prefix = "/d"                  # Optional prefix filter
+
+[channels.email]
+enabled = false                        # macOS only — poll Mail.app
+poll_interval_secs = 10
+subject_prefix = "[meepo]"            # Only process emails with this prefix
 
 [knowledge]
 db_path = "~/.meepo/knowledge.db"
@@ -236,27 +262,74 @@ default_workspace = "~/Coding"
 [memory]
 workspace = "~/.meepo/workspace"       # Contains SOUL.md and MEMORY.md
 
+[filesystem]
+allowed_directories = ["~/Coding"]     # Directories the agent can browse/search
+
 [browser]
 enabled = true                         # Enable browser automation tools
 default_browser = "safari"             # "safari" or "chrome"
+
+[autonomy]
+enabled = true                         # Autonomous observe/think/act loop
+tick_interval_secs = 30                # Idle tick rate
+max_goals = 50                         # Prevent runaway goal creation
+send_acknowledgments = true            # Typing indicators before processing
+
+[notifications]
+enabled = false                        # Proactive alerts via iMessage/Discord/Slack
+channel = "imessage"                   # "imessage", "discord", "slack", "email"
+on_task_start = true
+on_task_complete = true
+on_task_fail = true
+on_watcher_triggered = true
+on_autonomous_action = true
+on_error = true
+# [notifications.quiet_hours]
+# start = "23:00"
+# end = "08:00"
+
+[mcp.server]
+enabled = true                         # Expose tools via MCP (STDIO)
+exposed_tools = []                     # Empty = all tools (except delegate_tasks)
+
+# [[mcp.clients]]                      # Connect to external MCP servers
+# name = "github"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = [["GITHUB_TOKEN", "${GITHUB_TOKEN}"]]
+
+[a2a]
+enabled = false                        # A2A protocol (HTTP)
+port = 8081
+auth_token = "${A2A_AUTH_TOKEN}"
+allowed_tools = []                     # Tools available to incoming A2A tasks
+
+[skills]
+enabled = false                        # Import SKILL.md files as tools
+dir = "~/.meepo/skills"
 ```
 
 Environment variables are expanded with `${VAR_NAME}` syntax. Paths support `~/` expansion.
 
 ## Tools
 
-Meepo registers 25 tools that Claude can use during conversations:
+Meepo registers 40+ tools that Claude can use during conversations:
 
 | Category | Tools |
 |----------|-------|
-| **Email & Calendar** | `read_emails`, `send_email`, `read_calendar`, `create_calendar_event`, `open_app`, `get_clipboard` |
+| **Email & Calendar** | `read_emails`, `send_email`, `read_calendar`, `create_calendar_event` |
+| **Reminders & Notes** | `list_reminders`, `create_reminder`, `list_notes`, `create_note` |
+| **System Apps** | `open_app`, `get_clipboard`, `send_notification`, `screen_capture`, `search_contacts` |
+| **Music** | `get_current_track`, `music_control` |
 | **UI Automation** | `read_screen`, `click_element`, `type_text` |
 | **Browser** | `browser_list_tabs`, `browser_open_tab`, `browser_close_tab`, `browser_switch_tab`, `browser_get_page_content`, `browser_execute_js`, `browser_click`, `browser_fill_form`, `browser_navigate`, `browser_get_url`, `browser_screenshot` |
-| **Code** | `write_code`, `make_pr`, `review_pr` |
+| **Code** | `write_code`, `make_pr`, `review_pr`, `spawn_claude_code` |
 | **Web** | `web_search`, `browse_url` |
 | **Memory** | `remember`, `recall`, `search_knowledge`, `link_entities` |
 | **System** | `run_command`, `read_file`, `write_file` |
+| **Filesystem** | `list_directory`, `search_files` |
 | **Watchers** | `create_watcher`, `list_watchers`, `cancel_watcher` |
+| **Autonomous** | `spawn_background_task`, `agent_status`, `stop_task` |
 | **Delegation** | `delegate_tasks` |
 
 ## Architecture
@@ -325,11 +398,13 @@ scripts\uninstall.ps1   # Remove
 ```
 meepo/
 ├── crates/
-│   ├── meepo-core/       # Agent loop, API client, tool system, orchestrator
-│   ├── meepo-channels/   # Discord, Slack, iMessage adapters + message bus
+│   ├── meepo-core/       # Agent loop, API client, tool system, orchestrator, autonomy
+│   ├── meepo-channels/   # Discord, Slack, iMessage, email adapters + message bus
 │   ├── meepo-knowledge/  # SQLite + Tantivy knowledge graph
 │   ├── meepo-scheduler/  # Watcher runner, persistence, polling
-│   └── meepo-cli/        # CLI binary, config loading
+│   ├── meepo-mcp/        # MCP server (STDIO) and client for external MCP servers
+│   ├── meepo-a2a/        # A2A (Agent-to-Agent) protocol server and client
+│   └── meepo-cli/        # CLI binary, config loading, template system
 ├── config/
 │   └── default.toml      # Default configuration template (heavily commented)
 ├── scripts/

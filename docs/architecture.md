@@ -2,7 +2,7 @@
 
 ## Overview
 
-Meepo is a 5-crate Rust workspace implementing a local AI agent for macOS. It connects Claude to messaging channels (Discord, Slack, iMessage), gives it access to 25 tools (including web search and sub-agent delegation), and maintains a persistent knowledge graph.
+Meepo is a 7-crate Rust workspace implementing a local AI agent for macOS and Windows. It runs an autonomous observe/think/act loop, connects Claude to messaging channels (Discord, Slack, iMessage, email), gives it access to 40+ tools (email, calendar, reminders, notes, browser automation, web search, code, music, contacts, and more), maintains a persistent knowledge graph, and speaks both MCP and A2A protocols for multi-agent interop.
 
 ## Crate Dependency Graph
 
@@ -12,18 +12,24 @@ graph TD
     CLI --> CHANNELS[meepo-channels]
     CLI --> KNOWLEDGE[meepo-knowledge]
     CLI --> SCHEDULER[meepo-scheduler]
+    CLI --> MCP[meepo-mcp]
+    CLI --> A2A[meepo-a2a]
     CHANNELS --> CORE
     CORE --> KNOWLEDGE
     SCHEDULER --> KNOWLEDGE
+    MCP --> CORE
+    A2A --> CORE
 ```
 
 | Crate | Purpose | Key Types |
 |-------|---------|-----------|
-| `meepo-cli` | Binary entry point, config, subcommands | `Cli`, `MeepoConfig` |
-| `meepo-core` | Agent loop, API client, tool system, orchestrator | `Agent`, `ApiClient`, `ToolRegistry`, `TaskOrchestrator`, `TavilyClient` |
+| `meepo-cli` | Binary entry point, config, subcommands, template system | `Cli`, `MeepoConfig`, `Template` |
+| `meepo-core` | Agent loop, API client, tool system, orchestrator, autonomy, platform abstraction, skills, notifications | `Agent`, `ApiClient`, `ToolRegistry`, `TaskOrchestrator`, `AutonomousLoop`, `NotificationService`, `TavilyClient` |
 | `meepo-channels` | Channel adapters and message routing | `MessageBus`, `MessageChannel` |
 | `meepo-knowledge` | SQLite + Tantivy persistence | `KnowledgeDb`, `KnowledgeGraph`, `TantivyIndex` |
 | `meepo-scheduler` | Watcher runner and event system | `WatcherRunner`, `Watcher`, `WatcherEvent` |
+| `meepo-mcp` | MCP server (STDIO) and client for external MCP servers | `McpServer`, `McpClient`, `McpToolAdapter` |
+| `meepo-a2a` | A2A (Agent-to-Agent) protocol server and client | `A2aServer`, `A2aClient`, `AgentCard`, `DelegateToAgentTool` |
 
 ## Message Flow
 
@@ -66,21 +72,29 @@ graph TB
         Init[Init Command]
         Start[Start Command]
         Ask[Ask Command]
+        McpCmd[MCP Server Command]
+        TplCmd[Template Commands]
     end
 
     subgraph Core["meepo-core"]
         Agent[Agent]
         API[ApiClient]
         ToolReg[ToolRegistry]
+        AutoLoop[AutonomousLoop]
+        Notifier[NotificationService]
+        Platform[Platform Abstraction]
+        Skills[Skill Loader]
 
-        subgraph ToolSystem["Tools (25)"]
-            MacOS[macOS Tools]
+        subgraph ToolSystem["Tools (40+)"]
+            MacOS[Email/Calendar/Reminders/Notes/Contacts/Music]
             A11y[Accessibility Tools]
+            Browser[Browser Automation]
             Code[Code Tools]
             Web[Web Search + Browse]
             Mem[Memory Tools]
-            Sys[System Tools]
+            Sys[System + Filesystem]
             Watch[Watcher Tools]
+            Auto[Autonomous Tools]
             Deleg[Delegation]
         end
 
@@ -94,6 +108,7 @@ graph TB
         Discord[DiscordChannel]
         Slack[SlackChannel]
         IMsg[IMessageChannel]
+        Email[EmailChannel]
     end
 
     subgraph Knowledge["meepo-knowledge"]
@@ -109,18 +124,35 @@ graph TB
         Watchers["Watchers (7 types)"]
     end
 
-    Start --> Agent
+    subgraph MCP["meepo-mcp"]
+        McpServer[McpServer STDIO]
+        McpClient[McpClient]
+        McpAdapter[McpToolAdapter]
+    end
+
+    subgraph A2A["meepo-a2a"]
+        A2aServer[A2aServer HTTP]
+        A2aClient[A2aClient]
+        AgentCard[AgentCard]
+    end
+
+    Start --> AutoLoop
+    AutoLoop --> Agent
     Start --> Bus
     Start --> Runner
     Ask --> API
+    McpCmd --> McpServer
 
     Agent --> API
     Agent --> ToolReg
     ToolReg --> ToolSystem
+    AutoLoop --> Notifier
+    MacOS --> Platform
 
     Bus --> Discord
     Bus --> Slack
     Bus --> IMsg
+    Bus --> Email
     Bus --> BusSender
 
     Mem --> Graph
@@ -137,8 +169,18 @@ graph TB
     Web --> Tavily
     Tavily -->|HTTP| TavilyAPI[Tavily API]
 
-    MacOS -->|AppleScript| Mail[Mail.app]
-    MacOS -->|AppleScript| Cal[Calendar.app]
+    McpServer --> McpAdapter
+    McpAdapter --> ToolReg
+    McpClient -->|STDIO| ExtMCP[External MCP Servers]
+
+    A2aServer --> Agent
+    A2aClient -->|HTTP| PeerAgent[Peer Agents]
+
+    Platform -->|AppleScript| Mail[Mail.app]
+    Platform -->|AppleScript| Cal[Calendar.app]
+    Platform -->|AppleScript| Reminders[Reminders.app]
+    Platform -->|AppleScript| Notes[Notes.app]
+    Platform -->|AppleScript| SafariBrowser[Safari/Chrome]
     IMsg -->|SQLite| MsgDB[Messages DB]
     IMsg -->|AppleScript| MsgApp[Messages.app]
     Discord -->|WebSocket| DiscordAPI[Discord API]
@@ -191,14 +233,17 @@ graph TD
     end
 
     subgraph Categories
-        M["macOS (6)"]
+        M["Email/Calendar/Reminders/Notes/Contacts/Music (14)"]
         A["Accessibility (3)"]
-        C["Code (3)"]
+        B["Browser (11)"]
+        C["Code (4)"]
         W["Web (2)"]
         K["Memory (4)"]
-        S["System (3)"]
+        S["System + Filesystem (5)"]
         Wa["Watchers (3)"]
+        Au["Autonomous (3)"]
         D["Delegation (1)"]
+        Sk["Skills (dynamic)"]
     end
 
     Categories --> Registry
@@ -212,18 +257,39 @@ graph TD
 
 | Tool | Description | Implementation |
 |------|-------------|----------------|
-| `read_emails` | Read recent emails from Mail.app | AppleScript via `osascript` |
-| `read_calendar` | Read upcoming calendar events | AppleScript via `osascript` |
-| `send_email` | Send email via Mail.app | AppleScript (sanitized input) |
-| `create_calendar_event` | Create calendar event | AppleScript (sanitized input) |
-| `open_app` | Open macOS application | `open -a` command |
-| `get_clipboard` | Read clipboard contents | `pbpaste` command |
-| `read_screen` | Read focused app/window info | AppleScript accessibility |
-| `click_element` | Click UI element by name | AppleScript accessibility |
-| `type_text` | Type text into focused app | AppleScript keystroke |
+| `read_emails` | Read recent emails | Platform provider (AppleScript / PowerShell COM) |
+| `send_email` | Send email | Platform provider (sanitized input) |
+| `read_calendar` | Read upcoming calendar events | Platform provider |
+| `create_calendar_event` | Create calendar event | Platform provider |
+| `list_reminders` | List reminders from Reminders.app | AppleScript (macOS only) |
+| `create_reminder` | Create a reminder | AppleScript (macOS only) |
+| `list_notes` | List notes from Notes.app | AppleScript (macOS only) |
+| `create_note` | Create a note | AppleScript (macOS only) |
+| `search_contacts` | Search contacts by name | AppleScript (macOS only) |
+| `get_current_track` | Get currently playing track | AppleScript (macOS only) |
+| `music_control` | Play/pause/skip music | AppleScript (macOS only) |
+| `open_app` | Open application by name | `open -a` / `open` crate |
+| `get_clipboard` | Read clipboard contents | `arboard` crate (cross-platform) |
+| `send_notification` | Send system notification | AppleScript (macOS only) |
+| `screen_capture` | Capture screenshot | `screencapture` CLI (macOS only) |
+| `read_screen` | Read focused app/window info | Platform UI automation |
+| `click_element` | Click UI element by name | Platform UI automation |
+| `type_text` | Type text into focused app | Platform UI automation |
+| `browser_list_tabs` | List all open browser tabs | AppleScript (Safari/Chrome) |
+| `browser_open_tab` | Open a new tab with URL | AppleScript |
+| `browser_close_tab` | Close a tab by ID | AppleScript |
+| `browser_switch_tab` | Switch to a tab by ID | AppleScript |
+| `browser_get_page_content` | Get page text/HTML content | AppleScript + JS |
+| `browser_execute_js` | Execute JavaScript in tab | AppleScript |
+| `browser_click` | Click element by CSS selector | AppleScript + JS |
+| `browser_fill_form` | Fill form field by selector | AppleScript + JS |
+| `browser_navigate` | Navigate (back/forward/reload) | AppleScript |
+| `browser_get_url` | Get current page URL | AppleScript |
+| `browser_screenshot` | Screenshot current page | AppleScript |
 | `write_code` | Delegate coding to Claude CLI | `claude` CLI subprocess |
 | `make_pr` | Create GitHub pull request | `git` + `gh` CLI |
 | `review_pr` | Analyze PR diff for issues | `gh pr view` + diff analysis |
+| `spawn_claude_code` | Spawn background Claude Code task | `claude` CLI (async, `--dangerously-skip-permissions`) |
 | `web_search` | Search the web via Tavily | Tavily Search API (conditional) |
 | `browse_url` | Fetch URL content | Tavily Extract → raw `reqwest` fallback |
 | `remember` | Store entity in knowledge graph | SQLite + Tantivy insert |
@@ -233,10 +299,15 @@ graph TD
 | `run_command` | Execute shell command (allowlisted) | `sh -c` with 30s timeout |
 | `read_file` | Read file contents | `tokio::fs::read_to_string` |
 | `write_file` | Write file contents | `tokio::fs::write` |
+| `list_directory` | List files in a directory | `std::fs::read_dir` (sandboxed) |
+| `search_files` | Search file contents by pattern | Recursive grep (sandboxed) |
 | `create_watcher` | Create a background monitor | SQLite + tokio task |
 | `list_watchers` | List active watchers | SQLite query |
 | `cancel_watcher` | Cancel an active watcher | CancellationToken |
-| `delegate_tasks` | Spawn sub-agent tasks | TaskOrchestrator |
+| `spawn_background_task` | Spawn autonomous background sub-agent | Database + mpsc command |
+| `agent_status` | Show active watchers, tasks, recent results | SQLite queries |
+| `stop_task` | Cancel any watcher or background task by ID | CancellationToken + database |
+| `delegate_tasks` | Spawn sub-agent tasks (parallel/background) | TaskOrchestrator |
 
 ## Knowledge Graph
 
@@ -471,3 +542,144 @@ graph LR
     Input --> Limits
     Access --> Channel[Channel Adapters]
 ```
+
+## Autonomous Loop
+
+The `AutonomousLoop` replaces the simple reactive message handler with a continuous tick-based observe/think/act cycle. User messages are just one input among many — the agent also processes watcher events, evaluates goals, and takes proactive actions.
+
+```mermaid
+graph TD
+    subgraph Inputs
+        MSG[User Messages]
+        WE[Watcher Events]
+        GOALS[Due Goals]
+    end
+
+    subgraph Loop["AutonomousLoop (tick-based)"]
+        DRAIN["drain_inputs()"]
+        CHECK["Check due goals"]
+        SKIP{"Anything to do?"}
+        HANDLE["Process inputs"]
+        NOTIFY["NotificationService"]
+    end
+
+    MSG --> DRAIN
+    WE --> DRAIN
+    DRAIN --> CHECK
+    CHECK --> SKIP
+    SKIP -->|No| SLEEP["Sleep / wait for wake signal"]
+    SKIP -->|Yes| HANDLE
+    HANDLE --> NOTIFY
+    NOTIFY -->|iMessage/Discord/Slack| User[User]
+    SLEEP -->|"tick / Notify::notified()"| DRAIN
+```
+
+The loop uses `tokio::select!` across three sources: a cancellation token, a tick timer (`tick_interval_secs`), and a `Notify` wake signal (fired when new messages arrive for immediate processing). The `NotificationService` sends proactive alerts to the user's preferred channel with quiet hours support.
+
+## Platform Abstraction
+
+All OS-specific functionality is behind trait interfaces in `meepo-core::platform`. Each trait has macOS (AppleScript) and Windows (PowerShell/COM) implementations, selected at compile time via `#[cfg(target_os)]`.
+
+| Trait | macOS Implementation | Windows Implementation |
+|-------|---------------------|----------------------|
+| `EmailProvider` | Mail.app via AppleScript | Outlook via PowerShell COM |
+| `CalendarProvider` | Calendar.app via AppleScript | Outlook via PowerShell COM |
+| `ClipboardProvider` | `arboard` crate | `arboard` crate |
+| `AppLauncher` | `open -a` command | `open` crate |
+| `UiAutomation` | System Events AppleScript | System.Windows.Automation |
+| `BrowserProvider` | Safari/Chrome AppleScript | Not yet available |
+| `RemindersProvider` | Reminders.app AppleScript | macOS only |
+| `NotesProvider` | Notes.app AppleScript | macOS only |
+| `NotificationProvider` | `osascript` display notification | macOS only |
+| `ScreenCaptureProvider` | `screencapture` CLI | macOS only |
+| `MusicProvider` | Apple Music AppleScript | macOS only |
+| `ContactsProvider` | Contacts.app AppleScript | macOS only |
+
+Factory functions (`create_email_provider()`, etc.) return `Box<dyn Trait>` for the current platform.
+
+## MCP (Model Context Protocol)
+
+The `meepo-mcp` crate provides both server and client functionality:
+
+```mermaid
+graph LR
+    subgraph Server["MCP Server (STDIO)"]
+        McpServer["McpServer"]
+        Adapter["McpToolAdapter"]
+    end
+
+    subgraph Client["MCP Client (STDIO)"]
+        McpClient["McpClient"]
+        Proxy["ProxyToolHandler"]
+    end
+
+    ClaudeDesktop["Claude Desktop / Cursor"] -->|"JSON-RPC stdin"| McpServer
+    McpServer --> Adapter
+    Adapter -->|"execute()"| ToolReg["Meepo ToolRegistry"]
+    Adapter -->|"list_tools()"| ToolReg
+
+    McpClient -->|"JSON-RPC stdin/stdout"| ExtServer["External MCP Server"]
+    McpClient -->|"discover_tools()"| Proxy
+    Proxy -->|"registered as"| ToolReg
+```
+
+- **Server:** `meepo mcp-server` runs over STDIO. The `McpToolAdapter` wraps `ToolRegistry`, filtering out `delegate_tasks` (denylist). Handles `tools/list`, `tools/call`, and `initialize` JSON-RPC methods.
+- **Client:** Spawns external MCP servers as child processes, discovers their tools via `tools/list`, and wraps each as a `ProxyToolHandler` registered in Meepo's `ToolRegistry` with namespaced names (`servername:toolname`).
+
+## A2A (Agent-to-Agent)
+
+The `meepo-a2a` crate implements Google's Agent-to-Agent protocol for multi-agent task delegation over HTTP.
+
+```mermaid
+graph LR
+    subgraph Server["A2A Server (HTTP :8081)"]
+        Card["GET /.well-known/agent.json"]
+        Submit["POST /a2a/tasks"]
+        Poll["GET /a2a/tasks/:id"]
+        Cancel["DELETE /a2a/tasks/:id"]
+    end
+
+    subgraph Client["A2A Client"]
+        Discover["Discover agent card"]
+        SendTask["Submit task"]
+        PollTask["Poll for result"]
+    end
+
+    PeerAgent["Peer Agent"] -->|HTTP| Card
+    PeerAgent -->|HTTP| Submit
+    Submit --> Agent["Meepo Agent"]
+    Agent -->|"result"| LRU["LRU<task_id, TaskResponse>"]
+
+    Client -->|HTTP| RemoteAgent["Remote Agent"]
+```
+
+- **Server:** Listens on `127.0.0.1:{port}`, authenticates via Bearer token (constant-time comparison), enforces 1MB request body limit and 100 concurrent task cap. Tasks execute asynchronously via `Agent::handle_message` and results are stored in an LRU cache (1000 entries).
+- **Client:** Discovers peer agents via `/.well-known/agent.json`, submits tasks, and polls for results. The `DelegateToAgentTool` exposes this as a tool the agent can use.
+
+## Skills System
+
+Skills are OpenClaw-compatible SKILL.md files that extend Meepo with additional tools at runtime.
+
+```
+~/.meepo/skills/
+├── my_skill/
+│   └── SKILL.md          # YAML frontmatter + markdown instructions
+├── another_skill/
+│   └── SKILL.md
+```
+
+Each SKILL.md has YAML frontmatter defining `name`, `description`, and optional `inputs`. The `SkillToolHandler` wraps each parsed skill as a `ToolHandler` and registers it in the `ToolRegistry` at startup. Invalid skills are skipped with a warning.
+
+## Template System
+
+Agent templates allow swapping personalities, goals, and config overlays. A template is a `template.toml` file with metadata, goals, and a TOML config overlay.
+
+| Command | Description |
+|---------|-------------|
+| `meepo template list` | List built-in and installed templates |
+| `meepo template use <name>` | Activate a template (merges config overlay) |
+| `meepo template info <name>` | Preview what a template changes |
+| `meepo template reset` | Remove active template, restore previous config |
+| `meepo template create <name>` | Create template from current config |
+
+Templates can define goals that the autonomous loop evaluates on each tick, and can override any config section (agent model, channel settings, etc.).
