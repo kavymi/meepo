@@ -38,23 +38,26 @@ Meepo runs as a daemon on your machine with an autonomous observe/think/act loop
 Meepo supports [Ollama](https://ollama.ai) for running local LLMs without requiring an API key:
 
 1. **Install Ollama:**
+
    ```bash
    # macOS/Linux
    curl -fsSL https://ollama.ai/install.sh | sh
-   
+
    # Or download from https://ollama.ai
    ```
 
 2. **Pull a model:**
+
    ```bash
    ollama pull llama3.2        # or mistral, codellama, phi3, etc.
    ```
 
 3. **Configure Meepo** to use Ollama in `~/.meepo/config.toml`:
+
    ```toml
    [agent]
    default_model = "ollama"    # Use Ollama instead of Anthropic
-   
+
    [providers.ollama]
    base_url = "http://localhost:11434"
    model = "llama3.2"          # Model to use
@@ -69,49 +72,54 @@ Ollama runs entirely on your machine — no API key needed, no data sent to exte
 
 ### Platform Notes
 
-| Feature | macOS | Windows |
-|---------|-------|---------|
-| Email (tool) | Mail.app via AppleScript | Outlook via PowerShell COM |
-| Calendar (tool) | Calendar.app via AppleScript | Outlook via PowerShell COM |
-| Reminders (tool) | Reminders.app via AppleScript | Not available |
-| Notes (tool) | Notes.app via AppleScript | Not available |
-| Contacts (tool) | Contacts.app via AppleScript | Not available |
-| Music (tool) | Apple Music via AppleScript | Not available |
-| Screen capture | `screencapture` CLI | Not available |
-| Notifications | `osascript` display notification | Not available |
-| Clipboard | `arboard` crate (cross-platform) | `arboard` crate (cross-platform) |
-| App launching | `open` crate (cross-platform) | `open` crate (cross-platform) |
-| UI automation | System Events (AppleScript) | System.Windows.Automation (PowerShell) |
-| Browser automation | Safari + Chrome (AppleScript) | Not yet available |
-| iMessage channel | Messages.app (SQLite + AppleScript) | Not available |
-| Email channel | Mail.app polling | Not available (use email tools instead) |
-| Background service | `launchd` agent | Windows Task Scheduler |
+| Feature            | macOS                               | Windows                                 |
+| ------------------ | ----------------------------------- | --------------------------------------- |
+| Email (tool)       | Mail.app via AppleScript            | Outlook via PowerShell COM              |
+| Calendar (tool)    | Calendar.app via AppleScript        | Outlook via PowerShell COM              |
+| Reminders (tool)   | Reminders.app via AppleScript       | Not available                           |
+| Notes (tool)       | Notes.app via AppleScript           | Not available                           |
+| Contacts (tool)    | Contacts.app via AppleScript        | Not available                           |
+| Music (tool)       | Apple Music via AppleScript         | Not available                           |
+| Screen capture     | `screencapture` CLI                 | Not available                           |
+| Notifications      | `osascript` display notification    | Not available                           |
+| Clipboard          | `arboard` crate (cross-platform)    | `arboard` crate (cross-platform)        |
+| App launching      | `open` crate (cross-platform)       | `open` crate (cross-platform)           |
+| UI automation      | System Events (AppleScript)         | System.Windows.Automation (PowerShell)  |
+| Browser automation | Safari + Chrome (AppleScript)       | Not yet available                       |
+| iMessage channel   | Messages.app (SQLite + AppleScript) | Not available                           |
+| Email channel      | Mail.app polling                    | Not available (use email tools instead) |
+| Background service | `launchd` agent                     | Windows Task Scheduler                  |
 
 ## Install
 
 **macOS / Linux (curl):**
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
 ```
 
 **macOS (Homebrew):**
+
 ```bash
 brew install kavymi/tap/meepo
 meepo setup
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 irm https://raw.githubusercontent.com/kavymi/meepo/main/install.ps1 | iex
 ```
 
 **From source (macOS/Linux):**
+
 ```bash
 git clone https://github.com/kavymi/meepo.git && cd meepo
 cargo build --release && ./target/release/meepo setup
 ```
 
 **From source (Windows PowerShell):**
+
 ```powershell
 git clone https://github.com/kavymi/meepo.git; cd meepo
 cargo build --release; .\target\release\meepo.exe setup
@@ -138,6 +146,7 @@ meepo init
 ```
 
 This creates `~/.meepo/` with:
+
 - `config.toml` — Main configuration
 - `workspace/SOUL.md` — Agent personality (editable)
 - `workspace/MEMORY.md` — Persistent memory (auto-updated)
@@ -170,12 +179,12 @@ Get yours at [tavily.com](https://tavily.com). Without this key, Meepo still wor
 
 Meepo's tools require several macOS permissions. The `meepo setup` wizard handles all of these automatically — it detects what's missing, opens the correct System Settings pane, and tells you exactly what to click. You can also grant them manually:
 
-| Permission | Required For | System Settings Path |
-|------------|-------------|---------------------|
-| **Accessibility** | `read_screen`, `click_element`, `type_text` (UI automation) | Privacy & Security → Accessibility |
-| **Full Disk Access** | iMessage channel (reads `~/Library/Messages/chat.db`) | Privacy & Security → Full Disk Access |
-| **Automation** | Email, Calendar, Reminders, Notes, Messages, Music tools | Privacy & Security → Automation |
-| **Screen Recording** | `screen_capture` tool | Privacy & Security → Screen Recording |
+| Permission           | Required For                                                | System Settings Path                  |
+| -------------------- | ----------------------------------------------------------- | ------------------------------------- |
+| **Accessibility**    | `read_screen`, `click_element`, `type_text` (UI automation) | Privacy & Security → Accessibility    |
+| **Full Disk Access** | iMessage channel (reads `~/Library/Messages/chat.db`)       | Privacy & Security → Full Disk Access |
+| **Automation**       | Email, Calendar, Reminders, Notes, Messages, Music tools    | Privacy & Security → Automation       |
+| **Screen Recording** | `screen_capture` tool                                       | Privacy & Security → Screen Recording |
 
 Grant each permission to your terminal app (Terminal, iTerm, Warp, Ghostty, VS Code, etc.). The setup wizard detects which terminal you're using.
 
@@ -247,23 +256,23 @@ meepo stop
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `meepo setup` | Interactive setup wizard (API keys, macOS permissions, feature selection, connection test) |
-| `meepo init` | Create `~/.meepo/` with default config |
-| `meepo start` | Start the agent daemon |
-| `meepo stop` | Stop a running daemon |
-| `meepo ask "..."` | One-shot question (no daemon needed) |
-| `meepo config` | Show loaded configuration |
-| `meepo mcp-server` | Run as an MCP server over STDIO |
-| `meepo template list` | List available agent templates |
-| `meepo template use <name>` | Activate a template (overlay on current config) |
-| `meepo template info <name>` | Show what a template will change |
-| `meepo template reset` | Remove active template, restore previous config |
-| `meepo template create <name>` | Create a new template from current config |
-| `meepo template remove <name>` | Remove an installed template |
-| `meepo --debug <cmd>` | Enable debug logging |
-| `meepo --config <path> <cmd>` | Use custom config file |
+| Command                        | Description                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `meepo setup`                  | Interactive setup wizard (API keys, macOS permissions, feature selection, connection test) |
+| `meepo init`                   | Create `~/.meepo/` with default config                                                     |
+| `meepo start`                  | Start the agent daemon                                                                     |
+| `meepo stop`                   | Stop a running daemon                                                                      |
+| `meepo ask "..."`              | One-shot question (no daemon needed)                                                       |
+| `meepo config`                 | Show loaded configuration                                                                  |
+| `meepo mcp-server`             | Run as an MCP server over STDIO                                                            |
+| `meepo template list`          | List available agent templates                                                             |
+| `meepo template use <name>`    | Activate a template (overlay on current config)                                            |
+| `meepo template info <name>`   | Show what a template will change                                                           |
+| `meepo template reset`         | Remove active template, restore previous config                                            |
+| `meepo template create <name>` | Create a new template from current config                                                  |
+| `meepo template remove <name>` | Remove an installed template                                                               |
+| `meepo --debug <cmd>`          | Enable debug logging                                                                       |
+| `meepo --config <path> <cmd>`  | Use custom config file                                                                     |
 
 ## Configuration Reference
 
@@ -379,32 +388,32 @@ Environment variables are expanded with `${VAR_NAME}` syntax. Paths support `~/`
 
 Meepo registers 75+ tools that Claude can use during conversations:
 
-| Category | Tools |
-|----------|-------|
-| **Email & Calendar** | `read_emails`, `send_email`, `read_calendar`, `create_calendar_event` |
-| **Reminders & Notes** | `list_reminders`, `create_reminder`, `list_notes`, `create_note` |
-| **System Apps** | `open_app`, `get_clipboard`, `send_notification`, `screen_capture`, `search_contacts` |
-| **Music** | `get_current_track`, `music_control` |
-| **UI Automation** | `read_screen`, `click_element`, `type_text` |
-| **Browser** | `browser_list_tabs`, `browser_open_tab`, `browser_close_tab`, `browser_switch_tab`, `browser_get_page_content`, `browser_execute_js`, `browser_click`, `browser_fill_form`, `browser_navigate`, `browser_get_url`, `browser_screenshot` |
-| **Code** | `write_code`, `make_pr`, `review_pr`, `spawn_claude_code` |
-| **Web** | `web_search`, `browse_url` |
-| **Memory** | `remember`, `recall`, `search_knowledge`, `link_entities` |
-| **System** | `run_command`, `read_file`, `write_file` |
-| **Filesystem** | `list_directory`, `search_files` |
-| **Watchers** | `create_watcher`, `list_watchers`, `cancel_watcher` |
-| **Autonomous** | `spawn_background_task`, `agent_status`, `stop_task` |
-| **Delegation** | `delegate_tasks` |
-| **Email Intelligence** | `email_triage`, `email_draft_reply`, `email_summarize_thread`, `email_unsubscribe` |
-| **Smart Calendar** | `find_free_time`, `schedule_meeting`, `reschedule_event`, `daily_briefing`, `weekly_review` |
-| **Deep Research** | `research_topic`, `compile_report`, `track_topic`, `fact_check` |
-| **SMS Autopilot** | `send_sms`, `set_auto_reply`, `message_summary` |
-| **Task Manager** | `create_task`, `list_tasks`, `update_task`, `complete_task`, `project_status` |
-| **News Curator** | `track_feed`, `untrack_feed`, `summarize_article`, `content_digest` |
-| **Finance Tracker** | `log_expense`, `spending_summary`, `budget_check`, `parse_receipt` |
-| **Health & Habits** | `log_habit`, `habit_streak`, `habit_report` |
-| **Travel Assistant** | `get_weather`, `get_directions`, `flight_status`, `packing_list` |
-| **Social Manager** | `relationship_summary`, `suggest_followups` |
+| Category               | Tools                                                                                                                                                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Email & Calendar**   | `read_emails`, `send_email`, `read_calendar`, `create_calendar_event`                                                                                                                                                                   |
+| **Reminders & Notes**  | `list_reminders`, `create_reminder`, `list_notes`, `create_note`                                                                                                                                                                        |
+| **System Apps**        | `open_app`, `get_clipboard`, `send_notification`, `screen_capture`, `search_contacts`                                                                                                                                                   |
+| **Music**              | `get_current_track`, `music_control`                                                                                                                                                                                                    |
+| **UI Automation**      | `read_screen`, `click_element`, `type_text`                                                                                                                                                                                             |
+| **Browser**            | `browser_list_tabs`, `browser_open_tab`, `browser_close_tab`, `browser_switch_tab`, `browser_get_page_content`, `browser_execute_js`, `browser_click`, `browser_fill_form`, `browser_navigate`, `browser_get_url`, `browser_screenshot` |
+| **Code**               | `write_code`, `make_pr`, `review_pr`, `spawn_claude_code`                                                                                                                                                                               |
+| **Web**                | `web_search`, `browse_url`                                                                                                                                                                                                              |
+| **Memory**             | `remember`, `recall`, `search_knowledge`, `link_entities`                                                                                                                                                                               |
+| **System**             | `run_command`, `read_file`, `write_file`                                                                                                                                                                                                |
+| **Filesystem**         | `list_directory`, `search_files`                                                                                                                                                                                                        |
+| **Watchers**           | `create_watcher`, `list_watchers`, `cancel_watcher`                                                                                                                                                                                     |
+| **Autonomous**         | `spawn_background_task`, `agent_status`, `stop_task`                                                                                                                                                                                    |
+| **Delegation**         | `delegate_tasks`                                                                                                                                                                                                                        |
+| **Email Intelligence** | `email_triage`, `email_draft_reply`, `email_summarize_thread`, `email_unsubscribe`                                                                                                                                                      |
+| **Smart Calendar**     | `find_free_time`, `schedule_meeting`, `reschedule_event`, `daily_briefing`, `weekly_review`                                                                                                                                             |
+| **Deep Research**      | `research_topic`, `compile_report`, `track_topic`, `fact_check`                                                                                                                                                                         |
+| **SMS Autopilot**      | `send_sms`, `set_auto_reply`, `message_summary`                                                                                                                                                                                         |
+| **Task Manager**       | `create_task`, `list_tasks`, `update_task`, `complete_task`, `project_status`                                                                                                                                                           |
+| **News Curator**       | `track_feed`, `untrack_feed`, `summarize_article`, `content_digest`                                                                                                                                                                     |
+| **Finance Tracker**    | `log_expense`, `spending_summary`, `budget_check`, `parse_receipt`                                                                                                                                                                      |
+| **Health & Habits**    | `log_habit`, `habit_streak`, `habit_report`                                                                                                                                                                                             |
+| **Travel Assistant**   | `get_weather`, `get_directions`, `flight_status`, `packing_list`                                                                                                                                                                        |
+| **Social Manager**     | `relationship_summary`, `suggest_followups`                                                                                                                                                                                             |
 
 ## Architecture
 
@@ -448,15 +457,15 @@ meepo start
 
 ### What works in a Tart VM
 
-| Feature | GUI mode (`tart run`) | Headless (`tart run --no-graphics`) |
-|---------|----------------------|-------------------------------------|
-| CLI (`meepo ask`, `meepo start`) | ✓ | ✓ |
-| Discord / Slack / Email channels | ✓ | ✓ |
-| Knowledge graph, watchers, MCP, A2A | ✓ | ✓ |
-| iMessage channel | ✓ (requires Apple ID sign-in) | ✓ (requires Apple ID sign-in) |
-| Browser automation (Safari/Chrome) | ✓ | ✗ (no display session) |
-| Screen capture, UI automation | ✓ | ✗ (no display session) |
-| Music control | ✓ | ✗ |
+| Feature                             | GUI mode (`tart run`)         | Headless (`tart run --no-graphics`) |
+| ----------------------------------- | ----------------------------- | ----------------------------------- |
+| CLI (`meepo ask`, `meepo start`)    | ✓                             | ✓                                   |
+| Discord / Slack / Email channels    | ✓                             | ✓                                   |
+| Knowledge graph, watchers, MCP, A2A | ✓                             | ✓                                   |
+| iMessage channel                    | ✓ (requires Apple ID sign-in) | ✓ (requires Apple ID sign-in)       |
+| Browser automation (Safari/Chrome)  | ✓                             | ✗ (no display session)              |
+| Screen capture, UI automation       | ✓                             | ✗ (no display session)              |
+| Music control                       | ✓                             | ✗                                   |
 
 ### Permissions in a Tart VM
 
@@ -479,29 +488,35 @@ tart run meepo-vm --rosetta --dir=share:~/shared
 ## Troubleshooting
 
 **"API key not set" or empty responses**
+
 - Verify: `echo $ANTHROPIC_API_KEY` — should start with `sk-ant-`
 - If using the launch agent, re-run `scripts/install.sh` after setting new env vars (the plist snapshots env vars at install time)
 
 **iMessage not receiving messages**
+
 - Run `meepo setup` — it checks Full Disk Access and opens System Settings for you
 - Or manually: System Settings → Privacy & Security → Full Disk Access → add your terminal app
 - Check `allowed_contacts` in config includes the sender's phone/email
 - You may need to restart your terminal after granting Full Disk Access
 
 **`web_search` tool not available**
+
 - Set `TAVILY_API_KEY` env var — Meepo logs a warning at startup if it's missing
 - The tool is only registered when a valid Tavily API key is configured
 
 **Discord bot not responding**
+
 - Enable `MESSAGE CONTENT INTENT` in the Discord Developer Portal (Bot > Privileged Gateway Intents)
 - Verify `allowed_users` contains your Discord user ID (right-click your name > Copy User ID)
 
 **Build failures**
+
 - Ensure Rust is up to date: `rustup update`
 - Clean build: `cargo clean && cargo build --release`
 - Windows: Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
 
 **macOS permission errors ("not allowed assistive access", "not authorized")**
+
 - Run `meepo setup` — it detects missing permissions and opens the correct System Settings pane
 - Accessibility: System Settings → Privacy & Security → Accessibility → add your terminal
 - Automation: System Settings → Privacy & Security → Automation → enable apps under your terminal
@@ -510,15 +525,18 @@ tart run meepo-vm --rosetta --dir=share:~/shared
 - After granting, you may need to restart your terminal
 
 **"Permission denied" running scripts**
+
 - macOS/Linux: `chmod +x scripts/*.sh`
 - Windows: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
 
 **Windows: Email/Calendar tools not working**
+
 - Outlook must be installed (uses COM automation)
 - Verify with PowerShell: `New-Object -ComObject Outlook.Application`
 - If using Windows Mail instead of Outlook, these tools won't work
 
 **Windows: API key not persisting across sessions**
+
 - PowerShell `$env:` variables are session-only. To persist:
   ```powershell
   [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")

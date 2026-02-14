@@ -3,6 +3,7 @@
 ## Prerequisites
 
 ### macOS
+
 - **Rust toolchain** — Install via [rustup](https://rustup.rs/):
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -12,6 +13,7 @@
   - `claude` — Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
 ### Windows
+
 - **Rust toolchain** — Install via [rustup](https://rustup.rs/). Download and run `rustup-init.exe`.
 - **Visual Studio Build Tools** — Required for C compilation (SQLite, etc.):
   - Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
@@ -148,13 +150,16 @@ crates/
 ## Running Locally
 
 **First-time setup (recommended):**
+
 ```bash
 # Build and run the interactive setup wizard
 cargo run -- setup
 ```
+
 This walks you through API keys, macOS permissions (Accessibility, Full Disk Access, Automation, Screen Recording), feature selection, and verifies the API connection. It opens System Settings panes for you and detects your terminal app automatically.
 
 **macOS/Linux (manual):**
+
 ```bash
 # Initialize config (creates ~/.meepo/)
 cargo run -- init
@@ -180,6 +185,7 @@ cargo run -- ask "Hello, what tools do you have?"
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 # Initialize config (creates %USERPROFILE%\.meepo\)
 cargo run -- init
@@ -195,9 +201,11 @@ cargo run -- ask "Hello, what tools do you have?"
 ```
 
 **Windows interactive setup (recommended for first time):**
+
 ```powershell
 .\scripts\setup.ps1
 ```
+
 This builds the binary, initializes config, walks through API keys, and tests the connection.
 
 ## Development in a Tart VM
@@ -216,6 +224,7 @@ tart run meepo-dev --no-graphics
 ```
 
 Inside the VM:
+
 ```bash
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
