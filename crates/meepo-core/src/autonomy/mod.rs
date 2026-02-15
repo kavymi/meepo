@@ -613,9 +613,10 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(KnowledgeDb::new(&db_path).unwrap());
         let api = ApiClient::new("test-key".to_string(), None);
+        let provider = crate::provider::LlmProvider::Anthropic(api);
         let tools = Arc::new(ToolRegistry::new());
         let agent = Arc::new(Agent::new(
-            api,
+            provider,
             tools,
             "test soul".into(),
             "test memory".into(),

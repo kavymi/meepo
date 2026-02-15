@@ -1502,16 +1502,18 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         background_timeout_secs: cfg.orchestrator.background_timeout_secs,
         max_background_groups: cfg.orchestrator.max_background_groups,
     };
+    
+    // TaskOrchestrator still uses ApiClient - extract or create one from provider
     let orchestrator_api = match &provider {
         meepo_core::provider::LlmProvider::Anthropic(api) => api.clone(),
-        meepo_core::provider::LlmProvider::Ollama(ollama) => {
-            // For Ollama, create a compatibility wrapper or use placeholder
-            // Since orchestrator needs ApiClient, we'll need to handle this differently
-            // For now, use a dummy ApiClient (orchestrator won't work with Ollama yet)
-            warn!("TaskOrchestrator does not fully support Ollama provider yet");
-            meepo_core::api::ApiClient::new("dummy".to_string(), Some("dummy".to_string()))
+        meepo_core::provider::LlmProvider::Ollama(_) => {
+            // For Ollama, orchestrator won't work optimally
+            // Create a dummy ApiClient that will fail gracefully if used
+            warn!("TaskOrchestrator delegate_tasks feature not yet supported with Ollama provider");
+            meepo_core::api::ApiClient::new("".to_string(), Some("ollama".to_string()))
         }
     };
+    
     let orchestrator = Arc::new(meepo_core::orchestrator::TaskOrchestrator::new(
         orchestrator_api,
         progress_tx,
@@ -1653,30 +1655,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         "registry slot already set"
     );
 
-    let mut agent = match provider {
-        meepo_core::provider::LlmProvider::Anthropic(api) => {
-            meepo_core::agent::Agent::new(
-                api,
-                registry.clone(),
-                soul,
-                memory,
-                db.clone(),
-            )
-        }
-        meepo_core::provider::LlmProvider::Ollama(ollama) => {
-            // For Ollama, we need a different agent that uses OllamaClient
-            // Since Agent currently only accepts ApiClient, we create a placeholder
-            // TODO: Update Agent to support LlmProvider trait
-            warn!("Agent does not fully support Ollama provider yet - using compatibility mode");
-            meepo_core::agent::Agent::new(
-                meepo_core::api::ApiClient::new("ollama-placeholder".to_string(), Some("llama3.2".to_string())),
-                registry.clone(),
-                soul,
-                memory,
-                db.clone(),
-            )
-        }
-    };
+    let mut agent = meepo_core::agent::Agent::new(
+        provider.clone(),
+        registry.clone(),
+        soul,
+        memory,
+        db.clone(),
+    );
     if let Some(ref tracker) = usage_tracker {
         agent = agent.with_usage_tracker(tracker.clone());
     }

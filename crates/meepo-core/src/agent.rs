@@ -7,6 +7,7 @@ use tracing::{debug, info};
 use crate::api::ApiClient;
 use crate::context::build_system_prompt;
 use crate::middleware::MiddlewareChain;
+use crate::provider::{LlmProvider, ToolDef};
 use crate::query_router::{self, QueryRouterConfig, RetrievalStrategy};
 use crate::summarization::{self, SummarizationConfig};
 use crate::tool_selector::{self, ToolSelectorConfig};
@@ -21,7 +22,7 @@ const MAX_CONTEXT_SIZE: usize = 100_000;
 
 /// Main agent that handles messages and orchestrates responses
 pub struct Agent {
-    api: ApiClient,
+    provider: LlmProvider,
     tools: Arc<ToolRegistry>,
     soul: String,
     memory: String,
@@ -41,14 +42,14 @@ pub struct Agent {
 impl Agent {
     /// Create a new agent instance
     pub fn new(
-        api: ApiClient,
+        provider: LlmProvider,
         tools: Arc<ToolRegistry>,
         soul: String,
         memory: String,
         db: Arc<KnowledgeDb>,
     ) -> Self {
         Self {
-            api,
+            provider,
             tools,
             soul,
             memory,
@@ -59,6 +60,24 @@ impl Agent {
             tool_selector_config: ToolSelectorConfig::default(),
             usage_tracker: None,
         }
+    }
+    
+    /// Backward compatibility: create agent from ApiClient
+    #[deprecated(note = "Use new() with LlmProvider instead")]
+    pub fn from_api_client(
+        api: ApiClient,
+        tools: Arc<ToolRegistry>,
+        soul: String,
+        memory: String,
+        db: Arc<KnowledgeDb>,
+    ) -> Self {
+        Self::new(
+            LlmProvider::Anthropic(api),
+            tools,
+            soul,
+            memory,
+            db,
+        )
     }
 
     /// Set the middleware chain
@@ -90,6 +109,15 @@ impl Agent {
         self.usage_tracker = Some(tracker);
         self
     }
+    
+    /// Get API client reference for utility functions (query router, summarization, etc.)
+    /// Returns None for Ollama provider as these features use Anthropic-specific APIs
+    fn get_api_client(&self) -> Option<&ApiClient> {
+        match &self.provider {
+            LlmProvider::Anthropic(api) => Some(api),
+            LlmProvider::Ollama(_) => None,
+        }
+    }
 
     /// Handle an incoming message and generate a response
     pub async fn handle_message(&self, msg: IncomingMessage) -> Result<OutgoingMessage> {
@@ -106,7 +134,7 @@ impl Agent {
 
         // Route the query to determine retrieval strategy
         let strategy =
-            query_router::route_query(&msg.content, Some(&self.api), &self.router_config)
+            query_router::route_query(&msg.content, self.get_api_client(), &self.router_config)
                 .await
                 .unwrap_or_else(|e| {
                     debug!("Query routing failed, using default strategy: {}", e);
@@ -131,14 +159,19 @@ impl Agent {
 
         // Get tool definitions (with optional LLM selection)
         let all_tools = self.tools.list_tools();
-        let tool_definitions = tool_selector::select_tools(
-            &self.api,
-            &msg.content,
-            &all_tools,
-            &self.tool_selector_config,
-        )
-        .await
-        .unwrap_or(all_tools);
+        let tool_definitions = if let Some(api) = self.get_api_client() {
+            tool_selector::select_tools(
+                api,
+                &msg.content,
+                &all_tools,
+                &self.tool_selector_config,
+            )
+            .await
+            .unwrap_or_else(|_| all_tools.clone())
+        } else {
+            // For Ollama, use all tools (no tool selection)
+            all_tools.clone()
+        };
 
         debug!(
             "Using {} tools for this interaction",
@@ -174,22 +207,35 @@ impl Agent {
         }
 
         // Run the tool loop to get final response
-        let (response_text, usage) = self
-            .api
+        // Convert to provider-agnostic ToolDef
+        let tool_defs: Vec<ToolDef> = tool_definitions
+            .iter()
+            .map(|t| ToolDef {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.input_schema.clone(),
+            })
+            .collect();
+
+        let (response_text, usage) = self.provider
             .run_tool_loop(
                 &msg.content,
                 &system_prompt,
-                &tool_definitions,
+                &tool_defs,
                 self.tools.as_ref(),
             )
             .await
-            .context("Failed to run agent tool loop")?;
+            .context("Failed to run tool loop")?;
 
         // Record usage
         if let Some(tracker) = &self.usage_tracker {
+            let model = match &self.provider {
+                LlmProvider::Anthropic(api) => api.model(),
+                LlmProvider::Ollama(_) => "ollama",
+            };
             if let Err(e) = tracker
                 .record(
-                    self.api.model(),
+                    model,
                     &usage,
                     &UsageSource::User,
                     Some(&msg.channel.to_string()),
@@ -250,13 +296,19 @@ impl Agent {
                     .collect();
 
                 // Try summarization for long histories
-                match summarization::build_summarized_context(
-                    &self.api,
-                    &conv_pairs,
-                    &self.summarization_config,
-                )
-                .await
-                {
+                let summarized_result = if let Some(api) = self.get_api_client() {
+                    summarization::build_summarized_context(
+                        api,
+                        &conv_pairs,
+                        &self.summarization_config,
+                    )
+                    .await
+                } else {
+                    // For Ollama, skip summarization
+                    Err(anyhow::anyhow!("Summarization not available for Ollama"))
+                };
+                
+                match summarized_result {
                     Ok(summarized) => {
                         context.push_str(&summarized);
                     }
@@ -357,9 +409,16 @@ impl Agent {
         &self.db
     }
 
-    /// Get reference to the API client
-    pub fn api(&self) -> &ApiClient {
-        &self.api
+    /// Get reference to the API client (for backward compatibility)
+    /// Returns None if using Ollama provider
+    #[deprecated(note = "Use provider() instead")]
+    pub fn api(&self) -> Option<&ApiClient> {
+        self.get_api_client()
+    }
+    
+    /// Get reference to the LLM provider
+    pub fn provider(&self) -> &LlmProvider {
+        &self.provider
     }
 
     /// Get reference to the usage tracker
@@ -382,11 +441,12 @@ mod tests {
         let db = Arc::new(KnowledgeDb::new(&db_path).unwrap());
 
         let api = ApiClient::new("test-key".to_string(), None);
+        let provider = LlmProvider::Anthropic(api);
         let tools = Arc::new(ToolRegistry::new());
         let soul = "I am a test agent".to_string();
         let memory = "Test memory".to_string();
 
-        let agent = Agent::new(api, tools, soul, memory, db);
+        let agent = Agent::new(provider, tools, soul, memory, db);
         (agent, temp_dir)
     }
 
