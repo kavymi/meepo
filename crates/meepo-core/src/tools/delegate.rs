@@ -1,4 +1,7 @@
-//! delegate_tasks tool — allows the parent agent to spawn sub-agents
+//! delegate_tasks tool — Divided We Stand
+//!
+//! Allows the prime Meepo to spawn focused clones for parallel or background work.
+//! Each clone gets a scoped toolset and cannot recursively spawn more clones.
 
 use std::sync::{Arc, OnceLock};
 
@@ -12,7 +15,7 @@ use crate::orchestrator::{ExecutionMode, SubTask, TaskGroup, TaskOrchestrator};
 use crate::tools::{ToolHandler, ToolRegistry};
 use crate::types::ChannelType;
 
-/// Tool that delegates work to sub-agents.
+/// Tool that spawns Meepo clones for delegated work — Divided We Stand.
 ///
 /// Uses `OnceLock` to resolve the circular dependency: the tool needs the
 /// registry, but the registry contains the tool. The slot is filled after
@@ -48,9 +51,9 @@ impl ToolHandler for DelegateTasksTool {
     }
 
     fn description(&self) -> &str {
-        "Delegate work to sub-agents that execute independently. \
-         Use 'parallel' mode when you need multiple results combined into one response. \
-         Use 'background' mode for long-running work the user can come back to later."
+        "Spawn Meepo clones to divide and conquer. Divided We Stand. \
+         Use 'parallel' mode to send clones digging simultaneously and wait for all results. \
+         Use 'background' mode to send clones off to work independently — they'll report back when done."
     }
 
     fn input_schema(&self) -> Value {

@@ -237,15 +237,17 @@ async fn handle_request(state: &GatewayState, raw: &str) -> GatewayResponse {
 
         protocol::methods::SESSION_NEW => {
             let name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("Untitled");
-            let session = state.sessions.create(name).await;
-
-            // Broadcast session creation event
-            state.events.broadcast(GatewayEvent::new(
-                protocol::events::SESSION_CREATED,
-                serde_json::to_value(&session).unwrap_or_default(),
-            ));
-
-            GatewayResponse::ok(id, serde_json::to_value(&session).unwrap_or_default())
+            match state.sessions.create(name).await {
+                Ok(session) => {
+                    // Broadcast session creation event
+                    state.events.broadcast(GatewayEvent::new(
+                        protocol::events::SESSION_CREATED,
+                        serde_json::to_value(&session).unwrap_or_default(),
+                    ));
+                    GatewayResponse::ok(id, serde_json::to_value(&session).unwrap_or_default())
+                }
+                Err(e) => GatewayResponse::err(id, ERR_INVALID_PARAMS, e),
+            }
         }
 
         protocol::methods::SESSION_HISTORY => {

@@ -1,8 +1,8 @@
 # Meepo
 
-A local AI agent for macOS and Windows that connects Claude to your digital life through Discord, Slack, iMessage, email, and more.
+A local AI agent for macOS and Windows that connects Claude to your digital life through Discord, Slack, iMessage, email, and more. **Divided We Stand.**
 
-Meepo runs as a daemon on your machine with an autonomous observe/think/act loop. It monitors channels for messages, pursues goals proactively, and processes requests using Claude's API with access to 40+ tools spanning email, calendar, reminders, notes, browser automation, web search, files, code, music, contacts, and a persistent knowledge graph. It also speaks MCP and A2A protocols — exposing its tools to other AI agents and consuming tools from external MCP servers.
+Meepo runs as a daemon on your machine — a prime agent that splits into clones to be everywhere at once. Channel clones monitor Discord, Slack, iMessage, and email simultaneously. Task clones dig in parallel on complex requests. Watcher clones stand guard over your inbox, calendar, and GitHub repos around the clock. The prime Meepo coordinates them all through an autonomous observe/think/act loop, with access to 75+ tools spanning email, calendar, reminders, notes, browser automation, web search, files, code, music, contacts, and a persistent knowledge graph. It also speaks MCP and A2A protocols — exposing its tools to other AI agents and consuming tools from external MCP servers.
 
 ## Features
 
@@ -12,7 +12,7 @@ Meepo runs as a daemon on your machine with an autonomous observe/think/act loop
 - **Cross-platform** — macOS (AppleScript) and Windows (PowerShell/Outlook COM) with platform abstraction layer
 - **MCP support** — Expose Meepo's tools as an MCP server (STDIO) for Claude Desktop, Cursor, etc. — and consume tools from external MCP servers
 - **A2A protocol** — Google's Agent-to-Agent protocol for delegating tasks to/from peer AI agents over HTTP
-- **Sub-agent delegation** — Breaks complex tasks into parallel sub-tasks or fires off background work you can check on later
+- **Clone delegation** — Spawns focused Meepo clones that dig in parallel on complex tasks, or work in the background and report back when done
 - **Browser automation** — Full Safari and Chrome control — tabs, navigation, JS execution, form filling, screenshots
 - **Web search** — Search the web and extract clean content from URLs via Tavily
 - **Knowledge graph** — Remembers entities, relationships, and conversations across sessions with Tantivy full-text search

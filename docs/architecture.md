@@ -537,31 +537,42 @@ graph TB
 | Slack | HTTP polling (configurable interval) | `conversations.history` | `chat.postMessage` | DashMap user->channel |
 | iMessage | SQLite polling of chat.db | Read-only query by ROWID | AppleScript `send` command | LRU cache (1000 entries) |
 
-## Sub-Agent Orchestrator
+## Divided We Stand — Clone Architecture
 
-The `delegate_tasks` tool enables Meepo to break complex requests into focused sub-tasks. Each sub-task runs as an independent agent with a scoped subset of tools.
+Meepo's architecture is modeled on the Dota 2 Geomancer's signature ability: **Divided We Stand**. The prime Meepo coordinates multiple clones — each present on a different channel, working a different task, or standing guard as a watcher. If one clone fails, the others keep digging.
+
+| Clone Type | Implementation | Lifecycle |
+|------------|---------------|-----------|
+| **Channel clones** | `MessageChannel` adapters (Discord, Slack, iMessage, email) | Persistent — run for the daemon's lifetime |
+| **Task clones** | `FilteredToolExecutor` + `ApiClient::run_tool_loop` | Ephemeral — spawned per delegation, die on completion |
+| **Background clones** | Fire-and-forget tokio tasks via `TaskOrchestrator` | Ephemeral — report progress as they surface |
+| **Watcher clones** | `WatcherRunner` tokio tasks with `CancellationToken` | Persistent — run until cancelled or the daemon stops |
+
+## Clone Orchestrator
+
+The `delegate_tasks` tool enables the prime Meepo to spawn focused clones for parallel or background work. Each clone gets a scoped subset of tools and cannot recursively spawn more clones.
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Agent as Main Agent
+    participant Prime as Prime Meepo
     participant DT as delegate_tasks
     participant Orch as TaskOrchestrator
-    participant SA1 as Sub-Agent 1
-    participant SA2 as Sub-Agent 2
+    participant C1 as Clone 1
+    participant C2 as Clone 2
 
-    User->>Agent: Complex request
-    Agent->>DT: delegate_tasks(parallel, [task1, task2])
-    DT->>Orch: execute_parallel(tasks)
-    par Concurrent execution
-        Orch->>SA1: run_tool_loop(task1, filtered_tools)
-        Orch->>SA2: run_tool_loop(task2, filtered_tools)
+    User->>Prime: Complex request
+    Prime->>DT: delegate_tasks(parallel, [task1, task2])
+    DT->>Orch: run_parallel(tasks)
+    par Divided We Stand
+        Orch->>C1: run_tool_loop(task1, filtered_tools)
+        Orch->>C2: run_tool_loop(task2, filtered_tools)
     end
-    SA1-->>Orch: result1
-    SA2-->>Orch: result2
+    C1-->>Orch: result1
+    C2-->>Orch: result2
     Orch-->>DT: combined results
-    DT-->>Agent: formatted output
-    Agent-->>User: Final response
+    DT-->>Prime: formatted output
+    Prime-->>User: Final response
 ```
 
 **Two execution modes:**

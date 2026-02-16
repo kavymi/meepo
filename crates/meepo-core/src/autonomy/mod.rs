@@ -1,8 +1,9 @@
-//! Autonomous agent loop — observe/think/act/reflect cycle
+//! Autonomous agent loop — observe/think/act/reflect cycle (the Prime Meepo)
 //!
-//! Replaces the reactive message handler with a continuous tick-based loop.
+//! The prime Meepo runs a continuous tick-based loop, coordinating all clones.
 //! User messages are just one input among many — the agent also processes
 //! watcher events, evaluates goals, and takes proactive actions.
+//! Divided We Stand: if one channel or task fails, the others keep digging.
 
 pub mod action_log;
 pub mod goals;
@@ -167,7 +168,7 @@ impl AutonomousLoop {
     /// Run the autonomous loop until cancelled
     pub async fn run(mut self, cancel: tokio_util::sync::CancellationToken) {
         info!(
-            "Autonomous loop started (tick interval: {}s)",
+            "Prime Meepo online — Divided We Stand (tick interval: {}s)",
             self.config.tick_interval_secs
         );
 
@@ -177,7 +178,7 @@ impl AutonomousLoop {
             // Wait for: cancellation, tick timer, or wake signal
             tokio::select! {
                 _ = cancel.cancelled() => {
-                    info!("Autonomous loop shutting down");
+                    info!("Prime Meepo shutting down — all clones recalled");
                     break;
                 }
                 _ = tokio::time::sleep(tick_duration) => {
@@ -498,7 +499,7 @@ impl AutonomousLoop {
     async fn handle_user_message(&self, msg: IncomingMessage) {
         let channel = msg.channel.clone();
         let sender = msg.sender.clone();
-        info!("Processing user message from {} on {}", sender, channel);
+        info!("Clone on {} handling message from {}", channel, sender);
 
         // Send acknowledgment so the user knows we're working on it
         if self.config.send_acknowledgments {

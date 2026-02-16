@@ -1,7 +1,8 @@
-//! Sub-agent orchestration system
+//! Clone orchestration system — Divided We Stand
 //!
-//! Provides task decomposition, parallel execution, and progress reporting
-//! for delegated sub-agent work.
+//! Spawns focused Meepo clones for parallel and background task execution.
+//! Each clone gets a scoped toolset and works independently, reporting back
+//! to the prime Meepo when done. If one clone fails, the others keep digging.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -97,7 +98,7 @@ impl Default for OrchestratorConfig {
 }
 
 /// Wraps a ToolRegistry but only allows execution of specific tools.
-/// Implements ToolExecutor so it plugs directly into ApiClient::run_tool_loop.
+/// Each clone gets a scoped view of the toolset — no recursive cloning allowed.
 pub struct FilteredToolExecutor {
     inner: Arc<ToolRegistry>,
     allowed: HashSet<String>,
@@ -117,13 +118,13 @@ impl FilteredToolExecutor {
 impl ToolExecutor for FilteredToolExecutor {
     async fn execute(&self, tool_name: &str, input: Value) -> Result<String> {
         if !self.allowed.contains(tool_name) {
-            warn!("Sub-agent attempted to use non-allowed tool: {}", tool_name);
+            warn!("Clone attempted to use non-allowed tool: {}", tool_name);
             return Err(anyhow!(
-                "Tool '{}' is not available for this sub-agent",
+                "Tool '{}' is not available for this clone",
                 tool_name
             ));
         }
-        debug!("Sub-agent executing allowed tool: {}", tool_name);
+        debug!("Clone executing tool: {}", tool_name);
         self.inner.execute(tool_name, input).await
     }
 
@@ -136,7 +137,7 @@ impl ToolExecutor for FilteredToolExecutor {
     }
 }
 
-/// The task orchestrator that runs sub-agent task groups.
+/// The clone orchestrator — spawns and manages Meepo clones for delegated work.
 pub struct TaskOrchestrator {
     api: ApiClient,
     progress_tx: mpsc::Sender<OutgoingMessage>,
@@ -158,7 +159,7 @@ impl TaskOrchestrator {
         }
     }
 
-    /// Execute a single sub-task in isolation. Returns the result.
+    /// Spawn a single clone to execute a focused task. Returns the result.
     async fn run_subtask(
         api: ApiClient,
         registry: Arc<ToolRegistry>,
@@ -166,7 +167,8 @@ impl TaskOrchestrator {
         timeout_secs: u64,
     ) -> SubTaskResult {
         let system_prompt = format!(
-            "You are a focused sub-agent working on a specific task.\n\n\
+            "You are a Meepo clone — a focused copy of the prime agent, spawned to handle a specific task. \
+             Dig in, get it done, and report back concisely.\n\n\
              ## Context\n{}\n\n\
              ## Your Task\n{}\n\n\
              Respond with your findings/results directly. Be concise.",
@@ -228,8 +230,8 @@ impl TaskOrchestrator {
         }
     }
 
-    /// Execute a task group in parallel mode.
-    /// Blocks until all sub-tasks complete and returns combined results.
+    /// Execute a task group in parallel mode — Divided We Stand.
+    /// Spawns clones that dig simultaneously, blocks until all report back.
     pub async fn run_parallel(
         &self,
         group: TaskGroup,
@@ -248,7 +250,7 @@ impl TaskOrchestrator {
         self.send_progress(
             &group.channel,
             &group.reply_to,
-            &format!("Working on {} tasks...", task_count),
+            &format!("Spawning {} clones...", task_count),
         )
         .await;
 
@@ -281,8 +283,8 @@ impl TaskOrchestrator {
         Ok(Self::format_results(&results))
     }
 
-    /// Execute a task group in background mode.
-    /// Returns immediately with a confirmation. Progress sent via channel.
+    /// Execute a task group in background mode — fire-and-forget clones.
+    /// Returns immediately. Clones report progress as they surface.
     pub async fn run_background(
         &self,
         group: TaskGroup,
@@ -329,7 +331,7 @@ impl TaskOrchestrator {
         tokio::spawn(async move {
             let _ = progress_tx
                 .send(OutgoingMessage {
-                    content: format!("Started {} background tasks...", task_count),
+                    content: format!("Sent {} clones to work in the background...", task_count),
                     channel: channel.clone(),
                     reply_to: reply_to.clone(),
                     kind: MessageKind::Response,
@@ -353,7 +355,7 @@ impl TaskOrchestrator {
                 match handle.await {
                     Ok(result) => {
                         let update = format!(
-                            "Task '{}' {} ({}/{})",
+                            "Clone '{}' {} ({}/{})",
                             result.task_id,
                             result.status,
                             results.len() + 1,
@@ -372,7 +374,7 @@ impl TaskOrchestrator {
                     Err(e) => {
                         let _ = progress_tx
                             .send(OutgoingMessage {
-                                content: format!("A background task panicked: {}", e),
+                    content: format!("A background clone panicked: {}", e),
                                 channel: channel.clone(),
                                 reply_to: reply_to.clone(),
                                 kind: MessageKind::Response,
@@ -391,7 +393,7 @@ impl TaskOrchestrator {
             let summary = Self::format_results(&results);
             let _ = progress_tx
                 .send(OutgoingMessage {
-                    content: format!("All background tasks complete:\n\n{}", summary),
+                    content: format!("All clones have reported back:\n\n{}", summary),
                     channel: channel.clone(),
                     reply_to: reply_to.clone(),
                     kind: MessageKind::Response,
@@ -402,7 +404,7 @@ impl TaskOrchestrator {
         });
 
         Ok(format!(
-            "Started task group {} with {} tasks. The user will be notified on the original channel as tasks complete.",
+            "Spawned clone group {} with {} clones. They'll report back on the original channel as they finish.",
             group_id, task_count
         ))
     }
