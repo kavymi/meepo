@@ -312,6 +312,124 @@ pub fn get_watcher_events(
     Ok(events)
 }
 
+/// Record the last successful run time for a cron watcher.
+/// Used for catch-up mechanism (OpenClaw #10403) — when the daemon restarts,
+/// it can check if any cron jobs were missed and run them.
+pub fn record_last_run(conn: &Connection, watcher_id: &str) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+
+    // Create the table if it doesn't exist (idempotent)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS watcher_last_run (
+            watcher_id TEXT PRIMARY KEY,
+            last_run_at TEXT NOT NULL,
+            consecutive_errors INTEGER NOT NULL DEFAULT 0
+        )",
+        [],
+    )
+    .context("Failed to create watcher_last_run table")?;
+
+    conn.execute(
+        "INSERT INTO watcher_last_run (watcher_id, last_run_at, consecutive_errors)
+         VALUES (?1, ?2, 0)
+         ON CONFLICT(watcher_id) DO UPDATE SET
+            last_run_at = excluded.last_run_at,
+            consecutive_errors = 0",
+        params![watcher_id, &now],
+    )
+    .context("Failed to record last run")?;
+
+    debug!("Recorded last run for watcher {}", watcher_id);
+    Ok(())
+}
+
+/// Record an error for a cron watcher (increments consecutive error count).
+/// After `max_errors` consecutive errors, the watcher is automatically deactivated.
+pub fn record_run_error(conn: &Connection, watcher_id: &str, max_errors: u32) -> Result<bool> {
+    // Create the table if it doesn't exist (idempotent)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS watcher_last_run (
+            watcher_id TEXT PRIMARY KEY,
+            last_run_at TEXT NOT NULL,
+            consecutive_errors INTEGER NOT NULL DEFAULT 0
+        )",
+        [],
+    )
+    .context("Failed to create watcher_last_run table")?;
+
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT INTO watcher_last_run (watcher_id, last_run_at, consecutive_errors)
+         VALUES (?1, ?2, 1)
+         ON CONFLICT(watcher_id) DO UPDATE SET
+            last_run_at = excluded.last_run_at,
+            consecutive_errors = consecutive_errors + 1",
+        params![watcher_id, &now],
+    )
+    .context("Failed to record run error")?;
+
+    // Check if we've exceeded max errors
+    let errors: u32 = conn
+        .query_row(
+            "SELECT consecutive_errors FROM watcher_last_run WHERE watcher_id = ?1",
+            params![watcher_id],
+            |row| row.get(0),
+        )
+        .context("Failed to query consecutive errors")?;
+
+    if errors >= max_errors {
+        warn!(
+            "Watcher {} has {} consecutive errors (max {}), deactivating",
+            watcher_id, errors, max_errors
+        );
+        deactivate_watcher(conn, watcher_id)?;
+        return Ok(true); // deactivated
+    }
+
+    debug!(
+        "Watcher {} error count: {}/{}",
+        watcher_id, errors, max_errors
+    );
+    Ok(false) // still active
+}
+
+/// Get the last run time for a watcher (for catch-up scheduling)
+pub fn get_last_run(conn: &Connection, watcher_id: &str) -> Result<Option<DateTime<Utc>>> {
+    // Table might not exist yet
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='watcher_last_run'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !table_exists {
+        return Ok(None);
+    }
+
+    let result = conn.query_row(
+        "SELECT last_run_at FROM watcher_last_run WHERE watcher_id = ?1",
+        params![watcher_id],
+        |row| {
+            let ts: String = row.get(0)?;
+            Ok(ts)
+        },
+    );
+
+    match result {
+        Ok(ts) => {
+            let dt = DateTime::parse_from_rfc3339(&ts)
+                .context("Failed to parse last_run_at")?
+                .with_timezone(&Utc);
+            Ok(Some(dt))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e).context("Failed to query last run"),
+    }
+}
+
 /// Clean up old watcher events (keep only last N days)
 pub fn cleanup_old_events(conn: &Connection, days_to_keep: u32) -> Result<usize> {
     let cutoff = Utc::now() - chrono::Duration::days(days_to_keep as i64);
@@ -430,6 +548,74 @@ mod tests {
 
         let loaded = get_watcher_by_id(&conn, &watcher.id).unwrap();
         assert!(loaded.is_none());
+    }
+
+    #[test]
+    fn test_record_last_run() {
+        let conn = setup_test_db();
+        let watcher = Watcher::new(
+            WatcherKind::FileWatch {
+                path: "/tmp".to_string(),
+            },
+            "Test".to_string(),
+            "test".to_string(),
+        );
+        save_watcher(&conn, &watcher).unwrap();
+
+        // No last run initially
+        assert!(get_last_run(&conn, &watcher.id).unwrap().is_none());
+
+        // Record a run
+        record_last_run(&conn, &watcher.id).unwrap();
+        let last = get_last_run(&conn, &watcher.id).unwrap();
+        assert!(last.is_some());
+    }
+
+    #[test]
+    fn test_record_run_error_deactivates() {
+        let conn = setup_test_db();
+        let watcher = Watcher::new(
+            WatcherKind::FileWatch {
+                path: "/tmp".to_string(),
+            },
+            "Test".to_string(),
+            "test".to_string(),
+        );
+        save_watcher(&conn, &watcher).unwrap();
+
+        // 3 errors with max_errors=3 should deactivate
+        assert!(!record_run_error(&conn, &watcher.id, 3).unwrap());
+        assert!(!record_run_error(&conn, &watcher.id, 3).unwrap());
+        assert!(record_run_error(&conn, &watcher.id, 3).unwrap()); // deactivated
+
+        let loaded = get_watcher_by_id(&conn, &watcher.id).unwrap().unwrap();
+        assert!(!loaded.active);
+    }
+
+    #[test]
+    fn test_record_last_run_resets_errors() {
+        let conn = setup_test_db();
+        let watcher = Watcher::new(
+            WatcherKind::FileWatch {
+                path: "/tmp".to_string(),
+            },
+            "Test".to_string(),
+            "test".to_string(),
+        );
+        save_watcher(&conn, &watcher).unwrap();
+
+        // Record 2 errors
+        record_run_error(&conn, &watcher.id, 5).unwrap();
+        record_run_error(&conn, &watcher.id, 5).unwrap();
+
+        // Successful run resets error count
+        record_last_run(&conn, &watcher.id).unwrap();
+
+        // Should need 5 more errors to deactivate
+        for _ in 0..4 {
+            assert!(!record_run_error(&conn, &watcher.id, 5).unwrap());
+        }
+        assert!(record_run_error(&conn, &watcher.id, 5).unwrap());
     }
 
     #[test]

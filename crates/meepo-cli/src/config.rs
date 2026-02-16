@@ -34,6 +34,12 @@ pub struct MeepoConfig {
     pub gateway: GatewayConfig,
     #[serde(default)]
     pub voice: VoiceConfig,
+    #[serde(default)]
+    pub sandbox: SandboxCliConfig,
+    #[serde(default)]
+    pub secrets: SecretsCliConfig,
+    #[serde(default)]
+    pub guardrails: GuardrailsCliConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -852,6 +858,99 @@ impl Default for VoiceConfig {
             elevenlabs_voice_id: default_elevenlabs_voice_id(),
             wake_word: "hey meepo".to_string(),
             wake_enabled: false,
+        }
+    }
+}
+
+// ── Docker Sandbox Config ───────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxCliConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_docker_socket")]
+    pub docker_socket: String,
+    #[serde(default = "default_sandbox_memory_mb")]
+    pub memory_mb: u64,
+    #[serde(default = "default_sandbox_timeout")]
+    pub timeout_secs: u64,
+    #[serde(default)]
+    pub network_enabled: bool,
+}
+
+fn default_docker_socket() -> String {
+    "/var/run/docker.sock".to_string()
+}
+
+fn default_sandbox_memory_mb() -> u64 {
+    256
+}
+
+fn default_sandbox_timeout() -> u64 {
+    30
+}
+
+impl Default for SandboxCliConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            docker_socket: default_docker_socket(),
+            memory_mb: default_sandbox_memory_mb(),
+            timeout_secs: default_sandbox_timeout(),
+            network_enabled: false,
+        }
+    }
+}
+
+// ── Secrets Manager Config ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretsCliConfig {
+    #[serde(default = "default_secrets_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub secrets_dir: Option<String>,
+}
+
+fn default_secrets_provider() -> String {
+    "env".to_string()
+}
+
+impl Default for SecretsCliConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_secrets_provider(),
+            secrets_dir: None,
+        }
+    }
+}
+
+// ── Guardrails Config ───────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuardrailsCliConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_block_severity")]
+    pub block_severity: String,
+    #[serde(default = "default_max_input_length")]
+    pub max_input_length: usize,
+}
+
+fn default_block_severity() -> String {
+    "high".to_string()
+}
+
+fn default_max_input_length() -> usize {
+    100_000
+}
+
+impl Default for GuardrailsCliConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            block_severity: default_block_severity(),
+            max_input_length: default_max_input_length(),
         }
     }
 }

@@ -558,3 +558,41 @@ elevenlabs_api_key = "${ELEVENLABS_API_KEY}"
 elevenlabs_voice_id = "default"
 wake_word = "hey meepo"
 wake_enabled = false
+
+# ── Docker Sandbox ────────────────────────────────────────────────
+# Secure code execution in isolated Docker containers.
+# When enabled, the agent can run untrusted code safely without
+# risking the host system. Requires Docker to be installed.
+#
+# Resource limits prevent runaway containers.
+
+[sandbox]
+enabled = false
+docker_socket = "/var/run/docker.sock"
+memory_mb = 256                         # Max memory per container
+timeout_secs = 30                       # Max execution time
+network_enabled = false                 # Disable network by default
+
+# ── Secrets Manager ───────────────────────────────────────────────
+# Pluggable secrets resolution with $secret{NAME} syntax.
+# Secrets can come from environment variables, files, or a vault.
+#
+# Providers: env (default), file (reads from secrets_dir)
+# File provider reads /run/secrets/<key> (Docker secrets compatible)
+
+[secrets]
+provider = "env"                        # env | file
+# secrets_dir = "/run/secrets"          # For file provider
+
+# ── Guardrails ────────────────────────────────────────────────────
+# Prompt injection detection and content safety.
+# Protects against indirect prompt injections, role hijacking,
+# system prompt extraction, and data exfiltration attempts.
+#
+# Severity levels: low, medium, high, critical
+# Messages at or above block_severity are rejected.
+
+[guardrails]
+enabled = true
+block_severity = "high"                 # low | medium | high | critical
+max_input_length = 100000              # Max input chars (100KB)
