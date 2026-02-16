@@ -18,6 +18,7 @@ pub mod delegate;
 pub mod filesystem;
 pub mod lifestyle;
 pub mod macos;
+pub mod sandbox_exec;
 pub mod memory;
 pub mod rag;
 pub mod search;

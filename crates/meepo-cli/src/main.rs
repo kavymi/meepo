@@ -71,6 +71,9 @@ enum Commands {
         #[command(subcommand)]
         action: TemplateAction,
     },
+
+    /// Run system health checks
+    Doctor,
 }
 
 #[derive(Subcommand)]
@@ -126,6 +129,7 @@ async fn main() -> Result<()> {
         Commands::McpServer => cmd_mcp_server(&cli.config).await,
         Commands::Usage { period, csv } => cmd_usage(&cli.config, &period, csv).await,
         Commands::Template { action } => cmd_template(action).await,
+        Commands::Doctor => cmd_doctor(&cli.config).await,
     }
 }
 
@@ -1398,6 +1402,22 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasResetTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasEvalTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasSnapshotTool::new()));
+    // ── Docker Sandbox Tool ───────────────────────────────────────
+    registry.register(Arc::new(meepo_core::tools::sandbox_exec::SandboxExecTool::new(
+        meepo_core::sandbox::SandboxConfig {
+            enabled: cfg.sandbox.enabled,
+            docker_socket: cfg.sandbox.docker_socket.clone(),
+            policy: meepo_core::sandbox::policy::ExecutionPolicy {
+                resource_limits: meepo_core::sandbox::policy::ResourceLimits {
+                    memory_mb: cfg.sandbox.memory_mb,
+                    timeout_secs: cfg.sandbox.timeout_secs,
+                    network_enabled: cfg.sandbox.network_enabled,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        },
+    )));
     info!("Registered {} tools (including lifestyle integrations)", registry.len());
 
     // Initialize progress channel for sub-agent orchestrator
@@ -2958,6 +2978,22 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasResetTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasEvalTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasSnapshotTool::new()));
+    // ── Docker Sandbox Tool (MCP mode) ──────────────────────────────
+    registry.register(Arc::new(meepo_core::tools::sandbox_exec::SandboxExecTool::new(
+        meepo_core::sandbox::SandboxConfig {
+            enabled: cfg.sandbox.enabled,
+            docker_socket: cfg.sandbox.docker_socket.clone(),
+            policy: meepo_core::sandbox::policy::ExecutionPolicy {
+                resource_limits: meepo_core::sandbox::policy::ResourceLimits {
+                    memory_mb: cfg.sandbox.memory_mb,
+                    timeout_secs: cfg.sandbox.timeout_secs,
+                    network_enabled: cfg.sandbox.network_enabled,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        },
+    )));
 
     // ── Usage Tracker (MCP mode) ────────────────────────────────────
     if cfg.usage.enabled {
@@ -3288,6 +3324,48 @@ tags = []
             Ok(())
         }
     }
+}
+
+async fn cmd_doctor(config_path: &Option<PathBuf>) -> Result<()> {
+    let cfg = config::MeepoConfig::load(config_path)?;
+    let db_path = shellexpand(&cfg.knowledge.db_path);
+
+    let config_file_buf = config_path
+        .clone()
+        .unwrap_or_else(|| config::config_dir().join("config.toml"));
+
+    let report = meepo_core::doctor::run_doctor(
+        Some(config_file_buf.as_path()),
+        Some(db_path.as_path()),
+    )
+    .await?;
+
+    println!("\n  Meepo Doctor");
+    println!("  ────────────\n");
+
+    for check in &report.checks {
+        let icon = match check.status {
+            meepo_core::doctor::CheckStatus::Pass => "OK",
+            meepo_core::doctor::CheckStatus::Warn => "!!", 
+            meepo_core::doctor::CheckStatus::Fail => "XX",
+            meepo_core::doctor::CheckStatus::Skip => "--",
+        };
+        println!("  [{}] {}: {}", icon, check.name, check.message);
+        if let Some(hint) = &check.fix_hint {
+            println!("        Fix: {}", hint);
+        }
+    }
+
+    println!("\n  {}\n", report.summary());
+
+    if report.is_healthy() {
+        println!("  All checks passed!");
+    } else {
+        println!("  Some checks failed. See hints above.");
+    }
+    println!();
+
+    Ok(())
 }
 
 /// Recursively copy a directory
