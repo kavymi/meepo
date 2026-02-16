@@ -10,7 +10,7 @@ pub mod vad;
 use serde::{Deserialize, Serialize};
 
 /// Audio configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AudioConfig {
     pub enabled: bool,
     pub stt_provider: SttProvider,
@@ -23,6 +23,27 @@ pub struct AudioConfig {
     pub sample_rate: u32,
     pub silence_threshold: f32,
     pub silence_duration_ms: u64,
+}
+
+impl std::fmt::Debug for AudioConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn mask(s: &str) -> &str {
+            if s.is_empty() { "(empty)" } else { "***" }
+        }
+        f.debug_struct("AudioConfig")
+            .field("enabled", &self.enabled)
+            .field("stt_provider", &self.stt_provider)
+            .field("tts_provider", &self.tts_provider)
+            .field("elevenlabs_api_key", &mask(&self.elevenlabs_api_key))
+            .field("elevenlabs_voice_id", &self.elevenlabs_voice_id)
+            .field("openai_api_key", &mask(&self.openai_api_key))
+            .field("wake_word", &self.wake_word)
+            .field("wake_enabled", &self.wake_enabled)
+            .field("sample_rate", &self.sample_rate)
+            .field("silence_threshold", &self.silence_threshold)
+            .field("silence_duration_ms", &self.silence_duration_ms)
+            .finish()
+    }
 }
 
 impl Default for AudioConfig {
@@ -184,6 +205,17 @@ mod tests {
         assert_eq!(&wav[8..12], b"WAVE");
         assert_eq!(&wav[36..40], b"data");
         assert_eq!(wav.len(), 44 + 200); // header + 100 samples * 2 bytes
+    }
+
+    #[test]
+    fn test_audio_config_debug_hides_keys() {
+        let mut config = AudioConfig::default();
+        config.elevenlabs_api_key = "sk-secret-elevenlabs-key".to_string();
+        config.openai_api_key = "sk-secret-openai-key".to_string();
+        let debug = format!("{:?}", config);
+        assert!(!debug.contains("sk-secret-elevenlabs-key"));
+        assert!(!debug.contains("sk-secret-openai-key"));
+        assert!(debug.contains("***"));
     }
 
     #[test]

@@ -18,5 +18,5 @@ serenity = { workspace = true }
 rusqlite = { workspace = true }
 reqwest = { workspace = true }
 dashmap = "6.1"
-dirs = "5.0"
+dirs = { workspace = true }
 lru = { workspace = true }
