@@ -6,6 +6,7 @@ use tracing::{debug, info};
 
 use crate::api::ApiClient;
 use crate::context::build_system_prompt;
+use crate::guardrails::{GuardrailContext, GuardrailPipeline};
 use crate::middleware::MiddlewareChain;
 use crate::query_router::{self, QueryRouterConfig, RetrievalStrategy};
 use crate::summarization::{self, SummarizationConfig};
@@ -36,6 +37,8 @@ pub struct Agent {
     tool_selector_config: ToolSelectorConfig,
     /// Usage tracker for cost monitoring
     usage_tracker: Option<Arc<UsageTracker>>,
+    /// Guardrails pipeline for input safety checks
+    guardrails: Option<GuardrailPipeline>,
 }
 
 impl Agent {
@@ -58,6 +61,7 @@ impl Agent {
             summarization_config: SummarizationConfig::default(),
             tool_selector_config: ToolSelectorConfig::default(),
             usage_tracker: None,
+            guardrails: None,
         }
     }
 
@@ -91,12 +95,46 @@ impl Agent {
         self
     }
 
+    /// Set the guardrails pipeline
+    pub fn with_guardrails(mut self, pipeline: GuardrailPipeline) -> Self {
+        self.guardrails = Some(pipeline);
+        self
+    }
+
     /// Handle an incoming message and generate a response
     pub async fn handle_message(&self, msg: IncomingMessage) -> Result<OutgoingMessage> {
         info!(
             "Handling message from {} on channel {}",
             msg.sender, msg.channel
         );
+
+        // Run guardrails check on incoming message
+        if let Some(guardrails) = &self.guardrails {
+            let ctx = GuardrailContext {
+                source: msg.sender.clone(),
+                channel: msg.channel.to_string(),
+                is_tool_output: false,
+            };
+            let result = guardrails.evaluate(&msg.content, &ctx).await?;
+            if !result.passed {
+                let violations: Vec<String> = result
+                    .violations
+                    .iter()
+                    .map(|v| format!("{} ({:?})", v.rule, v.severity))
+                    .collect();
+                tracing::warn!(
+                    "Guardrails blocked message from {}: {:?}",
+                    msg.sender,
+                    violations
+                );
+                return Ok(OutgoingMessage {
+                    channel: msg.channel,
+                    content: "I'm unable to process that request as it was flagged by safety checks.".to_string(),
+                    reply_to: Some(msg.id.clone()),
+                    kind: MessageKind::Response,
+                });
+            }
+        }
 
         // Store the incoming message in conversation history
         self.db
