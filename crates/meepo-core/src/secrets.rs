@@ -35,18 +35,13 @@ impl Default for SecretsConfig {
 }
 
 /// Type of secrets provider
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretsProviderType {
+    #[default]
     Env,
     File,
     Memory,
-}
-
-impl Default for SecretsProviderType {
-    fn default() -> Self {
-        Self::Env
-    }
 }
 
 /// Environment variable secrets provider
@@ -92,10 +87,10 @@ impl SecretsProvider for FileSecretsProvider {
 
         // Verify the resolved path is within secrets_dir
         let canonical_dir = self.secrets_dir.canonicalize().unwrap_or_else(|_| self.secrets_dir.clone());
-        if let Ok(canonical_path) = path.canonicalize() {
-            if !canonical_path.starts_with(&canonical_dir) {
-                return Err(anyhow!("Secret key resolves outside secrets directory"));
-            }
+        if let Ok(canonical_path) = path.canonicalize()
+            && !canonical_path.starts_with(&canonical_dir)
+        {
+            return Err(anyhow!("Secret key resolves outside secrets directory"));
         }
 
         match tokio::fs::read_to_string(&path).await {
