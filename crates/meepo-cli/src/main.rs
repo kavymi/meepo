@@ -3702,6 +3702,40 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         }
     }
 
+    // ── MCP Clients — connect to external MCP servers ──────────────
+    for client_cfg in &cfg.mcp.clients {
+        let mcp_config = meepo_mcp::McpClientConfig {
+            name: client_cfg.name.clone(),
+            command: shellexpand_str(&client_cfg.command),
+            args: client_cfg.args.iter().map(|a| shellexpand_str(a)).collect(),
+            env: client_cfg
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), shellexpand_str(v)))
+                .collect(),
+        };
+
+        match meepo_mcp::McpClient::connect(mcp_config).await {
+            Ok(client) => match client.discover_tools().await {
+                Ok(tools) => {
+                    let count = tools.len();
+                    for tool in tools {
+                        registry.register(tool);
+                    }
+                    info!(
+                        "MCP client '{}': registered {} tools",
+                        client_cfg.name, count
+                    );
+                }
+                Err(e) => warn!(
+                    "MCP client '{}': failed to discover tools: {}",
+                    client_cfg.name, e
+                ),
+            },
+            Err(e) => warn!("MCP client '{}': failed to connect: {}", client_cfg.name, e),
+        }
+    }
+
     let registry = Arc::new(registry);
     info!("MCP server: {} tools available", registry.len());
 

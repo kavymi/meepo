@@ -17,6 +17,59 @@ use tracing::{debug, error, info, warn};
 
 const MAX_EMAIL_SENDERS: usize = 500;
 
+/// Timeout for Mail.app AppleScript polling (seconds)
+const MAIL_POLL_TIMEOUT_SECS: u64 = 60;
+
+/// Check if an application is currently running via System Events
+async fn is_app_running(app_name: &str) -> bool {
+    let script = format!(
+        r#"tell application "System Events" to (name of processes) contains "{}"
+"#,
+        app_name
+    );
+    if let Ok(output) = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .await
+    {
+        String::from_utf8_lossy(&output.stdout).trim() == "true"
+    } else {
+        false
+    }
+}
+
+/// Ensure Mail.app is running before polling. Launches it if needed.
+async fn ensure_mail_app_running() {
+    if is_app_running("Mail").await {
+        return;
+    }
+
+    info!("Mail.app not running, launching before poll...");
+    let launch_script = r#"tell application "Mail" to activate"#;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        Command::new("osascript")
+            .arg("-e")
+            .arg(launch_script)
+            .output(),
+    )
+    .await;
+
+    // Wait for Mail.app to finish launching (poll up to 30s)
+    for _ in 0..15 {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        if is_app_running("Mail").await {
+            debug!("Mail.app is now running");
+            // Give it a moment to finish initial sync
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            return;
+        }
+    }
+
+    warn!("Mail.app may not have fully launched, proceeding anyway");
+}
+
 /// Email channel adapter that polls Mail.app for incoming emails
 pub struct EmailChannel {
     poll_interval: Duration,
@@ -58,6 +111,9 @@ impl EmailChannel {
 
     /// Poll Mail.app for unread emails matching the subject prefix
     async fn poll_emails(&self, tx: &mpsc::Sender<IncomingMessage>) -> Result<()> {
+        // Ensure Mail.app is running before polling — avoids timeout on cold launch
+        ensure_mail_app_running().await;
+
         let prefix = Self::escape_applescript(&self.subject_prefix);
 
         let script = format!(
@@ -92,13 +148,26 @@ end tell
 "#
         );
 
-        let output = tokio::time::timeout(
-            Duration::from_secs(30),
+        // Try once with 60s timeout; on timeout, retry once after a 4s backoff
+        let output = match tokio::time::timeout(
+            Duration::from_secs(MAIL_POLL_TIMEOUT_SECS),
             Command::new("osascript").arg("-e").arg(&script).output(),
         )
         .await
-        .map_err(|_| anyhow!("Mail.app polling timed out"))?
-        .map_err(|e| anyhow!("Failed to run osascript: {}", e))?;
+        {
+            Ok(result) => result.map_err(|e| anyhow!("Failed to run osascript: {}", e))?,
+            Err(_) => {
+                warn!("Mail.app poll timed out after {}s, retrying once...", MAIL_POLL_TIMEOUT_SECS);
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                tokio::time::timeout(
+                    Duration::from_secs(MAIL_POLL_TIMEOUT_SECS),
+                    Command::new("osascript").arg("-e").arg(&script).output(),
+                )
+                .await
+                .map_err(|_| anyhow!("Mail.app polling timed out after retry"))?
+                .map_err(|e| anyhow!("Failed to run osascript: {}", e))?
+            }
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

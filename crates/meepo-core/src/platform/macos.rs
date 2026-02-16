@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use tokio::process::Command;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::{
     BrowserCookie, BrowserProvider, BrowserTab, CalendarProvider, ContactsProvider, EmailProvider,
@@ -86,6 +86,60 @@ fn validate_screenshot_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Check if an application is currently running
+async fn is_app_running(app_name: &str) -> bool {
+    let script = format!(
+        r#"tell application "System Events" to (name of processes) contains "{}"
+"#,
+        app_name
+    );
+    if let Ok(output) = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .await
+    {
+        String::from_utf8_lossy(&output.stdout).trim() == "true"
+    } else {
+        false
+    }
+}
+
+/// Ensure Mail.app is running before executing a heavy query.
+/// If not running, launches it and waits for it to be ready.
+async fn ensure_mail_app_running() -> Result<()> {
+    if is_app_running("Mail").await {
+        return Ok(());
+    }
+
+    info!("Mail.app not running, launching it...");
+    let launch_script = r#"tell application "Mail" to activate"#;
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        Command::new("osascript")
+            .arg("-e")
+            .arg(launch_script)
+            .output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Timed out launching Mail.app"))?
+    .context("Failed to launch Mail.app")?;
+
+    // Wait for Mail.app to finish launching (poll up to 30s)
+    for _ in 0..15 {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        if is_app_running("Mail").await {
+            debug!("Mail.app is now running");
+            // Give it a moment to finish initial sync
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            return Ok(());
+        }
+    }
+
+    warn!("Mail.app may not have fully launched, proceeding anyway");
+    Ok(())
+}
+
 /// Run an AppleScript with 30 second timeout
 async fn run_applescript(script: &str) -> Result<String> {
     let output = tokio::time::timeout(
@@ -103,6 +157,62 @@ async fn run_applescript(script: &str) -> Result<String> {
         warn!("AppleScript failed: {}", error);
         Err(anyhow::anyhow!("AppleScript failed: {}", error))
     }
+}
+
+/// Run an AppleScript with retry logic and configurable timeout.
+/// Retries up to `max_retries` times with exponential backoff (2s, 4s, 8s...).
+async fn run_applescript_with_retry(
+    script: &str,
+    timeout_secs: u64,
+    max_retries: u32,
+) -> Result<String> {
+    let mut last_err = anyhow::anyhow!("AppleScript execution failed");
+
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            let backoff = std::time::Duration::from_secs(2u64.pow(attempt));
+            debug!(
+                "Retrying AppleScript (attempt {}/{}, backoff {:?})",
+                attempt + 1,
+                max_retries + 1,
+                backoff
+            );
+            tokio::time::sleep(backoff).await;
+        }
+
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            Command::new("osascript").arg("-e").arg(script).output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) if output.status.success() => {
+                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            }
+            Ok(Ok(output)) => {
+                let error = String::from_utf8_lossy(&output.stderr).to_string();
+                warn!("AppleScript failed (attempt {}): {}", attempt + 1, error);
+                last_err = anyhow::anyhow!("AppleScript failed: {}", error);
+            }
+            Ok(Err(e)) => {
+                warn!("osascript process error (attempt {}): {}", attempt + 1, e);
+                last_err = anyhow::anyhow!("Failed to execute osascript: {}", e);
+            }
+            Err(_) => {
+                warn!(
+                    "AppleScript timed out after {}s (attempt {})",
+                    timeout_secs,
+                    attempt + 1
+                );
+                last_err = anyhow::anyhow!(
+                    "AppleScript execution timed out after {} seconds",
+                    timeout_secs
+                );
+            }
+        }
+    }
+
+    Err(last_err)
 }
 
 pub struct MacOsEmailProvider;
@@ -127,6 +237,10 @@ impl EmailProvider for MacOsEmailProvider {
             String::new()
         };
         debug!("Reading {} emails from Mail.app ({})", limit, mailbox);
+
+        // Ensure Mail.app is running before querying — cold launch can exceed normal timeouts
+        ensure_mail_app_running().await?;
+
         let script = format!(
             r#"
 tell application "Mail"
@@ -152,7 +266,8 @@ end tell
 "#,
             limit, safe_mailbox, filter_clause
         );
-        run_applescript(&script).await
+        // Use 60s timeout with 2 retries (backoff: 2s, 4s) for resilience
+        run_applescript_with_retry(&script, 60, 2).await
     }
 
     async fn send_email(

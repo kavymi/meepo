@@ -390,18 +390,110 @@ exposed_tools = []              # empty = all tools (except delegate_tasks)
 # Connect to external MCP servers to gain more tools.
 # Tools are namespaced: "servername:toolname"
 #
-# Example — GitHub MCP server:
+# To disable any MCP client, comment out its [[mcp.clients]] block.
+# Requires: Node.js 18+ (`brew install node`)
+#           bun for apple-mcp (`brew install oven-sh/bun/bun`)
+
+# ── Apple Native Apps (macOS) ──────────────────────────────────
+# Contacts, Notes, Messages, Mail, Reminders, Calendar, Maps
+# via JXA/AppleScript. Requires bun.
+# Tools: apple:send-message, apple:search-notes, apple:create-note,
+#        apple:search-contacts, apple:unread-emails, apple:send-email,
+#        apple:search-reminders, apple:create-reminder,
+#        apple:search-calendar-events, apple:create-calendar-event,
+#        apple:search-maps, apple:save-favorite-location, etc.
+# Repo: https://github.com/supermemoryai/apple-mcp
+
+[[mcp.clients]]
+name = "apple"
+command = "bunx"
+args = ["--no-cache", "apple-mcp@latest"]
+
+# ── Apple Events (macOS) ───────────────────────────────────────
+# Native Swift/EventKit integration for Reminders + Calendar.
+# Much faster and more reliable than AppleScript — uses EventKit
+# framework directly. Rich features: priorities, recurring,
+# location-based triggers, subtasks, tags.
+# Repo: https://github.com/FradSer/mcp-server-apple-events
+
+[[mcp.clients]]
+name = "apple-events"
+command = "npx"
+args = ["-y", "mcp-server-apple-events"]
+
+# ── Playwright Browser Automation ──────────────────────────────
+# Microsoft's official browser automation via accessibility tree.
+# Replaces AppleScript-based Safari/Chrome tools with a robust,
+# cross-browser solution (Chromium, Firefox, WebKit).
+# Tools: playwright:browser_navigate, playwright:browser_click,
+#        playwright:browser_type, playwright:browser_snapshot,
+#        playwright:browser_screenshot, playwright:browser_select_option,
+#        playwright:browser_hover, playwright:browser_drag,
+#        playwright:browser_press_key, playwright:browser_upload_file,
+#        playwright:browser_tab_*, playwright:browser_console_messages, etc.
+# Repo: https://github.com/microsoft/playwright-mcp
+
+[[mcp.clients]]
+name = "playwright"
+command = "npx"
+args = ["@playwright/mcp@latest"]
+
+# ── GitHub ─────────────────────────────────────────────────────
+# GitHub's official MCP server. Full repo, issue, PR, Actions,
+# code security, discussions, notifications, and release management.
+# Requires: GITHUB_TOKEN env var (personal access token).
+# Tools: github:get_file_contents, github:search_repositories,
+#        github:create_issue, github:create_pull_request,
+#        github:list_pull_requests, github:get_pull_request_diff,
+#        github:merge_pull_request, github:list_workflow_runs,
+#        github:search_code, github:list_issues, etc.
+# Repo: https://github.com/github/github-mcp-server
+
+[[mcp.clients]]
+name = "github"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = [["GITHUB_TOKEN", "${GITHUB_TOKEN}"]]
+
+# ── Tavily Web Search ──────────────────────────────────────────
+# Official Tavily MCP server for AI-powered web search and
+# content extraction. Replaces custom Tavily integration.
+# Requires: TAVILY_API_KEY env var.
+# Tools: tavily:search, tavily:extract
+# Repo: https://github.com/tavily-ai/tavily-mcp
+
+[[mcp.clients]]
+name = "tavily"
+command = "npx"
+args = ["-y", "tavily-mcp@latest"]
+env = [["TAVILY_API_KEY", "${TAVILY_API_KEY}"]]
+
+# ── Filesystem ─────────────────────────────────────────────────
+# Anthropic's official filesystem MCP server. Secure, sandboxed
+# file operations within allowed directories.
+# Tools: filesystem:read_file, filesystem:write_file,
+#        filesystem:create_directory, filesystem:list_directory,
+#        filesystem:move_file, filesystem:search_files,
+#        filesystem:get_file_info, filesystem:list_allowed_directories
+# Repo: https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem
+
+[[mcp.clients]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "~/Documents", "~/Downloads", "~/Desktop"]
+
+# ── Code Sandbox ───────────────────────────────────────────────
+# Secure Docker-based code execution sandbox. Runs code in
+# isolated containers with file I/O and package installation.
+# Requires: Docker running locally.
+# Tools: sandbox:create_sandbox, sandbox:run_code,
+#        sandbox:write_file, sandbox:read_file, sandbox:list_files
+# Repo: https://github.com/Automata-Labs-team/code-sandbox-mcp
+
 # [[mcp.clients]]
-# name = "github"
+# name = "sandbox"
 # command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-github"]
-# env = [["GITHUB_TOKEN", "${GITHUB_TOKEN}"]]
-#
-# Example — Filesystem MCP server:
-# [[mcp.clients]]
-# name = "filesystem"
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+# args = ["-y", "@anthropic/code-sandbox-mcp"]
 
 
 # ── A2A (Agent-to-Agent) ───────────────────────────────────────
