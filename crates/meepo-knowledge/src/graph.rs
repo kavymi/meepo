@@ -679,8 +679,12 @@ mod tests {
         let temp = tempfile::TempDir::new()?;
         let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
 
-        graph.add_entity("Rust Programming", "language", None).await?;
-        graph.add_entity("Python Programming", "language", None).await?;
+        graph
+            .add_entity("Rust Programming", "language", None)
+            .await?;
+        graph
+            .add_entity("Python Programming", "language", None)
+            .await?;
 
         let results = graph.search("Rust", 10)?;
         assert!(!results.is_empty());
