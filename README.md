@@ -1,6 +1,6 @@
 # Meepo
 
-A local AI agent for macOS and Windows that connects LLMs to your digital life through Discord, Slack, iMessage, email, and more. **Divided We Stand.**
+A local AI agent for macOS and Windows that connects LLMs to your digital life through Discord, Slack, iMessage, email, and more — with a remote gateway and native iOS companion app. **Divided We Stand.**
 
 Meepo runs as a daemon on your machine — a prime agent that splits into clones to be everywhere at once. Channel clones monitor Discord, Slack, iMessage, and email simultaneously. Task clones dig in parallel on complex requests. Watcher clones stand guard over your inbox, calendar, and GitHub repos around the clock. The prime Meepo coordinates them all through an autonomous observe/think/act loop, with access to 75+ tools spanning email, calendar, reminders, notes, browser automation, web search, files, code, music, contacts, and a persistent knowledge graph. It also speaks MCP and A2A protocols — exposing its tools to other AI agents and consuming tools from external MCP servers.
 
@@ -21,6 +21,8 @@ Meepo runs as a daemon on your machine — a prime agent that splits into clones
 - **Agent templates** — Swap personalities, goals, and config overlays with `meepo template use`
 - **Skills system** — Import OpenClaw-compatible SKILL.md files as additional tools
 - **Proactive notifications** — iMessage/Discord/Slack alerts for task progress, watcher triggers, and errors (with quiet hours)
+- **Remote gateway** — WebSocket + REST gateway server for remote access from mobile apps and external clients, with Bearer token auth and session management
+- **iOS companion app** — Native SwiftUI app themed around the Dota 2 Meepo character, connects to the gateway over WebSocket for chat, session management, and real-time events
 - **Security hardened** — Command allowlists, path traversal protection, SSRF blocking, input sanitization, 30s execution timeouts
 
 ## Requirements
@@ -380,6 +382,12 @@ exposed_tools = []                     # Empty = all tools (except delegate_task
 # args = ["-y", "@modelcontextprotocol/server-github"]
 # env = [["GITHUB_TOKEN", "${GITHUB_TOKEN}"]]
 
+[gateway]
+enabled = false                        # Remote gateway (WebSocket + REST)
+bind = "127.0.0.1"                     # Bind address (use 0.0.0.0 for LAN access)
+port = 18789                           # Gateway port
+auth_token = "${MEEPO_GATEWAY_TOKEN}"  # Bearer token for authentication
+
 [a2a]
 enabled = false                        # A2A protocol (HTTP)
 port = 8081
@@ -392,6 +400,118 @@ dir = "~/.meepo/skills"
 ```
 
 Environment variables are expanded with `${VAR_NAME}` syntax. Paths support `~/` expansion.
+
+## Remote Gateway
+
+The Meepo Gateway is a WebSocket + REST server that lets external clients (like the iOS app) communicate with the running daemon. It exposes the agent's full capabilities over a JSON-RPC protocol.
+
+### Enable the Gateway
+
+```toml
+# In ~/.meepo/config.toml
+[gateway]
+enabled = true
+bind = "127.0.0.1"    # Use "0.0.0.0" for LAN access (e.g. from a physical iPhone)
+port = 18789
+auth_token = "${MEEPO_GATEWAY_TOKEN}"
+```
+
+Set the auth token:
+```bash
+export MEEPO_GATEWAY_TOKEN="your-secret-token"
+```
+
+### Endpoints
+
+| Endpoint | Protocol | Description |
+|----------|----------|-------------|
+| `/ws` | WebSocket | Real-time bidirectional communication (chat, events, typing indicators) |
+| `/api/status` | REST GET | Agent status and health check |
+| `/api/sessions` | REST GET | List active sessions |
+
+### WebSocket Protocol (JSON-RPC)
+
+| Method | Description |
+|--------|-------------|
+| `message.send` | Send a chat message to the agent |
+| `session.list` | List all sessions |
+| `session.new` | Create a new session |
+| `session.history` | Get message history for a session |
+| `status.get` | Get agent status |
+
+Events broadcast from the server:
+
+| Event | Description |
+|-------|-------------|
+| `message.received` | Agent response or incoming message |
+| `typing.start` / `typing.stop` | Agent typing indicators |
+| `tool.executing` | Agent is executing a tool (with tool name) |
+| `session.created` | A new session was created |
+| `response` | Direct response to a request (matched by `id`) |
+
+### Networking
+
+- **Simulator:** `127.0.0.1` works — the iOS Simulator shares the Mac's network stack.
+- **Physical iPhone:** Set `bind = "0.0.0.0"` and use your Mac's LAN IP (e.g. `192.168.1.x`) in the app's Settings.
+- **Firewall:** Ensure port 18789 is open if connecting from another device.
+
+## iOS Companion App
+
+A native SwiftUI app themed around the Dota 2 Meepo character that connects to the gateway for mobile access to your agent.
+
+### Features
+
+- **Real-time chat** — Send messages and receive streaming responses via WebSocket
+- **Session management** — Create, list, and switch between conversation sessions
+- **Live indicators** — Typing indicators and tool execution badges
+- **Meepo theme** — Earthy cave aesthetic with hood blue, warm tan, and gold accents
+- **Connection management** — Auto-reconnect with exponential backoff, error states with retry
+
+### Build & Run
+
+Requires Xcode 15+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen):
+
+```bash
+# Install XcodeGen (if not already installed)
+brew install xcodegen
+
+# Generate the Xcode project
+cd MeepoApp
+xcodegen generate
+
+# Build for simulator
+xcodebuild -project MeepoApp.xcodeproj -scheme MeepoApp \
+  -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.6' build
+
+# Or open in Xcode
+open MeepoApp.xcodeproj
+```
+
+### Configuration
+
+In the app's **Settings** tab:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Host | `127.0.0.1` | Gateway address |
+| Port | `18789` | Gateway port |
+| Auth Token | *(empty)* | Must match `MEEPO_GATEWAY_TOKEN` |
+| Use TLS | Off | Toggle `ws://` vs `wss://` |
+
+### Architecture
+
+```
+MeepoApp/
+├── Sources/
+│   ├── MeepoApp.swift              # @main entry point
+│   ├── Theme/MeepoTheme.swift      # Color palette, gradients, view modifiers
+│   ├── Models/                     # GatewayProtocol, ChatMessage, Session
+│   ├── Networking/                 # MeepoClient (WebSocket + REST), SettingsStore
+│   ├── ViewModels/                 # ChatViewModel
+│   └── Views/                     # ChatView, SessionsView, SettingsView, ContentView
+├── Resources/                     # Info.plist, Assets.xcassets
+└── project.yml                    # XcodeGen spec (iOS 17.0+, Swift 5.9)
+```
 
 ## Tools
 
@@ -566,7 +686,12 @@ meepo/
 │   ├── meepo-scheduler/  # Watcher runner, persistence, polling
 │   ├── meepo-mcp/        # MCP server (STDIO) and client for external MCP servers
 │   ├── meepo-a2a/        # A2A (Agent-to-Agent) protocol server and client
+│   ├── meepo-gateway/    # Remote gateway server (WebSocket + REST, Axum)
 │   └── meepo-cli/        # CLI binary, config loading, template system
+├── MeepoApp/              # iOS companion app (SwiftUI, XcodeGen)
+│   ├── Sources/           # Swift source files (views, models, networking, theme)
+│   ├── Resources/         # Info.plist, Assets.xcassets
+│   └── project.yml        # XcodeGen project spec
 ├── config/
 │   └── default.toml      # Default configuration template (heavily commented)
 ├── scripts/

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Meepo is a 7-crate Rust workspace implementing a local AI agent for macOS and Windows. It runs an autonomous observe/think/act loop, connects LLMs to messaging channels (Discord, Slack, iMessage, email), gives it access to 75+ tools (email, calendar, reminders, notes, browser automation, web search, code, music, contacts, lifestyle integrations, and more), maintains a persistent knowledge graph, and speaks both MCP and A2A protocols for multi-agent interop.
+Meepo is an 8-crate Rust workspace implementing a local AI agent for macOS and Windows. It runs an autonomous observe/think/act loop, connects LLMs to messaging channels (Discord, Slack, iMessage, email), gives it access to 75+ tools (email, calendar, reminders, notes, browser automation, web search, code, music, contacts, lifestyle integrations, and more), maintains a persistent knowledge graph, speaks both MCP and A2A protocols for multi-agent interop, and exposes a remote gateway for mobile and external client access (including a native iOS companion app).
 
 ## Crate Dependency Graph
 
@@ -14,11 +14,13 @@ graph TD
     CLI --> SCHEDULER[meepo-scheduler]
     CLI --> MCP[meepo-mcp]
     CLI --> A2A[meepo-a2a]
+    CLI --> GW[meepo-gateway]
     CHANNELS --> CORE
     CORE --> KNOWLEDGE
     SCHEDULER --> KNOWLEDGE
     MCP --> CORE
     A2A --> CORE
+    GW --> CORE
 ```
 
 | Crate | Purpose | Key Types |
@@ -30,6 +32,7 @@ graph TD
 | `meepo-scheduler` | Watcher runner and event system | `WatcherRunner`, `Watcher`, `WatcherEvent` |
 | `meepo-mcp` | MCP server (STDIO) and client for external MCP servers | `McpServer`, `McpClient`, `McpToolAdapter` |
 | `meepo-a2a` | A2A (Agent-to-Agent) protocol server and client | `A2aServer`, `A2aClient`, `AgentCard`, `DelegateToAgentTool` |
+| `meepo-gateway` | Remote gateway server (WebSocket + REST) for mobile/external clients | `GatewayServer`, `EventBus`, `SessionManager`, `GatewayConfig` |
 
 ## Message Flow
 
@@ -756,6 +759,165 @@ graph LR
 
 - **Server:** Listens on `127.0.0.1:{port}`, authenticates via Bearer token (constant-time comparison), enforces 1MB request body limit and 100 concurrent task cap. Tasks execute asynchronously via `Agent::handle_message` and results are stored in an LRU cache (1000 entries).
 - **Client:** Discovers peer agents via `/.well-known/agent.json`, submits tasks, and polls for results. The `DelegateToAgentTool` exposes this as a tool the agent can use.
+
+## Remote Gateway
+
+The `meepo-gateway` crate provides a WebSocket + REST server that enables external clients (mobile apps, web dashboards, CLI tools) to interact with the running Meepo daemon remotely.
+
+```mermaid
+graph LR
+    subgraph Gateway["meepo-gateway (Axum)"]
+        WS["/ws WebSocket"]
+        REST_Status["/api/status GET"]
+        REST_Sessions["/api/sessions GET"]
+        Auth["Bearer Token Auth"]
+        EvBus["EventBus (broadcast)"]
+        SessMgr["SessionManager"]
+    end
+
+    subgraph Clients
+        iOS["iOS App (MeepoClient)"]
+        Web["Web Client"]
+        ExtCLI["External CLI"]
+    end
+
+    iOS -->|"ws:// JSON-RPC"| WS
+    Web -->|"ws:// JSON-RPC"| WS
+    ExtCLI -->|"HTTP"| REST_Status
+    ExtCLI -->|"HTTP"| REST_Sessions
+
+    WS --> Auth
+    REST_Status --> Auth
+    REST_Sessions --> Auth
+
+    WS -->|"message.send"| Agent["Meepo Agent"]
+    Agent -->|"response event"| EvBus
+    EvBus -->|"broadcast"| WS
+    WS -->|"session.list/new"| SessMgr
+```
+
+### Key Components
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `GatewayServer` | `server.rs` | Axum HTTP + WebSocket server, routes, connection handling |
+| `EventBus` | `events.rs` | Tokio broadcast channel for real-time event distribution |
+| `SessionManager` | `session.rs` | Create, list, get sessions with activity tracking |
+| `auth` | `auth.rs` | Bearer token validation with constant-time comparison |
+| `protocol` | `protocol.rs` | `GatewayRequest`, `GatewayResponse`, `GatewayEvent` types |
+
+### Protocol
+
+The gateway uses JSON-RPC over WebSocket for bidirectional communication:
+
+**Client → Server (requests):**
+
+| Method | Parameters | Description |
+|--------|-----------|-------------|
+| `message.send` | `content`, `session_id` | Send a message to the agent |
+| `session.list` | — | List all sessions |
+| `session.new` | `name` | Create a new session |
+| `session.history` | `session_id` | Get message history |
+| `status.get` | — | Get agent status |
+
+**Server → Client (events):**
+
+| Event | Data | Description |
+|-------|------|-------------|
+| `response` | `id`, `result`, `error` | Response to a pending request (matched by `id`) |
+| `message.received` | `content`, `session_id`, `role` | New message from the agent |
+| `typing.start` / `typing.stop` | — | Agent typing indicators |
+| `tool.executing` | `tool` | Agent is executing a named tool |
+| `session.created` | session object | A new session was created |
+
+### Architecture Notes
+
+- **Response broadcasting:** The gateway's WebSocket sender is moved into a dedicated send task, so `handle_request` cannot reply directly. Instead, responses are broadcast as events with `event: "response"` and matched by `id` on the client side.
+- **Authentication:** Bearer token from the `Authorization` header, validated with constant-time comparison against `MEEPO_GATEWAY_TOKEN`.
+- **Session management:** Sessions are tracked in-memory with creation time and last activity. The `SessionManager` is shared across connections via `Arc`.
+
+## iOS Companion App
+
+The `MeepoApp/` directory contains a native SwiftUI iOS app that connects to the Meepo gateway. It is themed around the Dota 2 Meepo character with an earthy cave aesthetic.
+
+```mermaid
+graph TB
+    subgraph App["MeepoApp (SwiftUI)"]
+        CV[ContentView<br/>TabView + Splash]
+        ChatV[ChatView<br/>Messages + Input]
+        SessV[SessionsView<br/>Tunnel Cards]
+        SetV[SettingsView<br/>Connection Config]
+    end
+
+    subgraph ViewModels
+        CVM[ChatViewModel<br/>Messages, Sessions, Events]
+    end
+
+    subgraph Networking
+        MC[MeepoClient<br/>WebSocket + REST]
+        SS[SettingsStore<br/>@AppStorage]
+    end
+
+    subgraph Gateway["Meepo Daemon"]
+        GW[Gateway Server<br/>:18789]
+    end
+
+    CV --> ChatV & SessV & SetV
+    ChatV --> CVM
+    SessV --> CVM
+    CVM --> MC
+    MC --> SS
+    MC -->|"ws:// JSON-RPC"| GW
+    MC -->|"http:// REST"| GW
+```
+
+### Key Components
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `MeepoClient` | `Networking/MeepoClient.swift` | `URLSessionWebSocketTask`-based client with connection lifecycle, request/response matching, event handling, auto-reconnect |
+| `ChatViewModel` | `ViewModels/ChatViewModel.swift` | Manages messages, sessions, event deduplication, send/receive flow |
+| `SettingsStore` | `Networking/SettingsStore.swift` | `@AppStorage`-backed settings (host, port, token, TLS) |
+| `MeepoTheme` | `Theme/MeepoTheme.swift` | Full color palette with adaptive light/dark mode, gradients, view modifiers |
+| `GatewayProtocol` | `Models/GatewayProtocol.swift` | Swift types mirroring the gateway's JSON-RPC protocol |
+
+### Connection Flow
+
+```mermaid
+sequenceDiagram
+    participant App as MeepoClient
+    participant GW as Gateway (:18789)
+
+    App->>GW: WebSocket connect (ws://host:port/ws)
+    Note over App: State: .connecting
+    App->>GW: Start receive loop
+
+    alt Connection succeeds
+        GW-->>App: First message received
+        Note over App: State: .connected
+        App->>GW: Ping loop (every 30s)
+    else Timeout (5s)
+        Note over App: State: .error("Cannot reach gateway")
+        App->>App: scheduleReconnect() (exponential backoff)
+    end
+
+    App->>GW: message.send {content, session_id}
+    GW-->>App: event: response {id, result}
+    GW-->>App: event: message.received {content}
+    Note over App: Dedup: suppress broadcast if already displayed from response
+
+    alt Connection lost
+        Note over App: State: .error("Connection lost")
+        App->>App: scheduleReconnect() (max 10 attempts)
+    end
+```
+
+### Design Decisions
+
+- **No ping-based handshake:** `URLSessionWebSocketTask.sendPing` can hang indefinitely when the server is unreachable. Instead, the first successful `receive()` confirms the connection, with a 5-second timeout fallback.
+- **Content-based deduplication:** The gateway broadcasts responses both as direct `response` events and as `message.received` events. The `ChatViewModel` uses a `recentContents` set to suppress duplicates.
+- **Reconnect cap:** Auto-reconnect uses exponential backoff (2s, 4s, 8s… max 30s) capped at 10 attempts. After that, the error state is shown with a manual Retry button that resets the counter.
+- **Meepo theme:** Colors extracted from the Dota 2 Meepo character art — hood blue (#3B6B8A), earth brown (#8B6914), warm tan (#C4A265), gold accent (#D4A843), cave dark/stone backgrounds, parchment text.
 
 ## Skills System
 

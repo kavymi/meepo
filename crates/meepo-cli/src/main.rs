@@ -1687,7 +1687,8 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
             db.clone(),
         ),
     ));
-    // Phase 2: SMS/iMessage Autopilot (cross-platform — send_sms is macOS only at runtime)
+    // Phase 2: SMS/iMessage Autopilot
+    #[cfg(target_os = "macos")]
     registry.register(Arc::new(
         meepo_core::tools::lifestyle::sms::SendSmsTool::new(db.clone()),
     ));
@@ -3509,6 +3510,7 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
             db.clone(),
         ),
     ));
+    #[cfg(target_os = "macos")]
     registry.register(Arc::new(
         meepo_core::tools::lifestyle::sms::SendSmsTool::new(db.clone()),
     ));
