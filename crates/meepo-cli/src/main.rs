@@ -693,12 +693,14 @@ fn setup_step(current: usize, total: usize, title: &str) {
     println!();
 }
 
+#[cfg(target_os = "macos")]
 fn setup_substep(label: &str, title: &str) {
     println!("    ┌── {} ──┐", label);
     println!("    {} ", title);
     println!();
 }
 
+#[cfg(target_os = "macos")]
 fn wait_for_enter() -> Result<()> {
     use std::io::{self, BufRead};
     let mut buf = String::new();
@@ -706,6 +708,7 @@ fn wait_for_enter() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn wait_for_enter_or_skip() -> Result<bool> {
     use std::io::{self, BufRead};
     let mut buf = String::new();
@@ -743,6 +746,7 @@ fn detect_tart_vm() -> bool {
 }
 
 /// Detect which terminal app the user is running (for permission guidance)
+#[cfg(target_os = "macos")]
 fn detect_terminal_app() -> String {
     // Check TERM_PROGRAM first (set by most modern terminals)
     if let Ok(term) = std::env::var("TERM_PROGRAM") {
@@ -849,6 +853,7 @@ fn update_config_value(
 }
 
 /// Update an array value in the TOML config file
+#[cfg(target_os = "macos")]
 fn update_config_array(
     config_path: &std::path::Path,
     section: &str,
@@ -900,6 +905,7 @@ fn prompt_generic_api_key(env_var: &str, prefix: &str) -> Result<String> {
     Ok(key)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn detect_shell_rc() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let shell = std::env::var("SHELL").unwrap_or_default();
