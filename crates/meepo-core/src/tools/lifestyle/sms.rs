@@ -284,10 +284,7 @@ impl ToolHandler for MessageSummaryTool {
     }
 
     async fn execute(&self, input: Value) -> Result<String> {
-        let hours = input
-            .get("hours")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(24);
+        let hours = input.get("hours").and_then(|v| v.as_u64()).unwrap_or(24);
         let channel = input
             .get("channel")
             .and_then(|v| v.as_str())
@@ -316,20 +313,14 @@ impl ToolHandler for MessageSummaryTool {
             .iter()
             .filter(|c| c.created_at > cutoff)
             .filter(|c| channel == "all" || c.channel == channel)
-            .filter(|c| {
-                contact
-                    .map(|name| c.sender.contains(name))
-                    .unwrap_or(true)
-            })
+            .filter(|c| contact.map(|name| c.sender.contains(name)).unwrap_or(true))
             .collect();
 
         if filtered.is_empty() {
             return Ok(format!(
                 "No messages found in the last {} hours{}.",
                 hours,
-                contact
-                    .map(|c| format!(" from {}", c))
-                    .unwrap_or_default()
+                contact.map(|c| format!(" from {}", c)).unwrap_or_default()
             ));
         }
 
@@ -357,9 +348,7 @@ impl ToolHandler for MessageSummaryTool {
              4. **Highlights** — important or time-sensitive items",
             hours,
             filtered.len(),
-            contact
-                .map(|c| format!(" from {}", c))
-                .unwrap_or_default(),
+            contact.map(|c| format!(" from {}", c)).unwrap_or_default(),
             messages_str
         ))
     }
@@ -379,7 +368,10 @@ mod tests {
         assert_eq!(tool.name(), "send_sms");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"to".to_string()));

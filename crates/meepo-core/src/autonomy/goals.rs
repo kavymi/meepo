@@ -58,10 +58,7 @@ pub struct GoalEvaluator {
 
 impl GoalEvaluator {
     pub fn new(db: Arc<KnowledgeDb>, min_confidence: f64) -> Self {
-        Self {
-            db,
-            min_confidence,
-        }
+        Self { db, min_confidence }
     }
 
     /// Get goals that are due for evaluation
@@ -142,9 +139,7 @@ impl GoalEvaluator {
                 }
                 GoalDecision::Abandon => {
                     info!("Goal {} abandoned: {}", eval.goal_id, eval.reasoning);
-                    self.db
-                        .update_goal_status(&eval.goal_id, "failed")
-                        .await?;
+                    self.db.update_goal_status(&eval.goal_id, "failed").await?;
                 }
                 GoalDecision::Act => {
                     if eval.confidence >= self.min_confidence {

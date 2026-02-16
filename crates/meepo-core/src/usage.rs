@@ -128,22 +128,24 @@ pub struct UsageConfig {
 impl Default for UsageConfig {
     fn default() -> Self {
         let mut model_prices = HashMap::new();
+        // Anthropic models
         model_prices.insert(
-            "claude-opus-4-6".to_string(),
-            ModelPricing {
-                input_per_mtok: 15.0,
-                output_per_mtok: 75.0,
-                cache_read_per_mtok: 1.5,
-                cache_write_per_mtok: 18.75,
-            },
-        );
-        model_prices.insert(
-            "claude-sonnet-4-5-20250929".to_string(),
+            "claude-sonnet-4-20250514".to_string(),
             ModelPricing {
                 input_per_mtok: 3.0,
                 output_per_mtok: 15.0,
                 cache_read_per_mtok: 0.3,
                 cache_write_per_mtok: 3.75,
+            },
+        );
+        // OpenAI models
+        model_prices.insert(
+            "gpt-4o".to_string(),
+            ModelPricing {
+                input_per_mtok: 2.5,
+                output_per_mtok: 10.0,
+                cache_read_per_mtok: 0.0,
+                cache_write_per_mtok: 0.0,
             },
         );
 
@@ -191,11 +193,28 @@ impl std::fmt::Display for BudgetStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ok => write!(f, "OK — within budget"),
-            Self::Warning { period, spent, budget, percent } => {
-                write!(f, "Warning — {} budget at {:.0}% (${:.2} of ${:.2})", period, percent, spent, budget)
+            Self::Warning {
+                period,
+                spent,
+                budget,
+                percent,
+            } => {
+                write!(
+                    f,
+                    "Warning — {} budget at {:.0}% (${:.2} of ${:.2})",
+                    period, percent, spent, budget
+                )
             }
-            Self::Exceeded { period, spent, budget } => {
-                write!(f, "EXCEEDED — {} budget (${:.2} of ${:.2})", period, spent, budget)
+            Self::Exceeded {
+                period,
+                spent,
+                budget,
+            } => {
+                write!(
+                    f,
+                    "EXCEEDED — {} budget (${:.2} of ${:.2})",
+                    period, spent, budget
+                )
             }
         }
     }
@@ -269,7 +288,7 @@ impl UsageTracker {
                 usage.cache_write_tokens,
             )
         } else {
-            // Fallback: use claude-sonnet pricing as a conservative estimate
+            // Fallback: use moderate pricing as a conservative estimate
             let fallback = ModelPricing {
                 input_per_mtok: 3.0,
                 output_per_mtok: 15.0,
@@ -359,8 +378,8 @@ impl UsageTracker {
     /// Get usage summary for the current month
     pub async fn get_monthly_summary(&self) -> Result<UsageSummary> {
         let now = Utc::now();
-        let month_start = NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
-            .unwrap_or_else(|| now.date_naive());
+        let month_start =
+            NaiveDate::from_ymd_opt(now.year(), now.month(), 1).unwrap_or_else(|| now.date_naive());
         let month_start_str = month_start.format("%Y-%m-%d").to_string();
         let today = now.format("%Y-%m-%d").to_string();
         self.db.get_usage_summary(&month_start_str, &today).await
@@ -415,7 +434,11 @@ pub fn format_usage_summary(summary: &UsageSummary) -> String {
         out.push_str("| Source | Cost | Tokens | Calls |\n");
         out.push_str("|--------|------|--------|-------|\n");
         let mut sources: Vec<_> = summary.by_source.iter().collect();
-        sources.sort_by(|a, b| b.1.estimated_cost_usd.partial_cmp(&a.1.estimated_cost_usd).unwrap_or(std::cmp::Ordering::Equal));
+        sources.sort_by(|a, b| {
+            b.1.estimated_cost_usd
+                .partial_cmp(&a.1.estimated_cost_usd)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         for (source, usage) in sources {
             out.push_str(&format!(
                 "| {} | ${:.4} | {} | {} |\n",
@@ -433,7 +456,11 @@ pub fn format_usage_summary(summary: &UsageSummary) -> String {
         out.push_str("| Model | Cost | Tokens | Calls |\n");
         out.push_str("|-------|------|--------|-------|\n");
         let mut models: Vec<_> = summary.by_model.iter().collect();
-        models.sort_by(|a, b| b.1.estimated_cost_usd.partial_cmp(&a.1.estimated_cost_usd).unwrap_or(std::cmp::Ordering::Equal));
+        models.sort_by(|a, b| {
+            b.1.estimated_cost_usd
+                .partial_cmp(&a.1.estimated_cost_usd)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         for (model, usage) in models {
             out.push_str(&format!(
                 "| {} | ${:.4} | {} | {} |\n",
@@ -492,7 +519,8 @@ mod tests {
     fn test_default_config() {
         let config = UsageConfig::default();
         assert!(config.enabled);
-        assert!(config.model_prices.contains_key("claude-opus-4-6"));
+        assert!(config.model_prices.contains_key("claude-sonnet-4-20250514"));
+        assert!(config.model_prices.contains_key("gpt-4o"));
         assert_eq!(config.warn_at_percent, 80);
     }
 

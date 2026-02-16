@@ -111,10 +111,7 @@ impl UserModel {
 
     /// Build a user profile from stored conversation history
     pub async fn build_profile(&self) -> Result<UserProfile> {
-        let conversations = self
-            .db
-            .get_recent_conversations(None, 500)
-            .await?;
+        let conversations = self.db.get_recent_conversations(None, 500).await?;
 
         let mut profile = UserProfile::default();
 
@@ -154,7 +151,15 @@ impl UserModel {
             return Ok("Not enough interaction data to build a user profile yet.".to_string());
         }
 
-        let day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        let day_names = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ];
 
         let mut summary = String::from("## User Patterns\n\n");
         summary.push_str(&format!(

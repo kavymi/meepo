@@ -165,68 +165,18 @@ impl ToolHandler for RunCommandTool {
         //   defaults        — can modify macOS system preferences
         const ALLOWED_COMMANDS: &[&str] = &[
             // Read-only / informational
-            "ls",
-            "cat",
-            "head",
-            "tail",
-            "wc",
-            "echo",
-            "date",
-            "whoami",
-            "uname",
-            "pwd",
-            "which",
-            "file",
-            "stat",
-            "du",
-            "df",
-            "uptime",
-            "ps",
-            "hostname",
-            "id",
-            "groups",
-            "grep",
-            "find",
-            "sort",
-            "uniq",
-            "cut",
-            "awk",
-            "sed",
-            "tr",
-            "basename",
-            "dirname",
-            "realpath",
+            "ls", "cat", "head", "tail", "wc", "echo", "date", "whoami", "uname", "pwd", "which",
+            "file", "stat", "du", "df", "uptime", "ps", "hostname", "id", "groups", "grep", "find",
+            "sort", "uniq", "cut", "awk", "sed", "tr", "basename", "dirname", "realpath",
             "readlink",
             // File operations (mv removed — can overwrite critical files)
-            "mkdir",
-            "cp",
-            "touch",
-            "ln",
-            "chmod",
-            "tar",
-            "zip",
-            "unzip",
-            "gzip",
+            "mkdir", "cp", "touch", "ln", "chmod", "tar", "zip", "unzip", "gzip",
             // Networking (read-only diagnostics only)
-            "ping",
-            "dig",
-            "nslookup",
+            "ping", "dig", "nslookup",
             // Development tools (build tools only, no interpreters)
-            "git",
-            "npm",
-            "npx",
-            "cargo",
-            "go",
-            "pip",
-            "pip3",
-            "make",
-            "cmake",
-            "brew",
+            "git", "npm", "npx", "cargo", "go", "pip", "pip3", "make", "cmake", "brew",
             // macOS utilities
-            "open",
-            "pbcopy",
-            "pbpaste",
-            "say",
+            "open", "pbcopy", "pbpaste", "say",
         ];
 
         // Shell metacharacters that allow chaining/redirecting commands.
@@ -658,10 +608,17 @@ impl ToolHandler for BrowseUrlTool {
                     debug!("Tavily extract succeeded for {}", url);
                     const MAX_LENGTH: usize = 50000;
                     if content.len() > MAX_LENGTH {
+                        // Use char-boundary-safe truncation (L-5 fix)
+                        let end = content
+                            .char_indices()
+                            .take_while(|(i, _)| *i < MAX_LENGTH)
+                            .last()
+                            .map(|(i, c)| i + c.len_utf8())
+                            .unwrap_or(0);
                         return Ok(format!(
-                            "{}\n\n[Content truncated at {} chars]",
-                            &content[..MAX_LENGTH],
-                            MAX_LENGTH
+                            "{}\n\n[Content truncated at {} bytes]",
+                            &content[..end],
+                            end
                         ));
                     }
                     return Ok(content);
@@ -681,7 +638,12 @@ impl ToolHandler for BrowseUrlTool {
 }
 
 impl BrowseUrlTool {
-    async fn raw_fetch(&self, url: &str, input: &Value, validated: &ValidatedUrl) -> Result<String> {
+    async fn raw_fetch(
+        &self,
+        url: &str,
+        input: &Value,
+        validated: &ValidatedUrl,
+    ) -> Result<String> {
         // Pin resolved IPs in the client to prevent DNS rebinding (H-1 fix).
         // This ensures reqwest uses the same IPs we already validated.
         let mut builder = reqwest::Client::builder()
@@ -785,10 +747,17 @@ impl BrowseUrlTool {
 
         const MAX_LENGTH: usize = 50000;
         if content.len() > MAX_LENGTH {
+            // Use char-boundary-safe truncation (L-5 fix)
+            let end = content
+                .char_indices()
+                .take_while(|(i, _)| *i < MAX_LENGTH)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
             Ok(format!(
-                "{}\n\n[Content truncated at {} chars]",
-                &content[..MAX_LENGTH],
-                MAX_LENGTH
+                "{}\n\n[Content truncated at {} bytes]",
+                &content[..end],
+                end
             ))
         } else {
             Ok(content)

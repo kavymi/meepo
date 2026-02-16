@@ -471,7 +471,11 @@ mod tests {
 
     #[test]
     fn test_slack_channel_creation() {
-        let channel = SlackChannel::new("xoxb-test-token".to_string(), Duration::from_secs(3), Vec::new());
+        let channel = SlackChannel::new(
+            "xoxb-test-token".to_string(),
+            Duration::from_secs(3),
+            Vec::new(),
+        );
         assert!(matches!(channel.channel_type(), ChannelType::Slack));
     }
 
@@ -485,7 +489,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_slack_send_no_channels() {
-        let channel = SlackChannel::new("xoxb-test".to_string(), Duration::from_secs(3), Vec::new());
+        let channel =
+            SlackChannel::new("xoxb-test".to_string(), Duration::from_secs(3), Vec::new());
         let msg = OutgoingMessage {
             content: "test".to_string(),
             channel: ChannelType::Slack,

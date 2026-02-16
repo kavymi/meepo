@@ -374,7 +374,7 @@ impl TaskOrchestrator {
                     Err(e) => {
                         let _ = progress_tx
                             .send(OutgoingMessage {
-                    content: format!("A background clone panicked: {}", e),
+                                content: format!("A background clone panicked: {}", e),
                                 channel: channel.clone(),
                                 reply_to: reply_to.clone(),
                                 kind: MessageKind::Response,

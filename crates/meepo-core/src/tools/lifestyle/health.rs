@@ -244,10 +244,7 @@ impl ToolHandler for HabitStreakTool {
     async fn execute(&self, input: Value) -> Result<String> {
         let habit = input.get("habit").and_then(|v| v.as_str());
 
-        debug!(
-            "Getting habit streak: {}",
-            habit.unwrap_or("all habits")
-        );
+        debug!("Getting habit streak: {}", habit.unwrap_or("all habits"));
 
         // Get all habit definitions
         let definitions = self
@@ -467,7 +464,10 @@ mod tests {
         assert_eq!(tool.name(), "log_habit");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"habit".to_string()));

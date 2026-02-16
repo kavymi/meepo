@@ -162,11 +162,7 @@ impl DockerSandbox {
 
         // Mount code file
         args.push("-v".to_string());
-        args.push(format!(
-            "{}:/tmp/code.{}:ro",
-            code_file.display(),
-            ext
-        ));
+        args.push(format!("{}:/tmp/code.{}:ro", code_file.display(), ext));
 
         // Image
         args.push(image.to_string());
@@ -177,9 +173,7 @@ impl DockerSandbox {
         // Execute with timeout
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(limits.timeout_secs),
-            Command::new("docker")
-                .args(&args)
-                .output(),
+            Command::new("docker").args(&args).output(),
         )
         .await;
 
@@ -235,10 +229,7 @@ impl DockerSandbox {
 
                 Ok(SandboxResult {
                     stdout: String::new(),
-                    stderr: format!(
-                        "Execution timed out after {} seconds",
-                        limits.timeout_secs
-                    ),
+                    stderr: format!("Execution timed out after {} seconds", limits.timeout_secs),
                     exit_code: -1,
                     timed_out: true,
                     duration_ms,
@@ -285,7 +276,9 @@ mod tests {
         let mut config = SandboxConfig::default();
         config.enabled = true;
         let sandbox = DockerSandbox::new(config);
-        let result = sandbox.execute("haskell", "main = putStrLn \"hello\"", None).await;
+        let result = sandbox
+            .execute("haskell", "main = putStrLn \"hello\"", None)
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not allowed"));
     }

@@ -75,7 +75,10 @@ impl ToolHandler for CanvasPushTool {
             .unwrap_or("markdown");
 
         let title = input.get("title").and_then(|v| v.as_str()).unwrap_or("");
-        let append = input.get("append").and_then(|v| v.as_bool()).unwrap_or(false);
+        let append = input
+            .get("append")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if content.len() > 100_000 {
             return Err(anyhow::anyhow!(
@@ -274,9 +277,7 @@ mod tests {
     async fn test_canvas_push_too_large() {
         let tool = CanvasPushTool::new();
         let large = "x".repeat(100_001);
-        let result = tool
-            .execute(serde_json::json!({"content": large}))
-            .await;
+        let result = tool.execute(serde_json::json!({"content": large})).await;
         assert!(result.is_err());
     }
 
@@ -322,6 +323,11 @@ mod tests {
         let tool = CanvasPushTool::new();
         let schema = tool.input_schema();
         assert!(schema["properties"]["content"].is_object());
-        assert!(schema["required"].as_array().unwrap().contains(&Value::String("content".to_string())));
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::String("content".to_string()))
+        );
     }
 }

@@ -58,11 +58,7 @@ impl ToolHandler for GetUsageStatsTool {
             "today" => (today.clone(), today),
             "month" => {
                 let now = chrono::Utc::now();
-                let first_of_month = format!(
-                    "{}-{:02}-01",
-                    now.format("%Y"),
-                    now.format("%m")
-                );
+                let first_of_month = format!("{}-{:02}-01", now.format("%Y"), now.format("%m"));
                 let today = now.format("%Y-%m-%d").to_string();
                 (first_of_month, today)
             }
@@ -99,10 +95,7 @@ impl ToolHandler for GetUsageStatsTool {
             "- **Output tokens:** {}\n",
             summary.total_output_tokens
         ));
-        output.push_str(&format!(
-            "- **Tool calls:** {}\n",
-            summary.total_tool_calls
-        ));
+        output.push_str(&format!("- **Tool calls:** {}\n", summary.total_tool_calls));
         output.push_str(&format!(
             "- **Estimated cost:** ${:.4}\n",
             summary.estimated_cost_usd
@@ -124,7 +117,10 @@ impl ToolHandler for GetUsageStatsTool {
             for (source, usage) in &summary.by_source {
                 output.push_str(&format!(
                     "- **{}:** {} calls, {} in / {} out tokens, ${:.4}\n",
-                    source, usage.api_calls, usage.input_tokens, usage.output_tokens,
+                    source,
+                    usage.api_calls,
+                    usage.input_tokens,
+                    usage.output_tokens,
                     usage.estimated_cost_usd
                 ));
             }
@@ -136,7 +132,10 @@ impl ToolHandler for GetUsageStatsTool {
             for (model, usage) in &summary.by_model {
                 output.push_str(&format!(
                     "- **{}:** {} calls, {} in / {} out tokens, ${:.4}\n",
-                    model, usage.api_calls, usage.input_tokens, usage.output_tokens,
+                    model,
+                    usage.api_calls,
+                    usage.input_tokens,
+                    usage.output_tokens,
                     usage.estimated_cost_usd
                 ));
             }

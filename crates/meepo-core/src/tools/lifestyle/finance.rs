@@ -97,7 +97,10 @@ impl ToolHandler for LogExpenseTool {
             return Err(anyhow::anyhow!("Amount too large (max $1,000,000)"));
         }
 
-        debug!("Logging expense: ${:.2} at {} ({})", amount, vendor, category);
+        debug!(
+            "Logging expense: ${:.2} at {} ({})",
+            amount, vendor, category
+        );
 
         let expense_name = format!("expense:{}:{:.2}:{}", vendor, amount, date);
         let expense_id = self
@@ -127,7 +130,11 @@ impl ToolHandler for LogExpenseTool {
             existing.id.clone()
         } else {
             self.db
-                .insert_entity(vendor, "vendor", Some(serde_json::json!({"category": category})))
+                .insert_entity(
+                    vendor,
+                    "vendor",
+                    Some(serde_json::json!({"category": category})),
+                )
                 .await?
         };
         let _ = self
@@ -386,10 +393,7 @@ impl ToolHandler for BudgetCheckTool {
                 )
                 .await?;
 
-            return Ok(format!(
-                "Budget set: {} = ${:.2}/month",
-                cat, limit
-            ));
+            return Ok(format!("Budget set: {} = ${:.2}/month", cat, limit));
         }
 
         // Check mode — get budgets and current spending
@@ -406,8 +410,7 @@ impl ToolHandler for BudgetCheckTool {
             .unwrap_or_default();
 
         // Calculate current month spending by category
-        let mut spending: std::collections::HashMap<String, f64> =
-            std::collections::HashMap::new();
+        let mut spending: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
         for expense in &expenses {
             if let Some(meta) = &expense.metadata {
                 let amount = meta.get("amount").and_then(|a| a.as_f64()).unwrap_or(0.0);
@@ -471,7 +474,12 @@ impl ToolHandler for BudgetCheckTool {
 
                 output.push_str(&format!(
                     "- {} [{}]: ${:.2} / ${:.2} ({}%) — ${:.2} remaining\n",
-                    cat, status, spent, limit, pct, remaining.max(0.0)
+                    cat,
+                    status,
+                    spent,
+                    limit,
+                    pct,
+                    remaining.max(0.0)
                 ));
             }
         }
@@ -568,7 +576,10 @@ mod tests {
         assert_eq!(tool.name(), "log_expense");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"amount".to_string()));

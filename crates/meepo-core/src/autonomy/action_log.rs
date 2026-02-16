@@ -40,37 +40,91 @@ impl std::fmt::Display for ActionRisk {
 pub fn classify_tool(tool_name: &str) -> ActionRisk {
     match tool_name {
         // Read-only tools
-        "read_file" | "list_directory" | "search_files" | "recall" | "search_knowledge"
-        | "smart_recall" | "browse_url" | "web_search" | "get_clipboard" | "read_emails"
-        | "read_calendar" | "list_reminders" | "list_notes" | "list_watchers"
-        | "agent_status" | "get_usage_stats" | "list_tasks" | "project_status"
-        | "habit_streak" | "habit_report" | "spending_summary" | "budget_check"
-        | "browser_list_tabs" | "browser_get_page_content" | "browser_get_url"
-        | "browser_screenshot" | "read_screen" | "get_current_track"
-        | "search_contacts" | "find_free_time" | "relationship_summary"
-        | "get_weather" | "get_directions" | "flight_status"
-        | "message_summary" | "daily_briefing" | "weekly_review" => ActionRisk::ReadOnly,
+        "read_file"
+        | "list_directory"
+        | "search_files"
+        | "recall"
+        | "search_knowledge"
+        | "smart_recall"
+        | "browse_url"
+        | "web_search"
+        | "get_clipboard"
+        | "read_emails"
+        | "read_calendar"
+        | "list_reminders"
+        | "list_notes"
+        | "list_watchers"
+        | "agent_status"
+        | "get_usage_stats"
+        | "list_tasks"
+        | "project_status"
+        | "habit_streak"
+        | "habit_report"
+        | "spending_summary"
+        | "budget_check"
+        | "browser_list_tabs"
+        | "browser_get_page_content"
+        | "browser_get_url"
+        | "browser_screenshot"
+        | "read_screen"
+        | "get_current_track"
+        | "search_contacts"
+        | "find_free_time"
+        | "relationship_summary"
+        | "get_weather"
+        | "get_directions"
+        | "flight_status"
+        | "message_summary"
+        | "daily_briefing"
+        | "weekly_review" => ActionRisk::ReadOnly,
 
         // Write tools (reversible, local data)
-        "write_file" | "remember" | "link_entities" | "ingest_document"
-        | "create_watcher" | "cancel_watcher" | "create_task" | "update_task"
-        | "complete_task" | "log_habit" | "log_expense" | "parse_receipt"
-        | "track_feed" | "untrack_feed" | "track_topic" | "create_note"
-        | "create_reminder" | "set_auto_reply" | "packing_list"
-        | "spawn_background_task" | "stop_task" | "write_code" => ActionRisk::Write,
+        "write_file"
+        | "remember"
+        | "link_entities"
+        | "ingest_document"
+        | "create_watcher"
+        | "cancel_watcher"
+        | "create_task"
+        | "update_task"
+        | "complete_task"
+        | "log_habit"
+        | "log_expense"
+        | "parse_receipt"
+        | "track_feed"
+        | "untrack_feed"
+        | "track_topic"
+        | "create_note"
+        | "create_reminder"
+        | "set_auto_reply"
+        | "packing_list"
+        | "spawn_background_task"
+        | "stop_task"
+        | "write_code" => ActionRisk::Write,
 
         // External tools (send data outside the system)
         "send_email" | "send_sms" | "send_notification" | "make_pr" | "review_pr"
-        | "create_event" | "reschedule_event" | "schedule_meeting"
-        | "delegate_tasks" | "delegate_to_agent" | "email_draft_reply"
-        | "email_unsubscribe" | "suggest_followups" => ActionRisk::External,
+        | "create_event" | "reschedule_event" | "schedule_meeting" | "delegate_tasks"
+        | "delegate_to_agent" | "email_draft_reply" | "email_unsubscribe" | "suggest_followups" => {
+            ActionRisk::External
+        }
 
         // Destructive tools (irreversible or high-impact)
-        "run_command" | "click_element" | "type_text" | "browser_click_element"
-        | "browser_fill_form" | "browser_execute_js" | "browser_navigate"
-        | "browser_open_tab" | "browser_close_tab" | "browser_switch_tab"
-        | "music_control" | "open_app" | "screen_capture"
-        | "spawn_claude_code" | "email_triage" => ActionRisk::Destructive,
+        "run_command"
+        | "click_element"
+        | "type_text"
+        | "browser_click_element"
+        | "browser_fill_form"
+        | "browser_execute_js"
+        | "browser_navigate"
+        | "browser_open_tab"
+        | "browser_close_tab"
+        | "browser_switch_tab"
+        | "music_control"
+        | "open_app"
+        | "screen_capture"
+        | "spawn_coding_agent"
+        | "email_triage" => ActionRisk::Destructive,
 
         // Unknown tools default to destructive for safety
         _ => {

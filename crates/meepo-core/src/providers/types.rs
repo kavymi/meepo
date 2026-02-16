@@ -34,9 +34,18 @@ pub enum ChatMessageContent {
 /// A single block within a message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatBlock {
-    Text { text: String },
-    ToolCall { id: String, name: String, input: Value },
-    ToolResult { tool_call_id: String, content: String },
+    Text {
+        text: String,
+    },
+    ToolCall {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    ToolResult {
+        tool_call_id: String,
+        content: String,
+    },
 }
 
 /// Provider-agnostic response from an LLM
@@ -50,8 +59,14 @@ pub struct ChatResponse {
 /// A block in the response
 #[derive(Debug, Clone)]
 pub enum ChatResponseBlock {
-    Text { text: String },
-    ToolCall { id: String, name: String, input: Value },
+    Text {
+        text: String,
+    },
+    ToolCall {
+        id: String,
+        name: String,
+        input: Value,
+    },
 }
 
 /// Why the model stopped generating

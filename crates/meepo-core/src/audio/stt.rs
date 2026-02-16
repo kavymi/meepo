@@ -24,9 +24,7 @@ pub fn create_stt(config: &AudioConfig) -> Result<Box<dyn SpeechToText>> {
             };
             Ok(Box::new(WhisperApiStt::new(api_key)))
         }
-        SttProvider::WhisperLocal => {
-            Ok(Box::new(WhisperLocalStt::new()))
-        }
+        SttProvider::WhisperLocal => Ok(Box::new(WhisperLocalStt::new())),
     }
 }
 
@@ -58,7 +56,11 @@ impl SpeechToText for WhisperApiStt {
         let wav_bytes = encode_wav(&audio.samples, audio.sample_rate);
         let duration_ms = audio.duration_ms();
 
-        debug!("Whisper API: transcribing {} ms of audio ({} bytes WAV)", duration_ms, wav_bytes.len());
+        debug!(
+            "Whisper API: transcribing {} ms of audio ({} bytes WAV)",
+            duration_ms,
+            wav_bytes.len()
+        );
 
         let part = reqwest::multipart::Part::bytes(wav_bytes)
             .file_name("audio.wav")
@@ -86,14 +88,12 @@ impl SpeechToText for WhisperApiStt {
             return Err(anyhow!("Whisper API error {}: {}", status, error_text));
         }
 
-        let body: serde_json::Value = response.json().await
+        let body: serde_json::Value = response
+            .json()
+            .await
             .context("Failed to parse Whisper API response")?;
 
-        let text = body["text"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let text = body["text"].as_str().unwrap_or("").trim().to_string();
 
         let language = body["language"].as_str().map(|s| s.to_string());
 
@@ -133,7 +133,10 @@ impl SpeechToText for WhisperLocalStt {
         // For now, fall back to a stub that returns an error directing the user
         // to use the API provider or install whisper-rs.
         let duration_ms = audio.duration_ms();
-        debug!("WhisperLocal: {} ms audio (stub — not yet implemented)", duration_ms);
+        debug!(
+            "WhisperLocal: {} ms audio (stub — not yet implemented)",
+            duration_ms
+        );
 
         Err(anyhow!(
             "Local Whisper STT is not yet compiled in. \

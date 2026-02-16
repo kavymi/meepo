@@ -103,7 +103,7 @@ pub async fn summarize_conversations(
         text_to_summarize.push_str(&format!("{}: {}\n", sender, content));
     }
 
-    // Ask Claude to summarize
+    // Ask the LLM to summarize
     let summarization_prompt = format!(
         "Summarize the following conversation history into a concise summary. \
          Preserve key facts, decisions, action items, and important context. \

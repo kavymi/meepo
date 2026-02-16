@@ -18,7 +18,10 @@ impl AgentManager {
         let default_id = default_profile.id.clone();
         let mut profiles = HashMap::new();
         profiles.insert(default_profile.id.clone(), default_profile);
-        info!("AgentManager: initialized with default agent '{}'", default_id);
+        info!(
+            "AgentManager: initialized with default agent '{}'",
+            default_id
+        );
         Self {
             profiles,
             default_agent_id: default_id,

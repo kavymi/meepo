@@ -18,7 +18,7 @@ pub enum BackgroundTaskCommand {
         description: String,
         reply_channel: String,
     },
-    SpawnClaudeCode {
+    SpawnCodingAgent {
         id: String,
         task: String,
         workspace: String,

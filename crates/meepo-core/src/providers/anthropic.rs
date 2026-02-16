@@ -67,9 +67,9 @@ impl AnthropicProvider {
                         let ab: Vec<AnthropicBlock> = blocks
                             .iter()
                             .map(|b| match b {
-                                ChatBlock::Text { text } => AnthropicBlock::Text {
-                                    text: text.clone(),
-                                },
+                                ChatBlock::Text { text } => {
+                                    AnthropicBlock::Text { text: text.clone() }
+                                }
                                 ChatBlock::ToolCall { id, name, input } => {
                                     AnthropicBlock::ToolUse {
                                         id: id.clone(),
@@ -107,11 +107,9 @@ impl AnthropicProvider {
                 AnthropicBlock::ToolUse { id, name, input } => {
                     ChatResponseBlock::ToolCall { id, name, input }
                 }
-                AnthropicBlock::ToolResult { .. } => {
-                    ChatResponseBlock::Text {
-                        text: "[tool_result in response]".to_string(),
-                    }
-                }
+                AnthropicBlock::ToolResult { .. } => ChatResponseBlock::Text {
+                    text: "[tool_result in response]".to_string(),
+                },
             })
             .collect();
 
@@ -338,7 +336,9 @@ mod tests {
         };
         let result = AnthropicProvider::from_anthropic_response(resp);
         assert_eq!(result.stop_reason, StopReason::ToolUse);
-        assert!(matches!(&result.blocks[0], ChatResponseBlock::ToolCall { name, .. } if name == "search"));
+        assert!(
+            matches!(&result.blocks[0], ChatResponseBlock::ToolCall { name, .. } if name == "search")
+        );
     }
 
     #[test]
@@ -353,8 +353,12 @@ mod tests {
 
     #[test]
     fn test_anthropic_provider_debug_hides_key() {
-        let provider =
-            AnthropicProvider::new("sk-secret".to_string(), "claude-opus-4-6".to_string(), "https://api.anthropic.com".to_string(), 4096);
+        let provider = AnthropicProvider::new(
+            "sk-secret".to_string(),
+            "claude-opus-4-6".to_string(),
+            "https://api.anthropic.com".to_string(),
+            4096,
+        );
         let debug = format!("{:?}", provider);
         assert!(!debug.contains("sk-secret"));
     }

@@ -116,10 +116,7 @@ impl ToolHandler for CreateTaskTool {
             "created_at": chrono::Utc::now().to_rfc3339(),
         });
 
-        let task_id = self
-            .db
-            .insert_entity(title, "task", Some(metadata))
-            .await?;
+        let task_id = self.db.insert_entity(title, "task", Some(metadata)).await?;
 
         // Link to project entity if specified
         if let Some(proj) = project {
@@ -247,12 +244,8 @@ impl ToolHandler for ListTasksTool {
                 let task_priority = meta
                     .and_then(|m| m.get("priority"))
                     .and_then(|s| s.as_str());
-                let task_project = meta
-                    .and_then(|m| m.get("project"))
-                    .and_then(|s| s.as_str());
-                let task_context = meta
-                    .and_then(|m| m.get("context"))
-                    .and_then(|s| s.as_str());
+                let task_project = meta.and_then(|m| m.get("project")).and_then(|s| s.as_str());
+                let task_context = meta.and_then(|m| m.get("context")).and_then(|s| s.as_str());
 
                 (status == "all" || task_status == status)
                     && priority.map_or(true, |p| task_priority == Some(p))
@@ -373,10 +366,7 @@ impl ToolHandler for UpdateTaskTool {
             Some(e) => e,
             None => {
                 // Search by name
-                let results = self
-                    .db
-                    .search_entities(task_id, Some("task"))
-                    .await?;
+                let results = self.db.search_entities(task_id, Some("task")).await?;
                 results
                     .into_iter()
                     .next()
@@ -399,10 +389,7 @@ impl ToolHandler for UpdateTaskTool {
             metadata["due_date"] = serde_json::json!(due);
         }
         if let Some(n) = notes {
-            let existing_notes = metadata
-                .get("notes")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let existing_notes = metadata.get("notes").and_then(|v| v.as_str()).unwrap_or("");
             metadata["notes"] = serde_json::json!(format!(
                 "{}\n[{}] {}",
                 existing_notes,
@@ -479,10 +466,7 @@ impl ToolHandler for CompleteTaskTool {
         let entity = match entity {
             Some(e) => e,
             None => {
-                let results = self
-                    .db
-                    .search_entities(task_id, Some("task"))
-                    .await?;
+                let results = self.db.search_entities(task_id, Some("task")).await?;
                 results
                     .into_iter()
                     .next()
@@ -597,7 +581,10 @@ impl ToolHandler for ProjectStatusTool {
             }
             // Check for overdue (simplified — would need date parsing for real check)
             if status != "completed" {
-                if let Some(due) = meta.and_then(|m| m.get("due_date")).and_then(|d| d.as_str()) {
+                if let Some(due) = meta
+                    .and_then(|m| m.get("due_date"))
+                    .and_then(|d| d.as_str())
+                {
                     if !due.is_empty() && due != "none" {
                         // Simple heuristic: if due date string is before today
                         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -644,9 +631,7 @@ impl ToolHandler for ProjectStatusTool {
              - Completed: {} ({}%)\n\
              - Overdue: {}\n\n\
              ## Projects\n{}\n",
-            project
-                .map(|p| format!(": {}", p))
-                .unwrap_or_default(),
+            project.map(|p| format!(": {}", p)).unwrap_or_default(),
             total,
             pending,
             in_progress,
@@ -672,7 +657,10 @@ mod tests {
         assert_eq!(tool.name(), "create_task");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"title".to_string()));

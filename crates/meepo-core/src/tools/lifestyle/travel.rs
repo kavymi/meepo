@@ -292,11 +292,9 @@ impl ToolHandler for FlightStatusTool {
                 .unwrap_or_default();
 
             if flights.is_empty() {
-                Ok(
-                    "No flight number provided and no tracked flights found. \
+                Ok("No flight number provided and no tracked flights found. \
                      Provide a flight_number or use read_emails to scan for flight confirmations."
-                        .to_string(),
-                )
+                    .to_string())
             } else {
                 let flight_list = flights
                     .iter()
@@ -403,9 +401,7 @@ impl ToolHandler for PackingListTool {
         let weather = input.get("weather").and_then(|v| v.as_str());
 
         if destination.len() > 200 {
-            return Err(anyhow::anyhow!(
-                "Destination too long (max 200 characters)"
-            ));
+            return Err(anyhow::anyhow!("Destination too long (max 200 characters)"));
         }
 
         debug!(
@@ -478,7 +474,10 @@ mod tests {
         assert_eq!(tool.name(), "get_weather");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"location".to_string()));

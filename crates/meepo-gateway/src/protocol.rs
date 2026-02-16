@@ -124,7 +124,10 @@ mod tests {
 
     #[test]
     fn test_response_ok() {
-        let resp = GatewayResponse::ok(Some("req_1".to_string()), serde_json::json!({"status": "ok"}));
+        let resp = GatewayResponse::ok(
+            Some("req_1".to_string()),
+            serde_json::json!({"status": "ok"}),
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));
         assert!(!json.contains("\"error\""));
@@ -132,7 +135,11 @@ mod tests {
 
     #[test]
     fn test_response_err() {
-        let resp = GatewayResponse::err(Some("req_2".to_string()), ERR_INVALID_METHOD, "unknown method");
+        let resp = GatewayResponse::err(
+            Some("req_2".to_string()),
+            ERR_INVALID_METHOD,
+            "unknown method",
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"error\""));
         assert!(json.contains("-32601"));

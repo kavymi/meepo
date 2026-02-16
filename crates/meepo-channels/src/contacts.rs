@@ -446,8 +446,7 @@ impl MessageChannel for ContactsChannel {
             return Ok(());
         }
 
-        let (first_name, last_name, email, phone, note) =
-            Self::parse_contact_fields(&msg.content);
+        let (first_name, last_name, email, phone, note) = Self::parse_contact_fields(&msg.content);
 
         self.create_contact(&first_name, &last_name, &email, &phone, &note)
             .await

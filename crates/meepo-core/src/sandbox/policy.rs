@@ -73,9 +73,7 @@ impl ExecutionPolicy {
 
     /// Check if a Docker image is allowed
     pub fn is_image_allowed(&self, image: &str) -> bool {
-        self.allowed_images
-            .iter()
-            .any(|i| i == image)
+        self.allowed_images.iter().any(|i| i == image)
     }
 
     /// Get the default Docker image for a language
@@ -108,7 +106,11 @@ impl ExecutionPolicy {
                 "-c".to_string(),
                 "rustc /tmp/code.rs -o /tmp/code && /tmp/code".to_string(),
             ]),
-            "go" | "golang" => Some(vec!["go".to_string(), "run".to_string(), "/tmp/code.go".to_string()]),
+            "go" | "golang" => Some(vec![
+                "go".to_string(),
+                "run".to_string(),
+                "/tmp/code.go".to_string(),
+            ]),
             "bash" | "sh" | "shell" => Some(vec!["sh".to_string(), "/tmp/code.sh".to_string()]),
             _ => None,
         }

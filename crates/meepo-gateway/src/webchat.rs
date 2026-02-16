@@ -12,12 +12,18 @@ struct WebChatAssets;
 pub async fn index_handler() -> impl IntoResponse {
     match WebChatAssets::get("index.html") {
         Some(content) => Html(content.data.to_vec()).into_response(),
-        None => (StatusCode::NOT_FOUND, "WebChat UI not built. Run: cd crates/meepo-gateway/ui && npm run build").into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "WebChat UI not built. Run: cd crates/meepo-gateway/ui && npm run build",
+        )
+            .into_response(),
     }
 }
 
 /// Serve static assets (JS, CSS, etc.)
-pub async fn static_handler(axum::extract::Path(path): axum::extract::Path<String>) -> impl IntoResponse {
+pub async fn static_handler(
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> impl IntoResponse {
     match WebChatAssets::get(&path) {
         Some(content) => {
             let mime = mime_guess::from_path(&path).first_or_octet_stream();

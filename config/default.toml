@@ -6,13 +6,13 @@
 # ── Agent ────────────────────────────────────────────────────────
 
 [agent]
-default_model = "claude-opus-4-6"       # or claude-sonnet-4-5-20250929
+default_model = "claude-sonnet-4-20250514"  # or gpt-4o, gemini-2.0-flash, ollama
 max_tokens = 8192
 system_prompt_file = "SOUL.md"          # in workspace dir
 memory_file = "MEMORY.md"
 
 
-# ── Anthropic (required unless using Ollama) ───────────────────
+# ── Anthropic (optional — primary or failover) ─────────────────
 # Get key → https://console.anthropic.com/settings/keys
 # export ANTHROPIC_API_KEY="sk-ant-..."
 
@@ -297,13 +297,13 @@ active_hours = { start = "08:00", end = "23:00" }
 
 
 # ── Code Integration ────────────────────────────────────────────
-# Optional: brew install gh  |  npm i -g @anthropic-ai/claude-code
+# Optional: brew install gh  |  npm i -g @anthropic-ai/claude-code (or any coding agent CLI)
 
 [code]
-claude_code_path = "claude"    # Path to Claude Code CLI binary
+coding_agent_path = "claude"   # Path to coding agent CLI binary (e.g. claude, aider, codex)
 gh_path = "gh"                 # Path to GitHub CLI binary
 default_workspace = "~/Coding" # Default workspace for code tasks
-# Note: spawn_claude_code runs with --dangerously-skip-permissions (daemon mode has no TTY)
+# Note: spawn_coding_agent runs with --dangerously-skip-permissions (daemon mode has no TTY)
 
 
 # ── Memory / Workspace ──────────────────────────────────────────
@@ -441,18 +441,24 @@ enabled = true
 warn_at_percent = 80                   # Notify user when approaching budget limit
 
 # Model pricing (per million tokens, USD)
-# Update these when Anthropic changes pricing.
-[usage.model_prices.claude-opus-4-6]
-input_per_mtok = 15.0
-output_per_mtok = 75.0
-cache_read_per_mtok = 1.5
-cache_write_per_mtok = 18.75
-
-[usage.model_prices.claude-sonnet-4-5-20250929]
+# Update these when providers change pricing.
+[usage.model_prices.claude-sonnet-4-20250514]
 input_per_mtok = 3.0
 output_per_mtok = 15.0
 cache_read_per_mtok = 0.3
 cache_write_per_mtok = 3.75
+
+[usage.model_prices.gpt-4o]
+input_per_mtok = 2.5
+output_per_mtok = 10.0
+cache_read_per_mtok = 0.0
+cache_write_per_mtok = 0.0
+
+[usage.model_prices.gemini-2\.0-flash]
+input_per_mtok = 0.075
+output_per_mtok = 0.30
+cache_read_per_mtok = 0.0
+cache_write_per_mtok = 0.0
 
 
 # ── Lifestyle Integrations ──────────────────────────────────────

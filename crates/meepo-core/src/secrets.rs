@@ -44,8 +44,31 @@ pub enum SecretsProviderType {
     Memory,
 }
 
-/// Environment variable secrets provider
+/// Environment variable secrets provider.
+///
+/// Only variables in `ALLOWED_SECRET_ENV_VARS` can be resolved to prevent
+/// prompt-injection attacks from exfiltrating arbitrary env vars (M-3 fix).
 pub struct EnvSecretsProvider;
+
+/// Allowlist of environment variable names that may be resolved as secrets.
+/// This mirrors the config-level `ALLOWED_ENV_VARS` and prevents the agent
+/// from being tricked into reading arbitrary env vars via `$secret{NAME}`.
+const ALLOWED_SECRET_ENV_VARS: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_AI_API_KEY",
+    "CUSTOM_LLM_API_KEY",
+    "TAVILY_API_KEY",
+    "DISCORD_BOT_TOKEN",
+    "SLACK_BOT_TOKEN",
+    "A2A_AUTH_TOKEN",
+    "OPENCLAW_A2A_TOKEN",
+    "GITHUB_TOKEN",
+    "MEEPO_GATEWAY_TOKEN",
+    "ELEVENLABS_API_KEY",
+    "HOME",
+    "USER",
+];
 
 #[async_trait]
 impl SecretsProvider for EnvSecretsProvider {
@@ -54,6 +77,14 @@ impl SecretsProvider for EnvSecretsProvider {
     }
 
     async fn get(&self, key: &str) -> Result<Option<String>> {
+        // Only allow known-safe env vars to prevent exfiltration (M-3 fix)
+        if !ALLOWED_SECRET_ENV_VARS.contains(&key) {
+            tracing::warn!(
+                "EnvSecretsProvider: rejected lookup for non-allowlisted env var '{}'",
+                key
+            );
+            return Ok(None);
+        }
         Ok(std::env::var(key).ok())
     }
 }
@@ -86,7 +117,10 @@ impl SecretsProvider for FileSecretsProvider {
         let path = self.secrets_dir.join(key);
 
         // Verify the resolved path is within secrets_dir
-        let canonical_dir = self.secrets_dir.canonicalize().unwrap_or_else(|_| self.secrets_dir.clone());
+        let canonical_dir = self
+            .secrets_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.secrets_dir.clone());
         if let Ok(canonical_path) = path.canonicalize()
             && !canonical_path.starts_with(&canonical_dir)
         {
@@ -150,10 +184,7 @@ impl SecretsManager {
         let provider: Box<dyn SecretsProvider> = match config.provider {
             SecretsProviderType::Env => Box::new(EnvSecretsProvider),
             SecretsProviderType::File => {
-                let dir = config
-                    .secrets_dir
-                    .as_deref()
-                    .unwrap_or("/run/secrets");
+                let dir = config.secrets_dir.as_deref().unwrap_or("/run/secrets");
                 Box::new(FileSecretsProvider::new(dir))
             }
             SecretsProviderType::Memory => Box::new(MemorySecretsProvider::new()),
@@ -264,10 +295,7 @@ mod tests {
     async fn test_secrets_manager_expand_missing() {
         let provider = MemorySecretsProvider::new();
         let mgr = SecretsManager::new(Box::new(provider));
-        let result = mgr
-            .expand("key=$secret{MISSING}")
-            .await
-            .unwrap();
+        let result = mgr.expand("key=$secret{MISSING}").await.unwrap();
         // Missing secrets are left as-is
         assert_eq!(result, "key=$secret{MISSING}");
     }

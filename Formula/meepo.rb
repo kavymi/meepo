@@ -14,20 +14,48 @@ class Meepo < Formula
     end
   end
 
+  depends_on :macos
+
   def install
     bin.install "meepo"
   end
 
+  def post_install
+    # Initialize config directory and default config if not present.
+    # This is non-destructive — skips if ~/.meepo/config.toml already exists.
+    system bin/"meepo", "init" unless (Pathname.new(Dir.home)/".meepo"/"config.toml").exist?
+  end
+
+  # brew services support — `brew services start meepo` to run as a daemon
+  service do
+    run [opt_bin/"meepo", "start"]
+    keep_alive true
+    log_path var/"log/meepo/meepo.log"
+    error_log_path var/"log/meepo/meepo-error.log"
+    working_dir Dir.home
+  end
+
   def caveats
     <<~EOS
-      Run the setup wizard to configure API keys:
-        meepo setup
+      ┌──────────────────────────────────────────┐
+      │  Get started in one command:              │
+      │                                           │
+      │    meepo setup                            │
+      │                                           │
+      │  This walks you through API keys, macOS   │
+      │  permissions, and feature selection.       │
+      └──────────────────────────────────────────┘
 
-      Then start the agent:
+      After setup, start the agent:
         meepo start
 
-      Enable channels (Discord, Slack, iMessage) in:
-        ~/.meepo/config.toml
+      Or run as a background service (auto-starts on login):
+        brew services start meepo
+
+      Diagnose issues:
+        meepo doctor
+
+      Config file: ~/.meepo/config.toml
     EOS
   end
 

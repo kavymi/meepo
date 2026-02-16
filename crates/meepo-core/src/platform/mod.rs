@@ -136,6 +136,113 @@ pub struct BrowserCookie {
     pub path: String,
 }
 
+/// System control provider for volume, display, power, and app management
+#[async_trait]
+pub trait SystemControlProvider: Send + Sync {
+    async fn get_volume(&self) -> Result<String>;
+    async fn set_volume(&self, level: u8) -> Result<String>;
+    async fn toggle_mute(&self) -> Result<String>;
+    async fn get_dark_mode(&self) -> Result<bool>;
+    async fn set_dark_mode(&self, enabled: bool) -> Result<String>;
+    async fn set_do_not_disturb(&self, enabled: bool) -> Result<String>;
+    async fn get_battery_status(&self) -> Result<String>;
+    async fn get_wifi_info(&self) -> Result<String>;
+    async fn get_disk_usage(&self) -> Result<String>;
+    async fn lock_screen(&self) -> Result<String>;
+    async fn sleep_display(&self) -> Result<String>;
+    async fn get_running_apps(&self) -> Result<String>;
+    async fn quit_app(&self, app_name: &str) -> Result<String>;
+    async fn force_quit_app(&self, app_name: &str) -> Result<String>;
+}
+
+/// Finder provider for file management operations
+#[async_trait]
+pub trait FinderProvider: Send + Sync {
+    async fn get_selection(&self) -> Result<String>;
+    async fn reveal_in_finder(&self, path: &str) -> Result<String>;
+    async fn set_tag(&self, path: &str, tag: &str, remove: bool) -> Result<String>;
+    async fn quick_look(&self, path: &str) -> Result<String>;
+    async fn trash_file(&self, path: &str) -> Result<String>;
+    async fn empty_trash(&self) -> Result<String>;
+    async fn get_recent_files(&self, days: u64, limit: u64) -> Result<String>;
+}
+
+/// Spotlight search provider
+#[async_trait]
+pub trait SpotlightProvider: Send + Sync {
+    async fn search(&self, query: &str, limit: u64) -> Result<String>;
+    async fn get_metadata(&self, path: &str) -> Result<String>;
+}
+
+/// Apple Shortcuts provider
+#[async_trait]
+pub trait ShortcutsProvider: Send + Sync {
+    async fn list_shortcuts(&self) -> Result<String>;
+    async fn run_shortcut(&self, name: &str, input: Option<&str>) -> Result<String>;
+}
+
+/// Keychain provider for password management
+#[async_trait]
+pub trait KeychainProvider: Send + Sync {
+    async fn get_password(&self, service: &str, account: &str) -> Result<String>;
+    async fn store_password(&self, service: &str, account: &str, password: &str) -> Result<String>;
+}
+
+/// Messages provider for iMessage
+#[async_trait]
+pub trait MessagesProvider: Send + Sync {
+    async fn read_messages(&self, contact: &str, limit: u64) -> Result<String>;
+    async fn send_message(&self, contact: &str, message: &str) -> Result<String>;
+    async fn start_facetime(&self, contact: &str, audio_only: bool) -> Result<String>;
+}
+
+/// Photos provider for Apple Photos
+#[async_trait]
+pub trait PhotosProvider: Send + Sync {
+    async fn search_photos(&self, query: &str, limit: u64) -> Result<String>;
+    async fn export_photos(&self, query: &str, destination: &str, limit: u64) -> Result<String>;
+}
+
+/// Media provider for audio recording, TTS, and OCR
+#[async_trait]
+pub trait MediaProvider: Send + Sync {
+    async fn record_audio(&self, duration_secs: u64, output_path: Option<&str>) -> Result<String>;
+    async fn text_to_speech(&self, text: &str, voice: Option<&str>) -> Result<String>;
+    async fn ocr_image(&self, image_path: &str) -> Result<String>;
+}
+
+/// Window management provider
+#[async_trait]
+pub trait WindowManagerProvider: Send + Sync {
+    async fn list_windows(&self) -> Result<String>;
+    async fn move_window(
+        &self,
+        app_name: &str,
+        x: i32,
+        y: i32,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<String>;
+    async fn minimize_window(&self, app_name: Option<&str>) -> Result<String>;
+    async fn fullscreen_window(&self, app_name: Option<&str>) -> Result<String>;
+    async fn arrange_windows(&self, layout: &str) -> Result<String>;
+}
+
+/// Terminal automation provider
+#[async_trait]
+pub trait TerminalProvider: Send + Sync {
+    async fn list_terminal_tabs(&self) -> Result<String>;
+    async fn send_terminal_command(&self, command: &str, tab_index: Option<u32>) -> Result<String>;
+    async fn get_open_ports(&self) -> Result<String>;
+}
+
+/// Productivity provider for clipboard write, frontmost document, etc.
+#[async_trait]
+pub trait ProductivityProvider: Send + Sync {
+    async fn set_clipboard(&self, text: &str) -> Result<String>;
+    async fn get_frontmost_document(&self) -> Result<String>;
+}
+
 /// Browser automation provider
 #[async_trait]
 pub trait BrowserProvider: Send + Sync {
@@ -153,6 +260,14 @@ pub trait BrowserProvider: Send + Sync {
     async fn reload(&self, tab_id: Option<&str>) -> Result<()>;
     async fn get_cookies(&self, tab_id: Option<&str>) -> Result<Vec<BrowserCookie>>;
     async fn get_page_url(&self, tab_id: Option<&str>) -> Result<String>;
+    async fn scroll(&self, tab_id: Option<&str>, direction: &str, amount: u32) -> Result<()>;
+    async fn wait_for_element(
+        &self,
+        tab_id: Option<&str>,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<bool>;
+    async fn screenshot_tab(&self, tab_id: Option<&str>, path: Option<&str>) -> Result<String>;
 }
 
 /// Create platform email provider
@@ -167,7 +282,9 @@ pub fn create_email_provider() -> Result<Box<dyn EmailProvider>> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        Err(anyhow::anyhow!("Email provider not available on this platform"))
+        Err(anyhow::anyhow!(
+            "Email provider not available on this platform"
+        ))
     }
 }
 
@@ -183,7 +300,9 @@ pub fn create_calendar_provider() -> Result<Box<dyn CalendarProvider>> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        Err(anyhow::anyhow!("Calendar provider not available on this platform"))
+        Err(anyhow::anyhow!(
+            "Calendar provider not available on this platform"
+        ))
     }
 }
 
@@ -209,7 +328,9 @@ pub fn create_ui_automation() -> Result<Box<dyn UiAutomation>> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        Err(anyhow::anyhow!("UI automation not available on this platform"))
+        Err(anyhow::anyhow!(
+            "UI automation not available on this platform"
+        ))
     }
 }
 
@@ -221,7 +342,9 @@ pub fn create_reminders_provider() -> Result<Box<dyn RemindersProvider>> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(anyhow::anyhow!("Reminders provider is only available on macOS"))
+        Err(anyhow::anyhow!(
+            "Reminders provider is only available on macOS"
+        ))
     }
 }
 
@@ -245,7 +368,9 @@ pub fn create_notification_provider() -> Result<Box<dyn NotificationProvider>> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(anyhow::anyhow!("Notification provider is only available on macOS"))
+        Err(anyhow::anyhow!(
+            "Notification provider is only available on macOS"
+        ))
     }
 }
 
@@ -257,7 +382,9 @@ pub fn create_screen_capture_provider() -> Result<Box<dyn ScreenCaptureProvider>
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(anyhow::anyhow!("Screen capture provider is only available on macOS"))
+        Err(anyhow::anyhow!(
+            "Screen capture provider is only available on macOS"
+        ))
     }
 }
 
@@ -281,7 +408,161 @@ pub fn create_contacts_provider() -> Result<Box<dyn ContactsProvider>> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(anyhow::anyhow!("Contacts provider is only available on macOS"))
+        Err(anyhow::anyhow!(
+            "Contacts provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform system control provider
+pub fn create_system_control_provider() -> Result<Box<dyn SystemControlProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsSystemControl))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "System control provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Finder provider (macOS only)
+pub fn create_finder_provider() -> Result<Box<dyn FinderProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsFinderProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Finder provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Spotlight provider (macOS only)
+pub fn create_spotlight_provider() -> Result<Box<dyn SpotlightProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsSpotlightProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Spotlight provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Shortcuts provider (macOS only)
+pub fn create_shortcuts_provider() -> Result<Box<dyn ShortcutsProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsShortcutsProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Shortcuts provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Keychain provider (macOS only)
+pub fn create_keychain_provider() -> Result<Box<dyn KeychainProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsKeychainProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Keychain provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Messages provider (macOS only)
+pub fn create_messages_provider() -> Result<Box<dyn MessagesProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsMessagesProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Messages provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Photos provider (macOS only)
+pub fn create_photos_provider() -> Result<Box<dyn PhotosProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsPhotosProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Photos provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Media provider (macOS only)
+pub fn create_media_provider() -> Result<Box<dyn MediaProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsMediaProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!("Media provider is only available on macOS"))
+    }
+}
+
+/// Create platform Window Manager provider (macOS only)
+pub fn create_window_manager_provider() -> Result<Box<dyn WindowManagerProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsWindowManager))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Window manager provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Terminal provider (macOS only)
+pub fn create_terminal_provider() -> Result<Box<dyn TerminalProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsTerminalProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Terminal provider is only available on macOS"
+        ))
+    }
+}
+
+/// Create platform Productivity provider (macOS only)
+pub fn create_productivity_provider() -> Result<Box<dyn ProductivityProvider>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOsProductivityProvider))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow::anyhow!(
+            "Productivity provider is only available on macOS"
+        ))
     }
 }
 
@@ -300,7 +581,9 @@ pub fn create_browser_provider_for(browser: &str) -> Result<Box<dyn BrowserProvi
             }
             #[cfg(not(target_os = "macos"))]
             {
-                Err(anyhow::anyhow!("Safari browser provider is only available on macOS"))
+                Err(anyhow::anyhow!(
+                    "Safari browser provider is only available on macOS"
+                ))
             }
         }
         "chrome" | "google chrome" => {
@@ -310,7 +593,9 @@ pub fn create_browser_provider_for(browser: &str) -> Result<Box<dyn BrowserProvi
             }
             #[cfg(not(target_os = "macos"))]
             {
-                Err(anyhow::anyhow!("Chrome browser provider is only available on macOS"))
+                Err(anyhow::anyhow!(
+                    "Chrome browser provider is only available on macOS"
+                ))
             }
         }
         _ => Err(anyhow::anyhow!(

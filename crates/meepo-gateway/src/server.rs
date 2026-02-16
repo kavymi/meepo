@@ -3,21 +3,21 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
 use tokio::sync::broadcast;
-use tower_http::cors::CorsLayer;
+use axum::http::HeaderValue;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::{debug, error, info, warn};
 
 use crate::auth;
 use crate::events::EventBus;
 use crate::protocol::{
-    self, GatewayEvent, GatewayRequest, GatewayResponse, ERR_INVALID_METHOD,
-    ERR_INVALID_PARAMS,
+    self, ERR_INVALID_METHOD, ERR_INVALID_PARAMS, GatewayEvent, GatewayRequest, GatewayResponse,
 };
 use crate::session::SessionManager;
 
@@ -60,13 +60,31 @@ impl GatewayServer {
 
     /// Build the Axum router
     pub fn router(&self) -> Router {
+        // Security: restrictive CORS — only allow the gateway's own origin
+        // (H-1 fix). Browsers enforce CORS for fetch/XHR but NOT for WebSocket
+        // upgrades, so ws_handler also validates the Origin header separately.
+        let cors = CorsLayer::new()
+            .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+                // Allow requests from the gateway's own origin (localhost variants)
+                if let Ok(s) = origin.to_str() {
+                    s.starts_with("http://127.0.0.1")
+                        || s.starts_with("http://localhost")
+                        || s.starts_with("https://127.0.0.1")
+                        || s.starts_with("https://localhost")
+                } else {
+                    false
+                }
+            }))
+            .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+            .allow_headers(tower_http::cors::Any);
+
         Router::new()
             .route("/ws", get(ws_handler))
             .route("/api/status", get(status_handler))
             .route("/api/sessions", get(sessions_handler))
             .route("/", get(crate::webchat::index_handler))
             .route("/assets/{*path}", get(crate::webchat::static_handler))
-            .layer(CorsLayer::permissive())
+            .layer(cors)
             .with_state(self.state.clone())
     }
 
@@ -93,17 +111,24 @@ impl GatewayServer {
 
 // ── HTTP Handlers ──
 
-async fn status_handler(State(state): State<GatewayState>) -> impl IntoResponse {
+async fn status_handler(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    // Auth check (H-2 fix) — prevent unauthenticated info leakage
+    if !check_auth(&state.auth_token, &headers) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     let sessions = state.sessions.count().await;
     let uptime = state.start_time.elapsed().as_secs();
     let clients = state.events.subscriber_count();
 
-    axum::Json(serde_json::json!({
+    Ok(axum::Json(serde_json::json!({
         "status": "ok",
         "sessions": sessions,
         "connected_clients": clients,
         "uptime_secs": uptime,
-    }))
+    })))
 }
 
 async fn sessions_handler(
@@ -129,6 +154,19 @@ async fn ws_handler(
     // Auth check on upgrade
     if !check_auth(&state.auth_token, &headers) {
         return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    // WebSocket Origin validation (H-1 fix) — browsers don't enforce CORS for
+    // WebSocket upgrades, so we must validate the Origin header ourselves.
+    if let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) {
+        let is_local = origin.starts_with("http://127.0.0.1")
+            || origin.starts_with("http://localhost")
+            || origin.starts_with("https://127.0.0.1")
+            || origin.starts_with("https://localhost");
+        if !is_local {
+            warn!("Rejected WebSocket from non-local origin: {}", origin);
+            return StatusCode::FORBIDDEN.into_response();
+        }
     }
 
     info!("WebSocket connection from {}", addr);
@@ -204,11 +242,7 @@ async fn handle_request(state: &GatewayState, raw: &str) -> GatewayResponse {
     let req: GatewayRequest = match serde_json::from_str(raw) {
         Ok(r) => r,
         Err(e) => {
-            return GatewayResponse::err(
-                None,
-                ERR_INVALID_PARAMS,
-                format!("Invalid JSON: {}", e),
-            );
+            return GatewayResponse::err(None, ERR_INVALID_PARAMS, format!("Invalid JSON: {}", e));
         }
     };
 
@@ -236,7 +270,11 @@ async fn handle_request(state: &GatewayState, raw: &str) -> GatewayResponse {
         }
 
         protocol::methods::SESSION_NEW => {
-            let name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("Untitled");
+            let name = req
+                .params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Untitled");
             match state.sessions.create(name).await {
                 Ok(session) => {
                     // Broadcast session creation event

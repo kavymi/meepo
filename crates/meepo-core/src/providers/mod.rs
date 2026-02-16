@@ -1,8 +1,8 @@
 //! Multi-provider LLM abstraction layer
 //!
-//! Supports Anthropic, OpenAI, Google Gemini, and any OpenAI-compatible endpoint.
-//! Providers implement the [`LlmProvider`] trait and are composed via [`ModelRouter`]
-//! for automatic failover.
+//! Supports multiple LLM providers: Anthropic, OpenAI, Google Gemini, Ollama,
+//! and any OpenAI-compatible endpoint. Providers implement the [`LlmProvider`]
+//! trait and are composed via [`ModelRouter`] for automatic failover.
 
 pub mod anthropic;
 pub mod google;

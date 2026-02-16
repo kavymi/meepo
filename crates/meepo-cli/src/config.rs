@@ -62,7 +62,8 @@ fn default_memory_file() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProvidersConfig {
-    pub anthropic: AnthropicConfig,
+    #[serde(default)]
+    pub anthropic: Option<AnthropicConfig>,
     #[serde(default)]
     pub openai: Option<OpenAiProviderConfig>,
     #[serde(default)]
@@ -483,15 +484,15 @@ pub struct ActiveHours {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeConfig {
-    #[serde(default = "default_claude_path")]
-    pub claude_code_path: String,
+    #[serde(default = "default_coding_agent_path", alias = "claude_code_path")]
+    pub coding_agent_path: String,
     #[serde(default = "default_gh_path")]
     pub gh_path: String,
     #[serde(default = "default_workspace")]
     pub default_workspace: String,
 }
 
-fn default_claude_path() -> String {
+fn default_coding_agent_path() -> String {
     "claude".to_string()
 }
 
@@ -1176,10 +1177,12 @@ impl MeepoConfig {
             .with_context(|| format!("Failed to parse config at {}", path.display()))?;
 
         // Check for hardcoded API keys and tokens
-        if config.providers.anthropic.api_key.starts_with("sk-ant-") {
-            warn!(
-                "API key is hardcoded in config file. For security, use environment variables: api_key = \"${{ANTHROPIC_API_KEY}}\""
-            );
+        if let Some(ref anthropic) = config.providers.anthropic {
+            if anthropic.api_key.starts_with("sk-ant-") {
+                warn!(
+                    "API key is hardcoded in config file. For security, use environment variables: api_key = \"${{ANTHROPIC_API_KEY}}\""
+                );
+            }
         }
 
         if !config.channels.discord.token.is_empty()

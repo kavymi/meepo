@@ -97,10 +97,7 @@ impl MessageChannel for AlexaChannel {
                 let _ = sender.send(msg.content);
                 debug!("Alexa: routed response to request {}", request_id);
             } else {
-                warn!(
-                    "Alexa: no pending request for reply_to={}",
-                    request_id
-                );
+                warn!("Alexa: no pending request for reply_to={}", request_id);
             }
         } else {
             warn!("Alexa: outgoing message has no reply_to — cannot route to Alexa device");

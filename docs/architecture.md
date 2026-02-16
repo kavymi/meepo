@@ -2,7 +2,7 @@
 
 ## Overview
 
-Meepo is a 7-crate Rust workspace implementing a local AI agent for macOS and Windows. It runs an autonomous observe/think/act loop, connects Claude to messaging channels (Discord, Slack, iMessage, email), gives it access to 75+ tools (email, calendar, reminders, notes, browser automation, web search, code, music, contacts, lifestyle integrations, and more), maintains a persistent knowledge graph, and speaks both MCP and A2A protocols for multi-agent interop.
+Meepo is a 7-crate Rust workspace implementing a local AI agent for macOS and Windows. It runs an autonomous observe/think/act loop, connects LLMs to messaging channels (Discord, Slack, iMessage, email), gives it access to 75+ tools (email, calendar, reminders, notes, browser automation, web search, code, music, contacts, lifestyle integrations, and more), maintains a persistent knowledge graph, and speaks both MCP and A2A protocols for multi-agent interop.
 
 ## Crate Dependency Graph
 
@@ -39,7 +39,7 @@ sequenceDiagram
     participant Channel as Channel Adapter
     participant Bus as MessageBus
     participant Agent
-    participant Claude as Claude API
+    participant Claude as LLM API
     participant Tools as Tool Registry
 
     User->>Channel: Send message
@@ -57,6 +57,8 @@ sequenceDiagram
     end
 
     Claude-->>Agent: Final text response
+
+    Note over Claude: LLM provider is configurable:<br/>Anthropic, OpenAI, Google, Ollama, etc.
     Agent->>Agent: Store response in history
     Agent->>Bus: OutgoingMessage
     Bus->>Channel: Route to correct channel
@@ -217,7 +219,7 @@ The bus is split into a receiver (`mpsc::Receiver<IncomingMessage>`) and an `Arc
 
 ## Tool System
 
-Tools implement the `ToolHandler` trait and are registered in a `ToolRegistry` (HashMap-backed). The agent's API client runs a tool loop that executes tools until Claude returns a final text response or hits the 10-iteration limit.
+Tools implement the `ToolHandler` trait and are registered in a `ToolRegistry` (HashMap-backed). The agent's API client runs a tool loop that executes tools until the LLM returns a final text response or hits the 10-iteration limit.
 
 ```mermaid
 graph TD
@@ -296,10 +298,10 @@ graph TD
 | `browser_navigate` | Navigate (back/forward/reload) | AppleScript |
 | `browser_get_url` | Get current page URL | AppleScript |
 | `browser_screenshot` | Screenshot current page | AppleScript |
-| `write_code` | Delegate coding to Claude CLI | `claude` CLI subprocess |
+| `write_code` | Delegate coding to coding agent CLI | Configurable CLI subprocess |
 | `make_pr` | Create GitHub pull request | `git` + `gh` CLI |
 | `review_pr` | Analyze PR diff for issues | `gh pr view` + diff analysis |
-| `spawn_claude_code` | Spawn background Claude Code task | `claude` CLI (async, `--dangerously-skip-permissions`) |
+| `spawn_coding_agent` | Spawn background coding agent task | Coding agent CLI (async, `--dangerously-skip-permissions`) |
 | `web_search` | Search the web via Tavily | Tavily Search API (conditional) |
 | `browse_url` | Fetch URL content | Tavily Extract → raw `reqwest` fallback |
 | `remember` | Store entity in knowledge graph | SQLite + Tantivy insert |
@@ -777,7 +779,7 @@ The `meepo setup` command (`cmd_setup()` in `meepo-cli`) provides a comprehensiv
 graph TD
     subgraph Wizard["meepo setup (7 steps on macOS)"]
         S1["Step 1: Init Config"]
-        S2["Step 2: Anthropic API Key"]
+        S2["Step 2: LLM Provider Setup"]
         S3["Step 3: Tavily API Key (optional)"]
         S4["Step 4: macOS Permissions"]
         S5["Step 5: Feature Selection"]

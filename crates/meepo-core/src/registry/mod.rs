@@ -85,8 +85,8 @@ impl SkillsRegistry {
         if manifest_path.exists() {
             let content = std::fs::read_to_string(&manifest_path)
                 .context("Failed to read registry manifest")?;
-            self.installed = serde_json::from_str(&content)
-                .context("Failed to parse registry manifest")?;
+            self.installed =
+                serde_json::from_str(&content).context("Failed to parse registry manifest")?;
             info!("Loaded {} installed skills", self.installed.len());
         }
 
@@ -95,14 +95,12 @@ impl SkillsRegistry {
 
     /// Save the registry manifest
     pub fn save(&self) -> Result<()> {
-        std::fs::create_dir_all(&self.skills_dir)
-            .context("Failed to create skills directory")?;
+        std::fs::create_dir_all(&self.skills_dir).context("Failed to create skills directory")?;
 
         let manifest_path = self.skills_dir.join("registry.json");
         let content = serde_json::to_string_pretty(&self.installed)
             .context("Failed to serialize registry")?;
-        std::fs::write(&manifest_path, content)
-            .context("Failed to write registry manifest")?;
+        std::fs::write(&manifest_path, content).context("Failed to write registry manifest")?;
 
         debug!("Saved registry with {} skills", self.installed.len());
         Ok(())
@@ -114,13 +112,13 @@ impl SkillsRegistry {
         if package.name.is_empty() || package.name.len() > 128 {
             return Err(anyhow!("Invalid package name"));
         }
-        if package.name.contains('/') || package.name.contains('\\') || package.name.contains("..") {
+        if package.name.contains('/') || package.name.contains('\\') || package.name.contains("..")
+        {
             return Err(anyhow!("Package name contains invalid characters"));
         }
 
         let skill_dir = self.skills_dir.join(&package.name);
-        std::fs::create_dir_all(&skill_dir)
-            .context("Failed to create skill directory")?;
+        std::fs::create_dir_all(&skill_dir).context("Failed to create skill directory")?;
 
         let installed = InstalledSkill {
             package: package.clone(),
@@ -138,7 +136,9 @@ impl SkillsRegistry {
 
     /// Uninstall a skill
     pub fn uninstall(&mut self, name: &str) -> Result<()> {
-        let skill = self.installed.remove(name)
+        let skill = self
+            .installed
+            .remove(name)
             .ok_or_else(|| anyhow!("Skill '{}' is not installed", name))?;
 
         // Remove skill directory
@@ -154,7 +154,9 @@ impl SkillsRegistry {
 
     /// Disable a skill without uninstalling
     pub fn disable(&mut self, name: &str) -> Result<()> {
-        let skill = self.installed.get_mut(name)
+        let skill = self
+            .installed
+            .get_mut(name)
             .ok_or_else(|| anyhow!("Skill '{}' is not installed", name))?;
         skill.status = SkillStatus::Disabled;
         warn!("Disabled skill: {}", name);
@@ -164,7 +166,9 @@ impl SkillsRegistry {
 
     /// Enable a disabled skill
     pub fn enable(&mut self, name: &str) -> Result<()> {
-        let skill = self.installed.get_mut(name)
+        let skill = self
+            .installed
+            .get_mut(name)
             .ok_or_else(|| anyhow!("Skill '{}' is not installed", name))?;
         skill.status = SkillStatus::Installed;
         info!("Enabled skill: {}", name);
@@ -272,7 +276,10 @@ mod tests {
 
         registry.disable("weather").unwrap();
         assert_eq!(registry.list_active().len(), 0);
-        assert_eq!(registry.get("weather").unwrap().status, SkillStatus::Disabled);
+        assert_eq!(
+            registry.get("weather").unwrap().status,
+            SkillStatus::Disabled
+        );
 
         registry.enable("weather").unwrap();
         assert_eq!(registry.list_active().len(), 1);

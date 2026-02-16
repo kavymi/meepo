@@ -36,14 +36,23 @@ if [ ! -d "$CONFIG_DIR" ]; then
     exit 0
 fi
 
-# Check for API key
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-    echo -e "${RED}ANTHROPIC_API_KEY is not set.${NC}"
+# Check for at least one LLM provider key (or Ollama running locally)
+HAS_PROVIDER=false
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then HAS_PROVIDER=true; fi
+if [ -n "${OPENAI_API_KEY:-}" ]; then HAS_PROVIDER=true; fi
+if [ -n "${GOOGLE_AI_API_KEY:-}" ]; then HAS_PROVIDER=true; fi
+if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then HAS_PROVIDER=true; fi
+
+if [ "$HAS_PROVIDER" = false ]; then
+    echo -e "${RED}No LLM provider configured.${NC}"
     echo ""
-    echo "  Set it now:"
+    echo "  Set one of these:"
     echo -e "  ${DIM}export ANTHROPIC_API_KEY=\"sk-ant-...\"${NC}"
+    echo -e "  ${DIM}export OPENAI_API_KEY=\"sk-...\"${NC}"
+    echo -e "  ${DIM}export GOOGLE_AI_API_KEY=\"AIza...\"${NC}"
+    echo -e "  ${DIM}# Or start Ollama: ollama serve${NC}"
     echo ""
-    echo "  Or run setup again:"
+    echo "  Or run setup:"
     echo -e "  ${DIM}$SCRIPT_DIR/setup.sh${NC}"
     exit 1
 fi

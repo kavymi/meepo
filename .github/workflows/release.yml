@@ -131,10 +131,30 @@ jobs:
               f.write(content)
           PYEOF
 
-      - name: Commit updated formula
+      - name: Commit updated formula (main repo)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/meepo.rb
           git diff --cached --quiet || git commit -m "chore: update Homebrew formula to ${GITHUB_REF_NAME}"
           git push
+
+      - name: Push formula to homebrew-tap repo
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set — skipping tap repo update"
+            exit 0
+          fi
+          TMPDIR=$(mktemp -d)
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/kavymi/homebrew-tap.git" "$TMPDIR"
+          mkdir -p "$TMPDIR/Formula"
+          cp Formula/meepo.rb "$TMPDIR/Formula/meepo.rb"
+          cd "$TMPDIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/meepo.rb
+          git diff --cached --quiet || git commit -m "meepo ${GITHUB_REF_NAME}"
+          git push
+          rm -rf "$TMPDIR"

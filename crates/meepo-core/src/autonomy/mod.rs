@@ -10,9 +10,9 @@ pub mod goals;
 pub mod planner;
 pub mod user_model;
 
+use chrono::{Datelike, NaiveDate, Timelike, Utc};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use chrono::{Datelike, NaiveDate, Timelike, Utc};
 use tokio::sync::{Notify, mpsc};
 use tracing::{debug, error, info, warn};
 
@@ -422,7 +422,10 @@ impl AutonomousLoop {
                 let evaluations = self.goal_evaluator.parse_evaluations(&response.content);
 
                 if evaluations.is_empty() {
-                    warn!("Agent returned no parseable goal evaluations for {} goals", goal_count);
+                    warn!(
+                        "Agent returned no parseable goal evaluations for {} goals",
+                        goal_count
+                    );
                     // Fall back: just mark goals as checked
                     for goal in &goals {
                         if let Err(e) = self.db.update_goal_checked(&goal.id, None).await {

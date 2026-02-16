@@ -66,22 +66,21 @@ impl GoogleProvider {
                         .iter()
                         .map(|b| match b {
                             ChatBlock::Text { text } => GeminiPart::Text { text: text.clone() },
-                            ChatBlock::ToolCall { name, input, .. } => {
-                                GeminiPart::FunctionCall {
-                                    function_call: GeminiFunctionCall {
-                                        name: name.clone(),
-                                        args: input.clone(),
-                                    },
-                                }
-                            }
-                            ChatBlock::ToolResult { content, tool_call_id } => {
-                                GeminiPart::FunctionResponse {
-                                    function_response: GeminiFunctionResponse {
-                                        name: tool_call_id.clone(),
-                                        response: serde_json::json!({"result": content}),
-                                    },
-                                }
-                            }
+                            ChatBlock::ToolCall { name, input, .. } => GeminiPart::FunctionCall {
+                                function_call: GeminiFunctionCall {
+                                    name: name.clone(),
+                                    args: input.clone(),
+                                },
+                            },
+                            ChatBlock::ToolResult {
+                                content,
+                                tool_call_id,
+                            } => GeminiPart::FunctionResponse {
+                                function_response: GeminiFunctionResponse {
+                                    name: tool_call_id.clone(),
+                                    response: serde_json::json!({"result": content}),
+                                },
+                            },
                         })
                         .collect(),
                 };
@@ -414,7 +413,9 @@ mod tests {
         };
         let result = GoogleProvider::from_gemini_response(resp).unwrap();
         assert_eq!(result.stop_reason, StopReason::ToolUse);
-        assert!(matches!(&result.blocks[0], ChatResponseBlock::ToolCall { name, .. } if name == "search"));
+        assert!(
+            matches!(&result.blocks[0], ChatResponseBlock::ToolCall { name, .. } if name == "search")
+        );
     }
 
     #[test]
@@ -428,7 +429,11 @@ mod tests {
 
     #[test]
     fn test_google_provider_debug_hides_key() {
-        let provider = GoogleProvider::new("AIza-secret".to_string(), "gemini-2.0-flash".to_string(), 4096);
+        let provider = GoogleProvider::new(
+            "AIza-secret".to_string(),
+            "gemini-2.0-flash".to_string(),
+            4096,
+        );
         let debug = format!("{:?}", provider);
         assert!(!debug.contains("AIza-secret"));
     }

@@ -1,6 +1,6 @@
 # Meepo
 
-A local AI agent for macOS and Windows that connects Claude to your digital life through Discord, Slack, iMessage, email, and more. **Divided We Stand.**
+A local AI agent for macOS and Windows that connects LLMs to your digital life through Discord, Slack, iMessage, email, and more. **Divided We Stand.**
 
 Meepo runs as a daemon on your machine — a prime agent that splits into clones to be everywhere at once. Channel clones monitor Discord, Slack, iMessage, and email simultaneously. Task clones dig in parallel on complex requests. Watcher clones stand guard over your inbox, calendar, and GitHub repos around the clock. The prime Meepo coordinates them all through an autonomous observe/think/act loop, with access to 75+ tools spanning email, calendar, reminders, notes, browser automation, web search, files, code, music, contacts, and a persistent knowledge graph. It also speaks MCP and A2A protocols — exposing its tools to other AI agents and consuming tools from external MCP servers.
 
@@ -26,9 +26,12 @@ Meepo runs as a daemon on your machine — a prime agent that splits into clones
 ## Requirements
 
 - macOS or Windows
-- LLM provider: Either Anthropic API key **or** Ollama installed locally
-  - **Anthropic Claude**: Requires API key from https://console.anthropic.com
+- LLM provider (at least one):
+  - **Anthropic Claude**: API key from https://console.anthropic.com
+  - **OpenAI**: API key from https://platform.openai.com/api-keys
+  - **Google Gemini**: API key from https://aistudio.google.com/apikey
   - **Ollama**: Free, runs locally — supports Llama, Mistral, CodeLlama, and more
+  - **Any OpenAI-compatible endpoint**: Together, Groq, LM Studio, etc.
 - Optional: Tavily API key (enables web search)
 - Optional: Discord bot token, Slack bot token
 - Rust toolchain only needed when building from source
@@ -86,15 +89,20 @@ Ollama runs entirely on your machine — no API key needed, no data sent to exte
 
 ## Install
 
-**macOS / Linux (curl):**
-```bash
-curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
-```
-
-**macOS (Homebrew):**
+**macOS (Homebrew) — recommended:**
 ```bash
 brew install kavymi/tap/meepo
 meepo setup
+```
+
+After setup, run as a background service (auto-starts on login):
+```bash
+brew services start meepo
+```
+
+**macOS / Linux (curl):**
+```bash
+curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
@@ -115,6 +123,8 @@ cargo build --release; .\target\release\meepo.exe setup
 ```
 
 All methods run `meepo setup` — an interactive wizard that walks you through API keys, macOS permissions (Accessibility, Full Disk Access, Automation, Screen Recording), feature selection, and connection verification. It opens System Settings panes for you and detects your terminal app automatically.
+
+If something isn't working, run `meepo doctor` to diagnose the issue.
 
 ## Manual Setup
 
@@ -141,19 +151,22 @@ This creates `~/.meepo/` with:
 
 ### 3. Configure API Keys
 
-**Anthropic (required):**
+Set at least one LLM provider key:
 
 ```bash
-# macOS/Linux
+# Anthropic (Claude)
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-# Windows PowerShell
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
-# To persist across sessions:
-[Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
+# OpenAI (GPT-4o)
+export OPENAI_API_KEY="sk-..."
+
+# Google (Gemini)
+export GOOGLE_AI_API_KEY="AIza..."
+
+# Or use Ollama — no API key needed (see "Using Ollama" section above)
 ```
 
-Get yours at [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys).
+On Windows PowerShell, use `$env:VAR = "value"` or persist with `[Environment]::SetEnvironmentVariable("VAR", "value", "User")`.
 
 **Tavily (optional — enables web search):**
 
@@ -268,15 +281,23 @@ Full config file: `~/.meepo/config.toml`
 
 ```toml
 [agent]
-default_model = "claude-opus-4-6"     # Claude model to use
-max_tokens = 8192                      # Max response tokens
+default_model = "claude-sonnet-4-20250514"  # or gpt-4o, gemini-2.0-flash, ollama
+max_tokens = 8192                           # Max response tokens
 
-[providers.anthropic]
-api_key = "${ANTHROPIC_API_KEY}"       # Required
-base_url = "https://api.anthropic.com" # API endpoint
+[providers.anthropic]                       # Optional — Anthropic Claude
+api_key = "${ANTHROPIC_API_KEY}"
+base_url = "https://api.anthropic.com"
+
+# [providers.openai]                        # Optional — OpenAI
+# api_key = "${OPENAI_API_KEY}"
+# model = "gpt-4o"
+
+# [providers.ollama]                        # Optional — local Ollama
+# base_url = "http://localhost:11434"
+# model = "llama3.2"
 
 [providers.tavily]
-api_key = "${TAVILY_API_KEY}"          # Optional — enables web_search tool
+api_key = "${TAVILY_API_KEY}"               # Optional — enables web_search tool
 
 [channels.discord]
 enabled = false
@@ -316,7 +337,7 @@ background_timeout_secs = 600          # Timeout per background sub-task
 max_background_groups = 3              # Concurrent background groups
 
 [code]
-claude_code_path = "claude"            # Path to Claude CLI
+coding_agent_path = "claude"           # Path to coding agent CLI (claude, aider, codex)
 gh_path = "gh"                         # Path to GitHub CLI
 default_workspace = "~/Coding"
 
@@ -374,7 +395,7 @@ Environment variables are expanded with `${VAR_NAME}` syntax. Paths support `~/`
 
 ## Tools
 
-Meepo registers 75+ tools that Claude can use during conversations:
+Meepo registers 75+ tools that the LLM can use during conversations:
 
 | Category | Tools |
 |----------|-------|
@@ -384,7 +405,7 @@ Meepo registers 75+ tools that Claude can use during conversations:
 | **Music** | `get_current_track`, `music_control` |
 | **UI Automation** | `read_screen`, `click_element`, `type_text` |
 | **Browser** | `browser_list_tabs`, `browser_open_tab`, `browser_close_tab`, `browser_switch_tab`, `browser_get_page_content`, `browser_execute_js`, `browser_click`, `browser_fill_form`, `browser_navigate`, `browser_get_url`, `browser_screenshot` |
-| **Code** | `write_code`, `make_pr`, `review_pr`, `spawn_claude_code` |
+| **Code** | `write_code`, `make_pr`, `review_pr`, `spawn_coding_agent` |
 | **Web** | `web_search`, `browse_url` |
 | **Memory** | `remember`, `recall`, `search_knowledge`, `link_entities` |
 | **System** | `run_command`, `read_file`, `write_file` |
@@ -409,14 +430,24 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ## Running as a Background Service
 
-**macOS** — Install as a launchd agent (starts on login, auto-restarts):
+**macOS (Homebrew) — recommended:**
+
+```bash
+brew services start meepo   # Start and enable on login
+brew services stop meepo    # Stop
+brew services restart meepo # Restart
+```
+
+Logs: `$(brew --prefix)/var/log/meepo/meepo.log`
+
+**macOS (manual launchd):**
 
 ```bash
 scripts/install.sh     # Install and start
 scripts/uninstall.sh   # Remove
 ```
 
-Logs are at `~/.meepo/logs/meepo.out.log`.
+Logs: `~/.meepo/logs/meepo.out.log`
 
 **Windows** — Install as a scheduled task (starts on login, auto-restarts):
 
@@ -438,7 +469,7 @@ tart run meepo-vm
 
 # Inside the VM — install and set up Meepo
 curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
-export ANTHROPIC_API_KEY="sk-ant-..."
+export ANTHROPIC_API_KEY="sk-ant-..."  # or OPENAI_API_KEY, or use Ollama
 meepo setup
 meepo start
 ```
@@ -475,8 +506,8 @@ tart run meepo-vm --rosetta --dir=share:~/shared
 
 ## Troubleshooting
 
-**"API key not set" or empty responses**
-- Verify: `echo $ANTHROPIC_API_KEY` — should start with `sk-ant-`
+**"No LLM provider configured" or empty responses**
+- Verify at least one provider key is set: `echo $ANTHROPIC_API_KEY` or `echo $OPENAI_API_KEY`
 - If using the launch agent, re-run `scripts/install.sh` after setting new env vars (the plist snapshots env vars at install time)
 
 **iMessage not receiving messages**
@@ -519,6 +550,8 @@ tart run meepo-vm --rosetta --dir=share:~/shared
 - PowerShell `$env:` variables are session-only. To persist:
   ```powershell
   [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
+  # Or for OpenAI:
+  [Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "sk-...", "User")
   ```
 - Then restart your terminal
 

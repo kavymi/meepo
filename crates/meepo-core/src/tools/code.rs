@@ -1,4 +1,4 @@
-//! Claude Code CLI integration tools
+//! Coding agent CLI integration tools
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -13,10 +13,10 @@ use super::autonomous::BackgroundTaskCommand;
 use super::{ToolHandler, json_schema};
 use meepo_knowledge::KnowledgeDb;
 
-/// Configuration for Claude Code CLI tools, plumbed from [code] config section
+/// Configuration for coding agent CLI tools, plumbed from [code] config section
 #[derive(Debug, Clone)]
 pub struct CodeToolConfig {
-    pub claude_code_path: String,
+    pub coding_agent_path: String,
     pub gh_path: String,
     pub default_workspace: String,
 }
@@ -24,14 +24,14 @@ pub struct CodeToolConfig {
 impl Default for CodeToolConfig {
     fn default() -> Self {
         Self {
-            claude_code_path: "claude".to_string(),
+            coding_agent_path: "claude".to_string(),
             gh_path: "gh".to_string(),
             default_workspace: ".".to_string(),
         }
     }
 }
 
-/// Execute a coding task using Claude Code CLI
+/// Execute a coding task using a coding agent CLI
 pub struct WriteCodeTool {
     config: CodeToolConfig,
 }
@@ -49,7 +49,7 @@ impl ToolHandler for WriteCodeTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a coding task using Claude Code CLI. Provide a task description and workspace directory."
+        "Execute a coding task using a coding agent CLI. Provide a task description and workspace directory."
     }
 
     fn input_schema(&self) -> Value {
@@ -116,7 +116,7 @@ impl ToolHandler for WriteCodeTool {
 
         let output = tokio::time::timeout(
             Duration::from_secs(300),
-            Command::new(&self.config.claude_code_path)
+            Command::new(&self.config.coding_agent_path)
                 .arg("--print")
                 .arg("--dangerously-skip-permissions")
                 .arg(task)
@@ -124,21 +124,21 @@ impl ToolHandler for WriteCodeTool {
                 .output(),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("Claude CLI timed out after 5 minutes"))?
-        .context("Failed to execute claude CLI")?;
+        .map_err(|_| anyhow::anyhow!("Coding agent CLI timed out after 5 minutes"))?
+        .context("Failed to execute coding agent CLI")?;
 
         if output.status.success() {
             let result = String::from_utf8_lossy(&output.stdout).to_string();
             Ok(format!("Task completed:\n{}", result))
         } else {
             let error = String::from_utf8_lossy(&output.stderr).to_string();
-            warn!("Claude Code task failed: {}", error);
-            Err(anyhow::anyhow!("Claude Code task failed: {}", error))
+            warn!("Coding agent task failed: {}", error);
+            Err(anyhow::anyhow!("Coding agent task failed: {}", error))
         }
     }
 }
 
-/// Create a PR using Claude Code CLI
+/// Create a PR using a coding agent CLI
 pub struct MakePrTool {
     config: CodeToolConfig,
 }
@@ -156,7 +156,7 @@ impl ToolHandler for MakePrTool {
     }
 
     fn description(&self) -> &str {
-        "Create a branch, implement changes, and create a pull request using Claude Code CLI and GitHub CLI."
+        "Create a branch, implement changes, and create a pull request using a coding agent CLI and GitHub CLI."
     }
 
     fn input_schema(&self) -> Value {
@@ -307,10 +307,10 @@ impl ToolHandler for MakePrTool {
         }
         let branch_created = true;
 
-        // Execute task with Claude Code
+        // Execute task with coding agent
         let code_output = tokio::time::timeout(
             Duration::from_secs(300),
-            Command::new(&self.config.claude_code_path)
+            Command::new(&self.config.coding_agent_path)
                 .arg("--print")
                 .arg("--dangerously-skip-permissions")
                 .arg(task)
@@ -318,12 +318,12 @@ impl ToolHandler for MakePrTool {
                 .output(),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("Claude CLI timed out after 5 minutes"))??;
+        .map_err(|_| anyhow::anyhow!("Coding agent CLI timed out after 5 minutes"))??;
 
         if !code_output.status.success() {
             let error = String::from_utf8_lossy(&code_output.stderr).to_string();
             cleanup(branch_created, branch_pushed).await;
-            return Err(anyhow::anyhow!("Claude Code task failed: {}", error));
+            return Err(anyhow::anyhow!("Coding agent task failed: {}", error));
         }
 
         // Commit changes
@@ -338,7 +338,7 @@ impl ToolHandler for MakePrTool {
         .map_err(|_| anyhow::anyhow!("Git command timed out after 60 seconds"))??;
 
         let commit_msg = format!(
-            "feat: {}\n\nCo-Authored-By: meepo <meepo@anthropic.com>",
+            "feat: {}\n\nCo-Authored-By: meepo <meepo@users.noreply.github.com>",
             task
         );
         let _commit_result = tokio::time::timeout(
@@ -580,7 +580,7 @@ impl ToolHandler for ReviewPrTool {
     }
 
     fn description(&self) -> &str {
-        "Review a pull request by fetching its details and diff using GitHub CLI, then asking Claude to analyze it."
+        "Review a pull request by fetching its details and diff using GitHub CLI, then analyzing it."
     }
 
     fn input_schema(&self) -> Value {
@@ -675,14 +675,14 @@ impl ToolHandler for ReviewPrTool {
     }
 }
 
-/// Spawn a Claude Code CLI agent as a background task
-pub struct SpawnClaudeCodeTool {
+/// Spawn a coding agent CLI as a background task
+pub struct SpawnCodingAgentTool {
     config: CodeToolConfig,
     db: Arc<KnowledgeDb>,
     command_tx: mpsc::Sender<BackgroundTaskCommand>,
 }
 
-impl SpawnClaudeCodeTool {
+impl SpawnCodingAgentTool {
     pub fn new(
         config: CodeToolConfig,
         db: Arc<KnowledgeDb>,
@@ -697,13 +697,13 @@ impl SpawnClaudeCodeTool {
 }
 
 #[async_trait]
-impl ToolHandler for SpawnClaudeCodeTool {
+impl ToolHandler for SpawnCodingAgentTool {
     fn name(&self) -> &str {
-        "spawn_claude_code"
+        "spawn_coding_agent"
     }
 
     fn description(&self) -> &str {
-        "Spawn a Claude Code CLI agent as a background task to work on coding tasks autonomously. \
+        "Spawn a coding agent CLI as a background task to work on coding tasks autonomously. \
          The agent runs in its own process and results are reported when done. \
          Use this for longer coding tasks that shouldn't block the conversation."
     }
@@ -713,7 +713,7 @@ impl ToolHandler for SpawnClaudeCodeTool {
             serde_json::json!({
                 "task": {
                     "type": "string",
-                    "description": "Description of the coding task for Claude Code to execute"
+                    "description": "Description of the coding task for the coding agent to execute"
                 },
                 "workspace": {
                     "type": "string",
@@ -750,10 +750,10 @@ impl ToolHandler for SpawnClaudeCodeTool {
         }
 
         let task_id = format!("t-{}", uuid::Uuid::new_v4());
-        let description = format!("Claude Code: {}", &task[..task.len().min(100)]);
+        let description = format!("Coding agent: {}", &task[..task.len().min(100)]);
 
         debug!(
-            "Spawning Claude Code background task {}: {}",
+            "Spawning coding agent background task {}: {}",
             task_id, description
         );
 
@@ -765,7 +765,7 @@ impl ToolHandler for SpawnClaudeCodeTool {
 
         // Send spawn command to main loop
         self.command_tx
-            .send(BackgroundTaskCommand::SpawnClaudeCode {
+            .send(BackgroundTaskCommand::SpawnCodingAgent {
                 id: task_id.clone(),
                 task: task.to_string(),
                 workspace: workspace.to_string(),
@@ -775,7 +775,7 @@ impl ToolHandler for SpawnClaudeCodeTool {
             .context("Failed to send background task command")?;
 
         Ok(format!(
-            "Spawned Claude Code agent [{}] in workspace '{}'. \
+            "Spawned coding agent [{}] in workspace '{}'. \
              It will run in the background and report results to '{}'.",
             task_id, workspace, reply_channel
         ))

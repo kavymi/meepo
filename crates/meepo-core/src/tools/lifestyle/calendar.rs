@@ -104,7 +104,13 @@ impl ToolHandler for FindFreeTimeTool {
              2. At least {} minutes long\n\
              3. Not overlapping with any existing events\n\n\
              Format each slot as: DATE | START - END | DURATION",
-            days_ahead, events, work_start, work_end, min_duration, work_start, work_end,
+            days_ahead,
+            events,
+            work_start,
+            work_end,
+            min_duration,
+            work_start,
+            work_end,
             min_duration
         ))
     }
@@ -334,9 +340,7 @@ impl ToolHandler for RescheduleEventTool {
             .unwrap_or("Schedule conflict");
 
         if event_title.len() > 500 {
-            return Err(anyhow::anyhow!(
-                "Event title too long (max 500 characters)"
-            ));
+            return Err(anyhow::anyhow!("Event title too long (max 500 characters)"));
         }
 
         debug!("Rescheduling '{}' to {}", event_title, new_time);
@@ -470,11 +474,7 @@ impl ToolHandler for DailyBriefingTool {
         };
 
         // Get active goals
-        let goals = self
-            .db
-            .get_active_goals()
-            .await
-            .unwrap_or_default();
+        let goals = self.db.get_active_goals().await.unwrap_or_default();
         let goals_str = if goals.is_empty() {
             "No active goals.".to_string()
         } else {
@@ -540,11 +540,7 @@ impl ToolHandler for WeeklyReviewTool {
         let upcoming = self.calendar.read_events(7).await?;
 
         // Get completed actions from action log
-        let actions = self
-            .db
-            .get_recent_actions(20)
-            .await
-            .unwrap_or_default();
+        let actions = self.db.get_recent_actions(20).await.unwrap_or_default();
         let actions_str = if actions.is_empty() {
             "No logged actions this week.".to_string()
         } else {
@@ -610,7 +606,10 @@ mod tests {
         assert_eq!(tool.name(), "schedule_meeting");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"title".to_string()));
@@ -626,9 +625,8 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     fn test_daily_briefing_schema() {
-        let db = Arc::new(
-            KnowledgeDb::new(&std::env::temp_dir().join("test_briefing.db")).unwrap(),
-        );
+        let db =
+            Arc::new(KnowledgeDb::new(&std::env::temp_dir().join("test_briefing.db")).unwrap());
         let tool = DailyBriefingTool::new(db);
         assert_eq!(tool.name(), "daily_briefing");
     }
@@ -636,9 +634,7 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     fn test_weekly_review_schema() {
-        let db = Arc::new(
-            KnowledgeDb::new(&std::env::temp_dir().join("test_weekly.db")).unwrap(),
-        );
+        let db = Arc::new(KnowledgeDb::new(&std::env::temp_dir().join("test_weekly.db")).unwrap());
         let tool = WeeklyReviewTool::new(db);
         assert_eq!(tool.name(), "weekly_review");
     }

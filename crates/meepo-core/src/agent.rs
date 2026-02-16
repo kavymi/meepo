@@ -129,7 +129,9 @@ impl Agent {
                 );
                 return Ok(OutgoingMessage {
                     channel: msg.channel,
-                    content: "I'm unable to process that request as it was flagged by safety checks.".to_string(),
+                    content:
+                        "I'm unable to process that request as it was flagged by safety checks."
+                            .to_string(),
                     reply_to: Some(msg.id.clone()),
                     kind: MessageKind::Response,
                 });
@@ -186,7 +188,11 @@ impl Agent {
         // Check budget before making API call
         if let Some(tracker) = &self.usage_tracker {
             match tracker.check_budget().await {
-                Ok(crate::usage::BudgetStatus::Exceeded { period, spent, budget }) => {
+                Ok(crate::usage::BudgetStatus::Exceeded {
+                    period,
+                    spent,
+                    budget,
+                }) => {
                     return Ok(OutgoingMessage {
                         content: format!(
                             "I've reached my {} budget limit (${:.2} of ${:.2}). \
@@ -198,7 +204,12 @@ impl Agent {
                         kind: MessageKind::Response,
                     });
                 }
-                Ok(crate::usage::BudgetStatus::Warning { period, spent, budget, percent }) => {
+                Ok(crate::usage::BudgetStatus::Warning {
+                    period,
+                    spent,
+                    budget,
+                    percent,
+                }) => {
                     debug!(
                         "Budget warning: {} at {:.0}% (${:.2} of ${:.2})",
                         period, percent, spent, budget

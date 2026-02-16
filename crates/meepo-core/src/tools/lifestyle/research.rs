@@ -478,10 +478,7 @@ impl ToolHandler for FactCheckTool {
             .get("claim")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'claim' parameter"))?;
-        let context = input
-            .get("context")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let context = input.get("context").and_then(|v| v.as_str()).unwrap_or("");
 
         if claim.len() > 2000 {
             return Err(anyhow::anyhow!("Claim too long (max 2000 characters)"));
@@ -566,7 +563,10 @@ mod tests {
         assert_eq!(tool.name(), "research_topic");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"topic".to_string()));

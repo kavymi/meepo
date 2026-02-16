@@ -31,7 +31,7 @@ meepo-core (20,000+ lines) — the heart
 ├── tools/ — 75+ tools across 15 modules
 │   ├── canvas.rs (NEW) — 4 canvas tools
 │   ├── browser.rs — 11 Safari/Chrome automation tools
-│   ├── code.rs — write_code, make_pr, review_pr, spawn_claude_code
+│   ├── code.rs — write_code, make_pr, review_pr, spawn_coding_agent
 │   ├── filesystem.rs — list_directory, search_files
 │   ├── lifestyle/ — email, calendar, research, sms, tasks, news, finance, health, travel, social
 │   ├── macos.rs — email, calendar, reminders, notes, notifications, music, contacts, clipboard

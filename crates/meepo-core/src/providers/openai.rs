@@ -85,8 +85,7 @@ impl OpenAiProvider {
                                     r#type: "function".to_string(),
                                     function: OpenAiFunction {
                                         name: name.clone(),
-                                        arguments: serde_json::to_string(input)
-                                            .unwrap_or_default(),
+                                        arguments: serde_json::to_string(input).unwrap_or_default(),
                                     },
                                 });
                             }
@@ -181,10 +180,8 @@ impl OpenAiProvider {
 
         if let Some(tool_calls) = choice.message.tool_calls {
             for tc in tool_calls {
-                let input: Value =
-                    serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Object(
-                        serde_json::Map::new(),
-                    ));
+                let input: Value = serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or(Value::Object(serde_json::Map::new()));
                 blocks.push(ChatResponseBlock::ToolCall {
                     id: tc.id,
                     name: tc.function.name,
@@ -458,7 +455,9 @@ mod tests {
         };
         let result = OpenAiProvider::from_openai_response(resp).unwrap();
         assert_eq!(result.stop_reason, StopReason::ToolUse);
-        assert!(matches!(&result.blocks[0], ChatResponseBlock::ToolCall { name, .. } if name == "search"));
+        assert!(
+            matches!(&result.blocks[0], ChatResponseBlock::ToolCall { name, .. } if name == "search")
+        );
     }
 
     #[test]

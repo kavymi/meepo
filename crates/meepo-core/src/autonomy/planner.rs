@@ -62,8 +62,14 @@ pub fn build_situation_report(
 
     report.push_str(&format!("- **Active goals:** {}\n", active_goal_count));
     report.push_str(&format!("- **Goals due for review:** {}\n", due_goal_count));
-    report.push_str(&format!("- **Running background tasks:** {}\n", running_task_count));
-    report.push_str(&format!("- **Active watchers:** {}\n", active_watcher_count));
+    report.push_str(&format!(
+        "- **Running background tasks:** {}\n",
+        running_task_count
+    ));
+    report.push_str(&format!(
+        "- **Active watchers:** {}\n",
+        active_watcher_count
+    ));
 
     report
 }

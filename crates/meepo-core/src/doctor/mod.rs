@@ -77,8 +77,8 @@ pub async fn run_doctor(
     // 3. Docker available (for sandbox)
     checks.push(check_docker().await);
 
-    // 4. API key configured
-    checks.push(check_api_key("ANTHROPIC_API_KEY"));
+    // 4. LLM provider API key configured (check common providers)
+    checks.push(check_llm_api_key());
 
     // 5. Git available
     checks.push(check_command("git", &["--version"], "Git"));
@@ -92,10 +92,22 @@ pub async fn run_doctor(
     // 8. Temp directory writable
     checks.push(check_temp_dir());
 
-    let pass_count = checks.iter().filter(|c| c.status == CheckStatus::Pass).count();
-    let warn_count = checks.iter().filter(|c| c.status == CheckStatus::Warn).count();
-    let fail_count = checks.iter().filter(|c| c.status == CheckStatus::Fail).count();
-    let skip_count = checks.iter().filter(|c| c.status == CheckStatus::Skip).count();
+    let pass_count = checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Pass)
+        .count();
+    let warn_count = checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Warn)
+        .count();
+    let fail_count = checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Fail)
+        .count();
+    let skip_count = checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Skip)
+        .count();
 
     let report = DoctorReport {
         checks,
@@ -207,6 +219,39 @@ async fn check_docker() -> CheckResult {
             message: "Docker is not installed (sandbox features unavailable)".to_string(),
             fix_hint: Some("Install Docker: https://docs.docker.com/get-docker/".to_string()),
         },
+    }
+}
+
+fn check_llm_api_key() -> CheckResult {
+    let providers = [
+        ("ANTHROPIC_API_KEY", "Anthropic"),
+        ("OPENAI_API_KEY", "OpenAI"),
+        ("GOOGLE_AI_API_KEY", "Google AI"),
+    ];
+
+    for (env_var, name) in &providers {
+        if let Ok(val) = std::env::var(env_var) {
+            if !val.is_empty() {
+                let masked = if val.len() > 8 {
+                    format!("{}...{}", &val[..4], &val[val.len() - 4..])
+                } else {
+                    "****".to_string()
+                };
+                return CheckResult {
+                    name: "llm_api_key".to_string(),
+                    status: CheckStatus::Pass,
+                    message: format!("{} provider configured via {} ({})", name, env_var, masked),
+                    fix_hint: None,
+                };
+            }
+        }
+    }
+
+    CheckResult {
+        name: "llm_api_key".to_string(),
+        status: CheckStatus::Warn,
+        message: "No LLM provider API key found (checked ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_AI_API_KEY)".to_string(),
+        fix_hint: Some("Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_AI_API_KEY — or use Ollama (no key needed)".to_string()),
     }
 }
 
@@ -414,14 +459,12 @@ mod tests {
     #[test]
     fn test_doctor_report_healthy() {
         let report = DoctorReport {
-            checks: vec![
-                CheckResult {
-                    name: "test".to_string(),
-                    status: CheckStatus::Pass,
-                    message: "ok".to_string(),
-                    fix_hint: None,
-                },
-            ],
+            checks: vec![CheckResult {
+                name: "test".to_string(),
+                status: CheckStatus::Pass,
+                message: "ok".to_string(),
+                fix_hint: None,
+            }],
             pass_count: 1,
             warn_count: 0,
             fail_count: 0,

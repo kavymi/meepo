@@ -56,7 +56,7 @@ crates/
 │   └── src/
 │       ├── lib.rs      # Public API exports
 │       ├── agent.rs    # Agent struct, message handling, conversation history
-│       ├── api.rs      # Anthropic API client, tool loop
+│       ├── api.rs      # LLM API client (multi-provider), tool loop
 │       ├── tavily.rs   # Tavily Search/Extract client
 │       ├── orchestrator.rs  # Sub-agent task orchestrator
 │       ├── context.rs  # System prompt builder (SOUL + MEMORY)
@@ -81,7 +81,7 @@ crates/
 │           ├── macos.rs        # Email, Calendar, Reminders, Notes, Contacts, Music, etc.
 │           ├── accessibility.rs # Screen reader, click, type
 │           ├── browser.rs      # Browser automation (11 tools)
-│           ├── code.rs         # write_code, make_pr, review_pr, spawn_claude_code
+│           ├── code.rs         # write_code, make_pr, review_pr, spawn_coding_agent
 │           ├── search.rs       # web_search via Tavily
 │           ├── memory.rs       # Knowledge graph tools (4 tools)
 │           ├── system.rs       # Commands, files, browse_url
@@ -129,7 +129,7 @@ crates/
 
 ## Key Patterns
 
-**Tool system:** All tools implement the `ToolHandler` trait (`name()`, `description()`, `input_schema()`, `execute()`). They're registered in a `ToolRegistry` (HashMap-backed) at daemon startup. The API client runs a tool loop until Claude returns a final text response or hits the 10-iteration limit.
+**Tool system:** All tools implement the `ToolHandler` trait (`name()`, `description()`, `input_schema()`, `execute()`). They're registered in a `ToolRegistry` (HashMap-backed) at daemon startup. The API client runs a tool loop until the LLM returns a final text response or hits the 10-iteration limit.
 
 **Channel adapters:** Channels implement `MessageChannel` trait (`start()`, `send()`, `channel_type()`). The `MessageBus` splits into a receiver and an `Arc<BusSender>` for concurrent send/receive.
 

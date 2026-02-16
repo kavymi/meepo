@@ -13,7 +13,14 @@ Write-Host "  ────────────────"
 Write-Host ""
 
 # Detect platform
-$arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+$cpuArch = (Get-CimInstance Win32_Processor).Architecture
+# Architecture: 0=x86, 5=ARM, 9=x64, 12=ARM64
+$arch = switch ($cpuArch) {
+    12    { "arm64" }
+    5     { "arm64" }
+    9     { "x64" }
+    default { "x64" }
+}
 $platform = "meepo-windows-${arch}"
 Write-Host "  Platform: $platform"
 

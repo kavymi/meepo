@@ -133,7 +133,7 @@ fn select_heuristic(
         relevant_prefixes.push("write_code");
         relevant_prefixes.push("make_pr");
         relevant_prefixes.push("review_pr");
-        relevant_prefixes.push("spawn_claude");
+        relevant_prefixes.push("spawn_coding");
     }
     if lower.contains("file") || lower.contains("directory") || lower.contains("folder") {
         relevant_prefixes.push("read_file");

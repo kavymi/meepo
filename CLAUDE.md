@@ -49,12 +49,12 @@ crates/
 │   └── template.rs    # Agent template system
 ├── meepo-core/src/
 │   ├── agent.rs       # Agent struct, message handling
-│   ├── api.rs         # Anthropic API client with tool loop
+│   ├── api.rs         # LLM API client (multi-provider) with tool loop
 │   ├── tools/         # All tool implementations
 │   │   ├── mod.rs     # ToolHandler trait, ToolRegistry, ToolExecutor
 │   │   ├── macos.rs   # Email, Calendar, Reminders, Notes, Contacts, Music, etc.
 │   │   ├── browser.rs # 11 browser automation tools
-│   │   ├── code.rs    # write_code, make_pr, review_pr, spawn_claude_code
+│   │   ├── code.rs    # write_code, make_pr, review_pr, spawn_coding_agent
 │   │   ├── lifestyle/ # Email intelligence, calendar, research, SMS, tasks, news, finance, health, travel, social
 │   │   └── ...
 │   ├── autonomy/      # Autonomous loop, goals, planner, user model

@@ -184,7 +184,7 @@ async fn cmd_setup() -> Result<()> {
     println!("  ╚══════════════════════════════════════╝");
     println!();
     println!("  This wizard will walk you through everything:");
-    println!("    • API keys (Anthropic, Tavily)");
+    println!("    • LLM provider setup (Anthropic, OpenAI, Ollama, etc.)");
     println!("    • macOS permissions (Accessibility, Full Disk Access, etc.)");
     println!("    • Feature selection (iMessage, email, browser, etc.)");
     println!("    • Verify everything works");
@@ -217,34 +217,68 @@ async fn cmd_setup() -> Result<()> {
     let config_path = config_dir.join("config.toml");
     println!("  ✓ Config directory ready\n");
 
-    // ── Step 2: Anthropic API key ───────────────────────────────
-    setup_step(2, total_steps, "Anthropic API Key (required)");
-    println!("  Meepo needs an Anthropic API key to talk to Claude.");
+    // ── Step 2: LLM Provider ────────────────────────────────────
+    setup_step(2, total_steps, "LLM Provider Setup");
+    println!("  Meepo supports multiple LLM providers:");
+    println!("    1. Anthropic (Claude)  — requires API key");
+    println!("    2. OpenAI (GPT-4o)     — requires API key");
+    println!("    3. Ollama (local)      — free, no API key needed");
     println!();
-    println!("  How to get one:");
-    println!("    1. Go to https://console.anthropic.com/settings/keys");
-    println!("    2. Click \"Create Key\"");
-    println!("    3. Copy the key (starts with sk-ant-...)");
-    println!();
+    print!("  Which provider? [1/2/3] (default: 1): ");
+    io::stdout().flush()?;
+    let mut provider_choice = String::new();
+    io::stdin().lock().read_line(&mut provider_choice)?;
+    let provider_choice = provider_choice.trim();
 
-    let api_key = if let Ok(existing) = std::env::var("ANTHROPIC_API_KEY") {
-        if !existing.is_empty() && existing.starts_with("sk-ant-") {
-            println!("  ✓ Found ANTHROPIC_API_KEY in environment.");
-            println!(
-                "    Using existing key: {}...{}",
-                &existing[..10],
-                &existing[existing.len() - 4..]
-            );
-            existing
-        } else {
-            prompt_api_key()?
+    let api_key = match provider_choice {
+        "2" => {
+            println!();
+            println!("  How to get an OpenAI API key:");
+            println!("    1. Go to https://platform.openai.com/api-keys");
+            println!("    2. Click \"Create new secret key\"");
+            println!("    3. Copy the key (starts with sk-...)");
+            println!();
+            let key = prompt_generic_api_key("OPENAI_API_KEY", "sk-")?;
+            save_env_var_persistent("OPENAI_API_KEY", &key)?;
+            update_config_value(&config_path, "agent", "default_model", "\"gpt-4o\"")?;
+            key
         }
-    } else {
-        prompt_api_key()?
+        "3" => {
+            println!();
+            println!("  Ollama runs LLMs locally — no API key needed.");
+            println!("  Install: https://ollama.ai");
+            println!("  Then: ollama pull llama3.2 && ollama serve");
+            println!();
+            update_config_value(&config_path, "agent", "default_model", "\"ollama\"")?;
+            println!("  ✓ Configured for Ollama (llama3.2).");
+            String::new()
+        }
+        _ => {
+            println!();
+            println!("  How to get an Anthropic API key:");
+            println!("    1. Go to https://console.anthropic.com/settings/keys");
+            println!("    2. Click \"Create Key\"");
+            println!("    3. Copy the key (starts with sk-ant-...)");
+            println!();
+            let key = if let Ok(existing) = std::env::var("ANTHROPIC_API_KEY") {
+                if !existing.is_empty() && existing.starts_with("sk-ant-") {
+                    println!("  ✓ Found ANTHROPIC_API_KEY in environment.");
+                    println!(
+                        "    Using existing key: {}...{}",
+                        &existing[..10],
+                        &existing[existing.len() - 4..]
+                    );
+                    existing
+                } else {
+                    prompt_api_key()?
+                }
+            } else {
+                prompt_api_key()?
+            };
+            save_env_var_persistent("ANTHROPIC_API_KEY", &key)?;
+            key
+        }
     };
-
-    // Persist API key
-    save_env_var_persistent("ANTHROPIC_API_KEY", &api_key)?;
     println!();
 
     // ── Step 3: Optional Tavily key ─────────────────────────────
@@ -548,54 +582,63 @@ async fn cmd_setup() -> Result<()> {
         setup_step(verify_step, total_steps, "Verify API Connection");
     }
 
-    println!("  Testing connection to Anthropic API...\n");
-    let cfg = MeepoConfig::load(&None)?;
-    let api =
-        meepo_core::api::ApiClient::new(api_key.clone(), Some(cfg.agent.default_model.clone()));
-    let api_ok = match tokio::time::timeout(
-        std::time::Duration::from_secs(15),
-        api.chat(
-            &[meepo_core::api::ApiMessage {
-                role: "user".to_string(),
-                content: meepo_core::api::MessageContent::Text(
-                    "Say 'hello' in one word.".to_string(),
-                ),
-            }],
-            &[],
-            "You are a helpful assistant.",
-        ),
-    )
-    .await
-    {
-        Ok(Ok(response)) => {
-            let text: String = response
-                .content
-                .iter()
-                .filter_map(|b| {
-                    if let meepo_core::api::ContentBlock::Text { text } = b {
-                        Some(text.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            println!("  Claude says: {}", text.trim());
-            println!("  ✓ API connection works!\n");
-            true
-        }
-        Ok(Err(e)) => {
-            let err_str = e.to_string();
-            eprintln!("  ✗ API test failed: {}", err_str);
-            if err_str.contains("401") || err_str.contains("auth") || err_str.contains("invalid") {
-                eprintln!("  Your API key may be incorrect or expired.");
+    println!("  Testing LLM connection...\n");
+    let api_ok = if api_key.is_empty() && provider_choice == "3" {
+        // Ollama — skip API test (user may not have it running yet)
+        println!("  Skipping API test for Ollama (start `ollama serve` first).\n");
+        true
+    } else {
+        let cfg = MeepoConfig::load(&None)?;
+        let api =
+            meepo_core::api::ApiClient::new(api_key.clone(), Some(cfg.agent.default_model.clone()));
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            api.chat(
+                &[meepo_core::api::ApiMessage {
+                    role: "user".to_string(),
+                    content: meepo_core::api::MessageContent::Text(
+                        "Say 'hello' in one word.".to_string(),
+                    ),
+                }],
+                &[],
+                "You are a helpful assistant.",
+            ),
+        )
+        .await
+        {
+            Ok(Ok(response)) => {
+                let text: String = response
+                    .content
+                    .iter()
+                    .filter_map(|b| {
+                        if let meepo_core::api::ContentBlock::Text { text } = b {
+                            Some(text.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                println!("  LLM says: {}", text.trim());
+                println!("  ✓ API connection works!\n");
+                true
             }
-            eprintln!("  Check your key and try again.\n");
-            false
-        }
-        Err(_) => {
-            eprintln!("  ✗ API test timed out (>15s).");
-            eprintln!("  Check your internet connection.\n");
-            false
+            Ok(Err(e)) => {
+                let err_str = e.to_string();
+                eprintln!("  ✗ API test failed: {}", err_str);
+                if err_str.contains("401")
+                    || err_str.contains("auth")
+                    || err_str.contains("invalid")
+                {
+                    eprintln!("  Your API key may be incorrect or expired.");
+                }
+                eprintln!("  Check your key and try again.\n");
+                false
+            }
+            Err(_) => {
+                eprintln!("  ✗ API test timed out (>15s).");
+                eprintln!("  Check your internet connection.\n");
+                false
+            }
         }
     };
 
@@ -837,6 +880,29 @@ fn prompt_api_key() -> Result<String> {
     }
 }
 
+fn prompt_generic_api_key(env_var: &str, prefix: &str) -> Result<String> {
+    use std::io::{self, BufRead, Write};
+
+    if let Ok(existing) = std::env::var(env_var) {
+        if !existing.is_empty() && existing.starts_with(prefix) {
+            println!("  ✓ Found {} in environment.", env_var);
+            return Ok(existing);
+        }
+    }
+
+    loop {
+        print!("  API key: ");
+        io::stdout().flush()?;
+        let mut key = String::new();
+        io::stdin().lock().read_line(&mut key)?;
+        let key = key.trim().to_string();
+        if !key.is_empty() {
+            return Ok(key);
+        }
+        anyhow::bail!("API key is required.");
+    }
+}
+
 fn detect_shell_rc() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let shell = std::env::var("SHELL").unwrap_or_default();
@@ -868,10 +934,7 @@ fn save_env_var_persistent(name: &str, value: &str) -> Result<()> {
             .args([
                 "-NoProfile",
                 "-Command",
-                &format!(
-                    "[Environment]::GetEnvironmentVariable('{}', 'User')",
-                    name
-                ),
+                &format!("[Environment]::GetEnvironmentVariable('{}', 'User')", name),
             ])
             .output()?;
         let existing = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -971,16 +1034,39 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
 
         let mut providers: Vec<Box<dyn meepo_core::providers::types::LlmProvider>> = Vec::new();
 
+        // Helper: try to add Anthropic provider
+        let add_anthropic =
+            |providers: &mut Vec<Box<dyn meepo_core::providers::types::LlmProvider>>,
+             model: &str,
+             max_tokens: u32|
+             -> bool {
+                if let Some(ref anthropic_cfg) = cfg.providers.anthropic {
+                    let api_key = shellexpand_str(&anthropic_cfg.api_key);
+                    if !api_key.is_empty() && !api_key.contains("${") {
+                        let base_url = shellexpand_str(&anthropic_cfg.base_url);
+                        providers.push(Box::new(AnthropicProvider::new(
+                            api_key,
+                            model.to_string(),
+                            base_url,
+                            max_tokens,
+                        )));
+                        return true;
+                    }
+                }
+                false
+            };
+
         if use_ollama {
             // Primary: Ollama (via OpenAI-compatible endpoint)
-            let ollama_cfg = cfg.providers.ollama.as_ref()
-                .ok_or_else(|| anyhow::anyhow!(
+            let ollama_cfg = cfg.providers.ollama.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
                     "default_model is \"ollama\" but [providers.ollama] is not configured.\n\n\
                      Add to your config.toml:\n  \
                      [providers.ollama]\n  \
                      base_url = \"http://localhost:11434\"\n  \
                      model = \"llama3.2\""
-                ))?;
+                )
+            })?;
             let url = format!("{}/v1", shellexpand_str(&ollama_cfg.base_url));
             providers.push(Box::new(OpenAiCompatProvider::new(
                 "ollama".to_string(),
@@ -992,40 +1078,71 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
             info!("Provider: ollama/{}", ollama_cfg.model);
 
             // Optional failover: Anthropic (if key is set)
-            let api_key = shellexpand_str(&cfg.providers.anthropic.api_key);
-            if !api_key.is_empty() && !api_key.contains("${") {
-                let base_url = shellexpand_str(&cfg.providers.anthropic.base_url);
-                providers.push(Box::new(AnthropicProvider::new(
-                    api_key,
-                    "claude-sonnet-4-20250514".to_string(),
-                    base_url,
-                    cfg.agent.max_tokens,
-                )));
+            if add_anthropic(
+                &mut providers,
+                "claude-sonnet-4-20250514",
+                cfg.agent.max_tokens,
+            ) {
                 info!("Provider: anthropic (failover)");
             }
         } else {
-            // Primary: Anthropic (required when not using Ollama)
-            let api_key = shellexpand_str(&cfg.providers.anthropic.api_key);
-            if api_key.is_empty() || api_key.contains("${") {
+            // Try to add the primary provider based on default_model
+            let model = &cfg.agent.default_model;
+            let mut primary_added = false;
+
+            // Check if model looks like an OpenAI model
+            if model.starts_with("gpt-") || model.starts_with("o1") || model.starts_with("o3") {
+                if let Some(openai_cfg) = &cfg.providers.openai {
+                    let key = shellexpand_str(&openai_cfg.api_key);
+                    if !key.is_empty() && !key.contains("${") {
+                        use meepo_core::providers::openai::OpenAiProvider;
+                        let url = shellexpand_str(&openai_cfg.base_url);
+                        providers.push(Box::new(OpenAiProvider::new(
+                            key,
+                            model.clone(),
+                            url,
+                            openai_cfg.max_tokens,
+                        )));
+                        info!("Provider: openai/{}", model);
+                        primary_added = true;
+                    }
+                }
+            }
+            // Check if model looks like a Gemini model
+            else if model.starts_with("gemini") {
+                if let Some(google_cfg) = &cfg.providers.google {
+                    let key = shellexpand_str(&google_cfg.api_key);
+                    if !key.is_empty() && !key.contains("${") {
+                        use meepo_core::providers::google::GoogleProvider;
+                        providers.push(Box::new(GoogleProvider::new(
+                            key,
+                            model.clone(),
+                            google_cfg.max_tokens,
+                        )));
+                        info!("Provider: google/{}", model);
+                        primary_added = true;
+                    }
+                }
+            }
+
+            // Default: try Anthropic as primary
+            if !primary_added {
+                if add_anthropic(&mut providers, model, cfg.agent.max_tokens) {
+                    info!("Provider: anthropic/{}", model);
+                    primary_added = true;
+                }
+            }
+
+            if !primary_added {
                 anyhow::bail!(
-                    "ANTHROPIC_API_KEY is not set.\n\n\
-                     Fix it with:\n  \
-                     export ANTHROPIC_API_KEY=\"sk-ant-...\"\n\n\
-                     Or use Ollama (no API key needed):\n  \
-                     Set default_model = \"ollama\" in config.toml\n\n\
-                     Or run the setup wizard:\n  \
-                     meepo setup\n\n\
-                     Get a key at: https://console.anthropic.com/settings/keys"
+                    "No LLM provider configured for model \"{}\".\n\n\
+                     Options:\n  \
+                     1. Set ANTHROPIC_API_KEY and use a Claude model\n  \
+                     2. Set OPENAI_API_KEY and default_model = \"gpt-4o\"\n  \
+                     3. Set default_model = \"ollama\" for local inference\n\n\
+                     Run `meepo setup` for guided configuration."
                 );
             }
-            let base_url = shellexpand_str(&cfg.providers.anthropic.base_url);
-            providers.push(Box::new(AnthropicProvider::new(
-                api_key,
-                cfg.agent.default_model.clone(),
-                base_url,
-                cfg.agent.max_tokens,
-            )));
-            info!("Provider: anthropic/{}", cfg.agent.default_model);
 
             // Optional failover: Ollama
             if let Some(ollama_cfg) = &cfg.providers.ollama {
@@ -1041,37 +1158,45 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
             }
         }
 
-        // Optional: OpenAI
+        // Additional failover providers (add if not already primary)
+
+        // OpenAI (if not already primary)
         if let Some(openai_cfg) = &cfg.providers.openai {
             let key = shellexpand_str(&openai_cfg.api_key);
             if !key.is_empty() && !key.contains("${") {
-                use meepo_core::providers::openai::OpenAiProvider;
-                let url = shellexpand_str(&openai_cfg.base_url);
-                providers.push(Box::new(OpenAiProvider::new(
-                    key,
-                    openai_cfg.model.clone(),
-                    url,
-                    openai_cfg.max_tokens,
-                )));
-                info!("Provider: openai/{}", openai_cfg.model);
+                let already = providers.iter().any(|p| p.provider_name() == "openai");
+                if !already {
+                    use meepo_core::providers::openai::OpenAiProvider;
+                    let url = shellexpand_str(&openai_cfg.base_url);
+                    providers.push(Box::new(OpenAiProvider::new(
+                        key,
+                        openai_cfg.model.clone(),
+                        url,
+                        openai_cfg.max_tokens,
+                    )));
+                    info!("Provider: openai/{} (failover)", openai_cfg.model);
+                }
             }
         }
 
-        // Optional: Google Gemini
+        // Google Gemini (if not already primary)
         if let Some(google_cfg) = &cfg.providers.google {
             let key = shellexpand_str(&google_cfg.api_key);
             if !key.is_empty() && !key.contains("${") {
-                use meepo_core::providers::google::GoogleProvider;
-                providers.push(Box::new(GoogleProvider::new(
-                    key,
-                    google_cfg.model.clone(),
-                    google_cfg.max_tokens,
-                )));
-                info!("Provider: google/{}", google_cfg.model);
+                let already = providers.iter().any(|p| p.provider_name() == "google");
+                if !already {
+                    use meepo_core::providers::google::GoogleProvider;
+                    providers.push(Box::new(GoogleProvider::new(
+                        key,
+                        google_cfg.model.clone(),
+                        google_cfg.max_tokens,
+                    )));
+                    info!("Provider: google/{} (failover)", google_cfg.model);
+                }
             }
         }
 
-        // Optional: OpenAI-compatible (generic)
+        // OpenAI-compatible (generic)
         if let Some(compat_cfg) = &cfg.providers.openai_compat {
             let key = shellexpand_str(&compat_cfg.api_key);
             let url = shellexpand_str(&compat_cfg.base_url);
@@ -1088,6 +1213,15 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 compat_cfg.max_tokens,
             )));
             info!("Provider: {}/{}", name, compat_cfg.model);
+        }
+
+        // Anthropic as failover (if not already added)
+        if !providers.iter().any(|p| p.provider_name() == "anthropic") {
+            add_anthropic(
+                &mut providers,
+                "claude-sonnet-4-20250514",
+                cfg.agent.max_tokens,
+            );
         }
 
         let router = if providers.len() == 1 {
@@ -1162,6 +1296,61 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         ));
         registry.register(Arc::new(meepo_core::tools::macos::MusicControlTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
+        // ── New macOS Automation Tools ──────────────────────────────
+        // System control
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetVolumeTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::SetVolumeTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleMuteTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleDarkModeTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::SetDoNotDisturbTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetBatteryStatusTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetWifiInfoTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetDiskUsageTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::LockScreenTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::SleepDisplayTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetRunningAppsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::QuitAppTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::ForceQuitAppTool::new()));
+        // Finder
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderGetSelectionTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderRevealTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderTagTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderQuickLookTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::TrashFileTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::EmptyTrashTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::GetRecentFilesTool::new()));
+        // Spotlight
+        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightSearchTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightMetadataTool::new()));
+        // Shortcuts
+        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::ListShortcutsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::RunShortcutTool::new()));
+        // Keychain
+        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainGetPasswordTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainStorePasswordTool::new()));
+        // Messages & FaceTime
+        registry.register(Arc::new(meepo_core::tools::macos_messages::ReadMessagesTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_messages::SendMessageTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_messages::StartFaceTimeTool::new()));
+        // Media (Photos, Audio, TTS, OCR)
+        registry.register(Arc::new(meepo_core::tools::macos_media::SearchPhotosTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::ExportPhotosTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::RecordAudioTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::TextToSpeechTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::OcrImageTool::new()));
+        // Window management
+        registry.register(Arc::new(meepo_core::tools::macos_windows::ListWindowsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::MoveWindowTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::MinimizeWindowTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::FullscreenWindowTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::ArrangeWindowsTool::new()));
+        // Terminal
+        registry.register(Arc::new(meepo_core::tools::macos_terminal::ListTerminalTabsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_terminal::SendTerminalCommandTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_terminal::GetOpenPortsTool::new()));
+        // Productivity
+        registry.register(Arc::new(meepo_core::tools::macos_productivity::SetClipboardTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_productivity::GetFrontmostDocumentTool::new()));
     }
     // Browser automation tools (macOS: Safari/Chrome via AppleScript)
     #[cfg(target_os = "macos")]
@@ -1200,10 +1389,70 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         registry.register(Arc::new(
             meepo_core::tools::browser::BrowserScreenshotTool::new(browser),
         ));
-        info!("Registered browser tools (browser: {})", browser);
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserScrollTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserWaitForElementTool::new(browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserScreenshotTabTool::new(browser),
+        ));
+        // Register the other browser too (Safari+Chrome dual support)
+        let other_browser = if browser == "safari" {
+            "chrome"
+        } else {
+            "safari"
+        };
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserListTabsTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserOpenTabTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserCloseTabTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserSwitchTabTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserGetPageContentTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserExecuteJsTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserClickElementTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserFillFormTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserNavigateTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserGetUrlTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserScreenshotTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserScrollTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserWaitForElementTool::new(other_browser),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::browser::BrowserScreenshotTabTool::new(other_browser),
+        ));
+        info!(
+            "Registered browser tools (primary: {}, secondary: {})",
+            browser, other_browser
+        );
     }
     let code_config = meepo_core::tools::code::CodeToolConfig {
-        claude_code_path: shellexpand_str(&cfg.code.claude_code_path),
+        coding_agent_path: shellexpand_str(&cfg.code.coding_agent_path),
         gh_path: shellexpand_str(&cfg.code.gh_path),
         default_workspace: shellexpand_str(&cfg.code.default_workspace),
     };
@@ -1216,11 +1465,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::code::ReviewPrTool::new(
         code_config.clone(),
     )));
-    registry.register(Arc::new(meepo_core::tools::code::SpawnClaudeCodeTool::new(
-        code_config.clone(),
-        db.clone(),
-        bg_task_tx.clone(),
-    )));
+    registry.register(Arc::new(
+        meepo_core::tools::code::SpawnCodingAgentTool::new(
+            code_config.clone(),
+            db.clone(),
+            bg_task_tx.clone(),
+        ),
+    ));
     registry.register(Arc::new(meepo_core::tools::memory::RememberTool::new(
         db.clone(),
     )));
@@ -1239,9 +1490,9 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         knowledge_graph.clone(),
         db.clone(),
     )));
-    registry.register(Arc::new(
-        meepo_core::tools::rag::IngestDocumentTool::new(knowledge_graph.clone()),
-    ));
+    registry.register(Arc::new(meepo_core::tools::rag::IngestDocumentTool::new(
+        knowledge_graph.clone(),
+    )));
     registry.register(Arc::new(meepo_core::tools::system::RunCommandTool));
     registry.register(Arc::new(meepo_core::tools::system::ReadFileTool));
     registry.register(Arc::new(meepo_core::tools::system::WriteFileTool));
@@ -1451,10 +1702,12 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasPushTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasResetTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasEvalTool::new()));
-    registry.register(Arc::new(meepo_core::tools::canvas::CanvasSnapshotTool::new()));
+    registry.register(Arc::new(
+        meepo_core::tools::canvas::CanvasSnapshotTool::new(),
+    ));
     // ── Docker Sandbox Tool ───────────────────────────────────────
-    registry.register(Arc::new(meepo_core::tools::sandbox_exec::SandboxExecTool::new(
-        meepo_core::sandbox::SandboxConfig {
+    registry.register(Arc::new(
+        meepo_core::tools::sandbox_exec::SandboxExecTool::new(meepo_core::sandbox::SandboxConfig {
             enabled: cfg.sandbox.enabled,
             docker_socket: cfg.sandbox.docker_socket.clone(),
             policy: meepo_core::sandbox::policy::ExecutionPolicy {
@@ -1466,9 +1719,12 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 },
                 ..Default::default()
             },
-        },
-    )));
-    info!("Registered {} tools (including lifestyle integrations)", registry.len());
+        }),
+    ));
+    info!(
+        "Registered {} tools (including lifestyle integrations)",
+        registry.len()
+    );
 
     // Initialize progress channel for sub-agent orchestrator
     let (progress_tx, mut progress_rx) =
@@ -1604,7 +1860,10 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
             warn_at_percent: cfg.usage.warn_at_percent as u32,
             model_prices,
         };
-        let tracker = Arc::new(meepo_core::usage::UsageTracker::new(db.clone(), usage_config));
+        let tracker = Arc::new(meepo_core::usage::UsageTracker::new(
+            db.clone(),
+            usage_config,
+        ));
         registry.register(Arc::new(
             meepo_core::tools::usage_stats::GetUsageStatsTool::new(tracker.clone()),
         ));
@@ -1624,13 +1883,7 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         "registry slot already set"
     );
 
-    let mut agent = meepo_core::agent::Agent::new(
-        api,
-        registry.clone(),
-        soul,
-        memory,
-        db.clone(),
-    );
+    let mut agent = meepo_core::agent::Agent::new(api, registry.clone(), soul, memory, db.clone());
     if let Some(ref tracker) = usage_tracker {
         agent = agent.with_usage_tracker(tracker.clone());
     }
@@ -1978,7 +2231,7 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     let notifier_bg = notifier.clone();
     let bus_sender_bg = bus_sender_for_bg;
     let code_config_bg = meepo_core::tools::code::CodeToolConfig {
-        claude_code_path: shellexpand_str(&cfg.code.claude_code_path),
+        coding_agent_path: shellexpand_str(&cfg.code.coding_agent_path),
         gh_path: shellexpand_str(&cfg.code.gh_path),
         default_workspace: shellexpand_str(&cfg.code.default_workspace),
     };
@@ -2082,8 +2335,8 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                 task_cancels.lock().await.remove(&id_clone);
                             });
                         }
-                        Some(meepo_core::tools::autonomous::BackgroundTaskCommand::SpawnClaudeCode { id, task, workspace, reply_channel }) => {
-                            info!("Spawning Claude Code agent [{}] in {}", id, workspace);
+                        Some(meepo_core::tools::autonomous::BackgroundTaskCommand::SpawnCodingAgent { id, task, workspace, reply_channel }) => {
+                            info!("Spawning coding agent [{}] in {}", id, workspace);
                             let task_cancel = tokio_util::sync::CancellationToken::new();
                             task_cancels.lock().await.insert(id.clone(), task_cancel.clone());
 
@@ -2091,13 +2344,13 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                             let bus = bus_sender_bg.clone();
                             let notifier = notifier_bg.clone();
                             let task_cancels = task_cancels.clone();
-                            let claude_path = code_config_bg.claude_code_path.clone();
+                            let agent_path = code_config_bg.coding_agent_path.clone();
 
                             tokio::spawn(async move {
                                 // Notify user that task is starting
                                 notifier.notify(meepo_core::notifications::NotifyEvent::TaskStarted {
                                     task_id: id.clone(),
-                                    description: format!("Claude Code: {}", &task),
+                                    description: format!("Coding agent: {}", &task),
                                 }).await;
 
                                 // Update status to running
@@ -2105,8 +2358,8 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                     error!("Failed to update task {} to running: {}", id, e);
                                 }
 
-                                // Spawn Claude Code CLI as a child process
-                                let mut child = match tokio::process::Command::new(&claude_path)
+                                // Spawn coding agent CLI as a child process
+                                let mut child = match tokio::process::Command::new(&agent_path)
                                     .arg("--print")
                                     .arg("--dangerously-skip-permissions")
                                     .arg(&task)
@@ -2117,16 +2370,16 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                 {
                                     Ok(child) => child,
                                     Err(e) => {
-                                        let err_msg = format!("Failed to spawn Claude Code CLI: {}", e);
+                                        let err_msg = format!("Failed to spawn coding agent CLI: {}", e);
                                         error!("{}", err_msg);
                                         let _ = db.update_background_task(&id, "failed", Some(&err_msg)).await;
                                         notifier.notify(meepo_core::notifications::NotifyEvent::TaskFailed {
                                             task_id: id.clone(),
-                                            description: format!("Claude Code: {}", &task),
+                                            description: format!("Coding agent: {}", &task),
                                             error: err_msg.clone(),
                                         }).await;
                                         let notify = meepo_core::types::OutgoingMessage {
-                                            content: format!("Claude Code task [{}] failed: {}", id, err_msg),
+                                            content: format!("Coding agent task [{}] failed: {}", id, err_msg),
                                             channel: meepo_core::types::ChannelType::from_string(&reply_channel),
                                             reply_to: None,
                                             kind: meepo_core::types::MessageKind::Response,
@@ -2168,9 +2421,9 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                                     let _ = stderr.read_to_end(&mut stderr_buf).await;
                                                 }
                                                 let stderr = String::from_utf8_lossy(&stderr_buf);
-                                                Err(anyhow::anyhow!("Claude Code exited with {}: {}", exit, stderr))
+                                                Err(anyhow::anyhow!("Coding agent exited with {}: {}", exit, stderr))
                                             }
-                                            Err(e) => Err(anyhow::anyhow!("Failed to wait for Claude Code: {}", e)),
+                                            Err(e) => Err(anyhow::anyhow!("Failed to wait for coding agent: {}", e)),
                                         }
                                     }
                                 };
@@ -2182,11 +2435,11 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                         }
                                         notifier.notify(meepo_core::notifications::NotifyEvent::TaskCompleted {
                                             task_id: id.clone(),
-                                            description: format!("Claude Code: {}", &task),
+                                            description: format!("Coding agent: {}", &task),
                                             result_preview: output[..output.len().min(500)].to_string(),
                                         }).await;
                                         let notify = meepo_core::types::OutgoingMessage {
-                                            content: format!("Claude Code task [{}] completed:\n{}", id, output),
+                                            content: format!("Coding agent task [{}] completed:\n{}", id, output),
                                             channel: meepo_core::types::ChannelType::from_string(&reply_channel),
                                             reply_to: None,
                                             kind: meepo_core::types::MessageKind::Response,
@@ -2202,11 +2455,11 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                                         if status == "failed" {
                                             notifier.notify(meepo_core::notifications::NotifyEvent::TaskFailed {
                                                 task_id: id.clone(),
-                                                description: format!("Claude Code: {}", &task),
+                                                description: format!("Coding agent: {}", &task),
                                                 error: err_msg.clone(),
                                             }).await;
                                             let notify = meepo_core::types::OutgoingMessage {
-                                                content: format!("Claude Code task [{}] failed: {}", id, err_msg),
+                                                content: format!("Coding agent task [{}] failed: {}", id, err_msg),
                                                 channel: meepo_core::types::ChannelType::from_string(&reply_channel),
                                                 reply_to: None,
                                                 kind: meepo_core::types::MessageKind::Response,
@@ -2420,12 +2673,9 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
 
     // Start Gateway (WebSocket control plane) if enabled
     if cfg.gateway.enabled {
-        let bind_addr: std::net::SocketAddr = format!(
-            "{}:{}",
-            cfg.gateway.bind, cfg.gateway.port
-        )
-        .parse()
-        .context("Invalid gateway bind address")?;
+        let bind_addr: std::net::SocketAddr = format!("{}:{}", cfg.gateway.bind, cfg.gateway.port)
+            .parse()
+            .context("Invalid gateway bind address")?;
 
         let gateway_token = shellexpand_str(&cfg.gateway.auth_token);
         let gateway = meepo_gateway::GatewayServer::new(bind_addr, gateway_token);
@@ -2582,10 +2832,11 @@ async fn cmd_ask(config_path: &Option<PathBuf>, message: &str) -> Result<()> {
         use meepo_core::providers::router::ModelRouter;
 
         if use_ollama {
-            let ollama_cfg = cfg.providers.ollama.as_ref()
-                .ok_or_else(|| anyhow::anyhow!(
+            let ollama_cfg = cfg.providers.ollama.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
                     "default_model is \"ollama\" but [providers.ollama] is not configured"
-                ))?;
+                )
+            })?;
             let url = format!("{}/v1", shellexpand_str(&ollama_cfg.base_url));
             use meepo_core::providers::openai_compat::OpenAiCompatProvider;
             let provider = Box::new(OpenAiCompatProvider::new(
@@ -2651,12 +2902,14 @@ async fn cmd_usage(config_path: &Option<PathBuf>, period: &str, csv: bool) -> Re
 
     let db_path = shellexpand(&cfg.knowledge.db_path);
     if !db_path.exists() {
-        bail!("Knowledge database not found at {}. Run `meepo start` first.", db_path.display());
+        bail!(
+            "Knowledge database not found at {}. Run `meepo start` first.",
+            db_path.display()
+        );
     }
 
     let db = Arc::new(
-        meepo_knowledge::KnowledgeDb::new(&db_path)
-            .context("Failed to open knowledge database")?,
+        meepo_knowledge::KnowledgeDb::new(&db_path).context("Failed to open knowledge database")?,
     );
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -2665,11 +2918,7 @@ async fn cmd_usage(config_path: &Option<PathBuf>, period: &str, csv: bool) -> Re
         "today" => (today.clone(), today),
         "month" => {
             let now = chrono::Utc::now();
-            let first_of_month = format!(
-                "{}-{:02}-01",
-                now.format("%Y"),
-                now.format("%m")
-            );
+            let first_of_month = format!("{}-{:02}-01", now.format("%Y"), now.format("%m"));
             let today = now.format("%Y-%m-%d").to_string();
             (first_of_month, today)
         }
@@ -2680,7 +2929,10 @@ async fn cmd_usage(config_path: &Option<PathBuf>, period: &str, csv: bool) -> Re
             }
             (parts[0].to_string(), parts[1].to_string())
         }
-        _ => bail!("Invalid period '{}'. Use 'today', 'month', or 'YYYY-MM-DD:YYYY-MM-DD'", period),
+        _ => bail!(
+            "Invalid period '{}'. Use 'today', 'month', or 'YYYY-MM-DD:YYYY-MM-DD'",
+            period
+        ),
     };
 
     if csv {
@@ -2827,47 +3079,112 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         ));
         registry.register(Arc::new(meepo_core::tools::macos::MusicControlTool::new()));
         registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
+        // ── New macOS Automation Tools (MCP) ────────────────────────
+        // System control
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetVolumeTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::SetVolumeTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleMuteTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleDarkModeTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::SetDoNotDisturbTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetBatteryStatusTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetWifiInfoTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetDiskUsageTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::LockScreenTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::SleepDisplayTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::GetRunningAppsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::QuitAppTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_system::ForceQuitAppTool::new()));
+        // Finder
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderGetSelectionTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderRevealTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderTagTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderQuickLookTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::TrashFileTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::EmptyTrashTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_finder::GetRecentFilesTool::new()));
+        // Spotlight
+        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightSearchTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightMetadataTool::new()));
+        // Shortcuts
+        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::ListShortcutsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::RunShortcutTool::new()));
+        // Keychain
+        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainGetPasswordTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainStorePasswordTool::new()));
+        // Messages & FaceTime
+        registry.register(Arc::new(meepo_core::tools::macos_messages::ReadMessagesTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_messages::SendMessageTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_messages::StartFaceTimeTool::new()));
+        // Media (Photos, Audio, TTS, OCR)
+        registry.register(Arc::new(meepo_core::tools::macos_media::SearchPhotosTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::ExportPhotosTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::RecordAudioTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::TextToSpeechTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_media::OcrImageTool::new()));
+        // Window management
+        registry.register(Arc::new(meepo_core::tools::macos_windows::ListWindowsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::MoveWindowTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::MinimizeWindowTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::FullscreenWindowTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_windows::ArrangeWindowsTool::new()));
+        // Terminal
+        registry.register(Arc::new(meepo_core::tools::macos_terminal::ListTerminalTabsTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_terminal::SendTerminalCommandTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_terminal::GetOpenPortsTool::new()));
+        // Productivity
+        registry.register(Arc::new(meepo_core::tools::macos_productivity::SetClipboardTool::new()));
+        registry.register(Arc::new(meepo_core::tools::macos_productivity::GetFrontmostDocumentTool::new()));
     }
-    // Browser automation tools for ask command
+    // Browser automation tools for MCP mode
     #[cfg(target_os = "macos")]
     if cfg.browser.enabled {
-        let browser = &cfg.browser.default_browser;
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserListTabsTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserOpenTabTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserCloseTabTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserSwitchTabTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserGetPageContentTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserExecuteJsTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserClickElementTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserFillFormTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserNavigateTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserGetUrlTool::new(browser),
-        ));
-        registry.register(Arc::new(
-            meepo_core::tools::browser::BrowserScreenshotTool::new(browser),
-        ));
+        for b in &["safari", "chrome"] {
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserListTabsTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserOpenTabTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserCloseTabTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserSwitchTabTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserGetPageContentTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserExecuteJsTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserClickElementTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserFillFormTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserNavigateTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserGetUrlTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserScreenshotTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserScrollTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserWaitForElementTool::new(b),
+            ));
+            registry.register(Arc::new(
+                meepo_core::tools::browser::BrowserScreenshotTabTool::new(b),
+            ));
+        }
     }
     let code_config = meepo_core::tools::code::CodeToolConfig {
-        claude_code_path: shellexpand_str(&cfg.code.claude_code_path),
+        coding_agent_path: shellexpand_str(&cfg.code.coding_agent_path),
         gh_path: shellexpand_str(&cfg.code.gh_path),
         default_workspace: shellexpand_str(&cfg.code.default_workspace),
     };
@@ -2961,7 +3278,10 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         ));
     }
     registry.register(Arc::new(
-        meepo_core::tools::lifestyle::research::ResearchTopicTool::new(tavily_client.clone(), db.clone()),
+        meepo_core::tools::lifestyle::research::ResearchTopicTool::new(
+            tavily_client.clone(),
+            db.clone(),
+        ),
     ));
     registry.register(Arc::new(
         meepo_core::tools::lifestyle::research::CompileReportTool::new(db.clone()),
@@ -2970,7 +3290,10 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         meepo_core::tools::lifestyle::research::TrackTopicTool::new(db.clone()),
     ));
     registry.register(Arc::new(
-        meepo_core::tools::lifestyle::research::FactCheckTool::new(tavily_client.clone(), db.clone()),
+        meepo_core::tools::lifestyle::research::FactCheckTool::new(
+            tavily_client.clone(),
+            db.clone(),
+        ),
     ));
     registry.register(Arc::new(
         meepo_core::tools::lifestyle::sms::SendSmsTool::new(db.clone()),
@@ -3003,10 +3326,16 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         meepo_core::tools::lifestyle::news::UntrackFeedTool::new(db.clone()),
     ));
     registry.register(Arc::new(
-        meepo_core::tools::lifestyle::news::SummarizeArticleTool::new(tavily_client.clone(), db.clone()),
+        meepo_core::tools::lifestyle::news::SummarizeArticleTool::new(
+            tavily_client.clone(),
+            db.clone(),
+        ),
     ));
     registry.register(Arc::new(
-        meepo_core::tools::lifestyle::news::ContentDigestTool::new(tavily_client.clone(), db.clone()),
+        meepo_core::tools::lifestyle::news::ContentDigestTool::new(
+            tavily_client.clone(),
+            db.clone(),
+        ),
     ));
     registry.register(Arc::new(
         meepo_core::tools::lifestyle::finance::LogExpenseTool::new(db.clone()),
@@ -3036,7 +3365,10 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         meepo_core::tools::lifestyle::travel::GetDirectionsTool::new(tavily_client.clone()),
     ));
     registry.register(Arc::new(
-        meepo_core::tools::lifestyle::travel::FlightStatusTool::new(tavily_client.clone(), db.clone()),
+        meepo_core::tools::lifestyle::travel::FlightStatusTool::new(
+            tavily_client.clone(),
+            db.clone(),
+        ),
     ));
     registry.register(Arc::new(
         meepo_core::tools::lifestyle::travel::PackingListTool::new(db.clone()),
@@ -3051,10 +3383,12 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasPushTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasResetTool::new()));
     registry.register(Arc::new(meepo_core::tools::canvas::CanvasEvalTool::new()));
-    registry.register(Arc::new(meepo_core::tools::canvas::CanvasSnapshotTool::new()));
+    registry.register(Arc::new(
+        meepo_core::tools::canvas::CanvasSnapshotTool::new(),
+    ));
     // ── Docker Sandbox Tool (MCP mode) ──────────────────────────────
-    registry.register(Arc::new(meepo_core::tools::sandbox_exec::SandboxExecTool::new(
-        meepo_core::sandbox::SandboxConfig {
+    registry.register(Arc::new(
+        meepo_core::tools::sandbox_exec::SandboxExecTool::new(meepo_core::sandbox::SandboxConfig {
             enabled: cfg.sandbox.enabled,
             docker_socket: cfg.sandbox.docker_socket.clone(),
             policy: meepo_core::sandbox::policy::ExecutionPolicy {
@@ -3066,8 +3400,8 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
                 },
                 ..Default::default()
             },
-        },
-    )));
+        }),
+    ));
 
     // ── Usage Tracker (MCP mode) ────────────────────────────────────
     if cfg.usage.enabled {
@@ -3090,7 +3424,10 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
             warn_at_percent: cfg.usage.warn_at_percent as u32,
             model_prices,
         };
-        let tracker = Arc::new(meepo_core::usage::UsageTracker::new(db.clone(), usage_config));
+        let tracker = Arc::new(meepo_core::usage::UsageTracker::new(
+            db.clone(),
+            usage_config,
+        ));
         registry.register(Arc::new(
             meepo_core::tools::usage_stats::GetUsageStatsTool::new(tracker),
         ));
@@ -3408,11 +3745,9 @@ async fn cmd_doctor(config_path: &Option<PathBuf>) -> Result<()> {
         .clone()
         .unwrap_or_else(|| config::config_dir().join("config.toml"));
 
-    let report = meepo_core::doctor::run_doctor(
-        Some(config_file_buf.as_path()),
-        Some(db_path.as_path()),
-    )
-    .await?;
+    let report =
+        meepo_core::doctor::run_doctor(Some(config_file_buf.as_path()), Some(db_path.as_path()))
+            .await?;
 
     println!("\n  Meepo Doctor");
     println!("  ────────────\n");
@@ -3420,7 +3755,7 @@ async fn cmd_doctor(config_path: &Option<PathBuf>) -> Result<()> {
     for check in &report.checks {
         let icon = match check.status {
             meepo_core::doctor::CheckStatus::Pass => "OK",
-            meepo_core::doctor::CheckStatus::Warn => "!!", 
+            meepo_core::doctor::CheckStatus::Warn => "!!",
             meepo_core::doctor::CheckStatus::Fail => "XX",
             meepo_core::doctor::CheckStatus::Skip => "--",
         };

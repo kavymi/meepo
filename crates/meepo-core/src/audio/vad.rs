@@ -47,7 +47,10 @@ impl EnergyVad {
                     if self.speech_accumulated_ms >= self.min_speech_ms {
                         self.state = VadState::Speaking;
                         self.silence_accumulated_ms = 0;
-                        debug!("VAD: speech detected (energy={:.4}, threshold={:.4})", energy, self.threshold);
+                        debug!(
+                            "VAD: speech detected (energy={:.4}, threshold={:.4})",
+                            energy, self.threshold
+                        );
                         return Some(VadState::Speaking);
                     }
                 } else {

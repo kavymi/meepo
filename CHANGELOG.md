@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Agent template system — swap personalities, goals, and config overlays (`meepo template use`)
 - Skills system — import OpenClaw-compatible SKILL.md files as additional tools
 - Platform abstraction layer — trait-based OS abstraction for all system integrations
-- New tools: `list_reminders`, `create_reminder`, `list_notes`, `create_note`, `search_contacts`, `get_current_track`, `music_control`, `send_notification`, `screen_capture`, `list_directory`, `search_files`, `spawn_background_task`, `agent_status`, `stop_task`, `spawn_claude_code`
+- New tools: `list_reminders`, `create_reminder`, `list_notes`, `create_note`, `search_contacts`, `get_current_track`, `music_control`, `send_notification`, `screen_capture`, `list_directory`, `search_files`, `spawn_background_task`, `agent_status`, `stop_task`, `spawn_coding_agent`
 - Browser automation tools: `browser_list_tabs`, `browser_open_tab`, `browser_close_tab`, `browser_switch_tab`, `browser_get_page_content`, `browser_execute_js`, `browser_click`, `browser_fill_form`, `browser_navigate`, `browser_get_url`, `browser_screenshot`
 - Email channel — poll Mail.app for incoming emails with subject prefix filtering
 - Filesystem access tools with configurable allowed directories and sandboxing

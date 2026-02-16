@@ -300,8 +300,8 @@ impl ToolHandler for SuggestFollowupsTool {
 
         match action {
             "add" => {
-                let person = person
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'person' for add action"))?;
+                let person =
+                    person.ok_or_else(|| anyhow::anyhow!("Missing 'person' for add action"))?;
                 let reason = reason.unwrap_or("General follow-up");
 
                 let _ = self
@@ -413,10 +413,7 @@ impl ToolHandler for SuggestFollowupsTool {
                             .and_then(|m| m.get("due_date"))
                             .and_then(|d| d.as_str())
                             .unwrap_or("no deadline");
-                        output.push_str(&format!(
-                            "- {} — {} (due: {})\n",
-                            person, reason, due
-                        ));
+                        output.push_str(&format!("- {} — {} (due: {})\n", person, reason, due));
                     }
                     output.push('\n');
                 }
@@ -438,11 +435,7 @@ impl ToolHandler for SuggestFollowupsTool {
                 let birthdays: Vec<_> = contacts
                     .iter()
                     .filter_map(|c| {
-                        let bday = c
-                            .metadata
-                            .as_ref()?
-                            .get("birthday")?
-                            .as_str()?;
+                        let bday = c.metadata.as_ref()?.get("birthday")?.as_str()?;
                         if !bday.is_empty() && bday != "unknown" {
                             Some(format!("- {} — {}", c.name, bday))
                         } else {

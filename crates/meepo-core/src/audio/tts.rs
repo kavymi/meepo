@@ -68,7 +68,11 @@ impl TextToSpeech for ElevenLabsTts {
             return Ok(Vec::new());
         }
 
-        let truncated = if text.len() > 5000 { &text[..5000] } else { text };
+        let truncated = if text.len() > 5000 {
+            &text[..5000]
+        } else {
+            text
+        };
 
         debug!("ElevenLabs TTS: synthesizing {} chars", truncated.len());
 
@@ -103,7 +107,9 @@ impl TextToSpeech for ElevenLabsTts {
             return Err(anyhow!("ElevenLabs TTS error {}: {}", status, error_text));
         }
 
-        let bytes = response.bytes().await
+        let bytes = response
+            .bytes()
+            .await
             .context("Failed to read ElevenLabs TTS response")?;
 
         info!("ElevenLabs TTS: synthesized {} bytes of audio", bytes.len());
@@ -148,7 +154,11 @@ impl TextToSpeech for MacosSayTts {
             return Ok(Vec::new());
         }
 
-        debug!("macOS say: synthesizing {} chars with voice '{}'", text.len(), self.voice);
+        debug!(
+            "macOS say: synthesizing {} chars with voice '{}'",
+            text.len(),
+            self.voice
+        );
 
         let temp_dir = std::env::temp_dir();
         let output_path = temp_dir.join(format!("meepo_tts_{}.aiff", uuid::Uuid::new_v4()));
@@ -172,7 +182,8 @@ impl TextToSpeech for MacosSayTts {
             return Err(anyhow!("macOS say failed: {}", stderr));
         }
 
-        let bytes = tokio::fs::read(&output_path).await
+        let bytes = tokio::fs::read(&output_path)
+            .await
             .context("Failed to read say output file")?;
 
         // Clean up temp file
@@ -218,7 +229,11 @@ impl TextToSpeech for OpenAiTts {
             return Ok(Vec::new());
         }
 
-        let truncated = if text.len() > 4096 { &text[..4096] } else { text };
+        let truncated = if text.len() > 4096 {
+            &text[..4096]
+        } else {
+            text
+        };
 
         debug!("OpenAI TTS: synthesizing {} chars", truncated.len());
 
@@ -244,7 +259,9 @@ impl TextToSpeech for OpenAiTts {
             return Err(anyhow!("OpenAI TTS error {}: {}", status, error_text));
         }
 
-        let bytes = response.bytes().await
+        let bytes = response
+            .bytes()
+            .await
             .context("Failed to read OpenAI TTS response")?;
 
         info!("OpenAI TTS: synthesized {} bytes of audio", bytes.len());

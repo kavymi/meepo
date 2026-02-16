@@ -366,10 +366,7 @@ impl ToolHandler for EmailUnsubscribeTool {
 
         debug!("Scanning {} emails for unsubscribe candidates", scan_count);
 
-        let emails = self
-            .provider
-            .read_emails(scan_count, "inbox", None)
-            .await?;
+        let emails = self.provider.read_emails(scan_count, "inbox", None).await?;
 
         Ok(format!(
             "Recent emails ({} scanned):\n\n{}\n\n\
@@ -392,9 +389,8 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     fn test_email_triage_schema() {
-        let db = Arc::new(
-            KnowledgeDb::new(&std::env::temp_dir().join("test_email_triage.db")).unwrap(),
-        );
+        let db =
+            Arc::new(KnowledgeDb::new(&std::env::temp_dir().join("test_email_triage.db")).unwrap());
         let tool = EmailTriageTool::new(db);
         assert_eq!(tool.name(), "email_triage");
         assert!(!tool.description().is_empty());
@@ -405,14 +401,16 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     fn test_email_draft_reply_schema() {
-        let db = Arc::new(
-            KnowledgeDb::new(&std::env::temp_dir().join("test_email_draft.db")).unwrap(),
-        );
+        let db =
+            Arc::new(KnowledgeDb::new(&std::env::temp_dir().join("test_email_draft.db")).unwrap());
         let tool = EmailDraftReplyTool::new(db);
         assert_eq!(tool.name(), "email_draft_reply");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"subject".to_string()));

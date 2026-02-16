@@ -318,8 +318,11 @@ mod tests {
 
     #[test]
     fn test_notes_channel_creation() {
-        let channel =
-            NotesChannel::new(Duration::from_secs(10), "Meepo".to_string(), "#meepo".to_string());
+        let channel = NotesChannel::new(
+            Duration::from_secs(10),
+            "Meepo".to_string(),
+            "#meepo".to_string(),
+        );
         assert_eq!(channel.channel_type(), ChannelType::Notes);
     }
 
@@ -337,8 +340,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_seen_ids_dedup() {
-        let channel =
-            NotesChannel::new(Duration::from_secs(10), "Meepo".to_string(), "#meepo".to_string());
+        let channel = NotesChannel::new(
+            Duration::from_secs(10),
+            "Meepo".to_string(),
+            "#meepo".to_string(),
+        );
 
         {
             let mut seen = channel.seen_ids.lock().await;

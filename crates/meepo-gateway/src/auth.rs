@@ -26,11 +26,7 @@ pub fn extract_bearer_token(header_value: &str) -> Option<&str> {
     let trimmed = header_value.trim();
     if let Some(token) = trimmed.strip_prefix("Bearer ") {
         let token = token.trim();
-        if token.is_empty() {
-            None
-        } else {
-            Some(token)
-        }
+        if token.is_empty() { None } else { Some(token) }
     } else {
         None
     }
