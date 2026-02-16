@@ -958,7 +958,7 @@ fn save_env_var_persistent(name: &str, value: &str) -> Result<()> {
         // SAFETY: This is called during single-threaded CLI setup, not in the async runtime.
         unsafe { std::env::set_var(name, value) };
         println!("  ✓ Saved {} to User environment variables.", name);
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]

@@ -875,11 +875,11 @@ impl ToolHandler for BrowserScreenshotTabTool {
 }
 
 #[cfg(test)]
+#[cfg(target_os = "macos")]
 mod tests {
     use super::*;
     use crate::tools::ToolHandler;
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_list_tabs_schema() {
         let tool = BrowserListTabsTool::new("safari");
@@ -889,7 +889,6 @@ mod tests {
         assert_eq!(chrome_tool.name(), "chrome_list_tabs");
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_open_tab_schema() {
         let tool = BrowserOpenTabTool::new("safari");
@@ -905,7 +904,6 @@ mod tests {
         assert!(required.contains(&"url".to_string()));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_execute_js_schema() {
         let tool = BrowserExecuteJsTool::new("chrome");
@@ -921,7 +919,6 @@ mod tests {
         assert!(required.contains(&"script".to_string()));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_click_schema() {
         let tool = BrowserClickElementTool::new("safari");
@@ -937,7 +934,6 @@ mod tests {
         assert!(required.contains(&"selector".to_string()));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_fill_form_schema() {
         let tool = BrowserFillFormTool::new("safari");
@@ -954,7 +950,6 @@ mod tests {
         assert!(required.contains(&"value".to_string()));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_navigate_schema() {
         let tool = BrowserNavigateTool::new("chrome");
@@ -970,7 +965,6 @@ mod tests {
         assert!(required.contains(&"action".to_string()));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_scroll_schema() {
         let tool = BrowserScrollTool::new("safari");
@@ -986,7 +980,6 @@ mod tests {
         assert!(required.contains(&"direction".to_string()));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_wait_for_element_schema() {
         let tool = BrowserWaitForElementTool::new("chrome");
@@ -1002,7 +995,6 @@ mod tests {
         assert!(required.contains(&"selector".to_string()));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn test_browser_screenshot_tab_schema() {
         let tool = BrowserScreenshotTabTool::new("safari");
@@ -1010,7 +1002,6 @@ mod tests {
         assert!(!tool.description().is_empty());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_open_tab_missing_url() {
         let tool = BrowserOpenTabTool::new("safari");
@@ -1018,7 +1009,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_execute_js_missing_script() {
         let tool = BrowserExecuteJsTool::new("safari");
@@ -1026,7 +1016,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_click_missing_selector() {
         let tool = BrowserClickElementTool::new("safari");
@@ -1034,7 +1023,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_fill_form_missing_params() {
         let tool = BrowserFillFormTool::new("safari");
@@ -1042,7 +1030,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_navigate_invalid_action() {
         let tool = BrowserNavigateTool::new("safari");
@@ -1050,7 +1037,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_screenshot_invalid_extension() {
         let tool = BrowserScreenshotTool::new("safari");
@@ -1060,7 +1046,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_scroll_missing_direction() {
         let tool = BrowserScrollTool::new("safari");
@@ -1068,7 +1053,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_scroll_excessive_amount() {
         let tool = BrowserScrollTool::new("safari");
@@ -1078,7 +1062,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_wait_for_element_missing_selector() {
         let tool = BrowserWaitForElementTool::new("safari");
@@ -1086,7 +1069,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn test_browser_screenshot_tab_invalid_extension() {
         let tool = BrowserScreenshotTabTool::new("safari");
