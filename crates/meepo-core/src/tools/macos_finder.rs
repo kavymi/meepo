@@ -394,4 +394,71 @@ mod tests {
         let tool = GetRecentFilesTool::new();
         assert_eq!(tool.name(), "get_recent_files");
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_finder_tag_schema() {
+        let tool = FinderTagTool::new();
+        assert_eq!(tool.name(), "finder_tag");
+        let schema = tool.input_schema();
+        let required: Vec<String> = serde_json::from_value(
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
+        assert!(required.contains(&"path".to_string()));
+        assert!(required.contains(&"tag".to_string()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_finder_tag_missing_params() {
+        let tool = FinderTagTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+
+        let result = tool.execute(serde_json::json!({"path": "/tmp/test"})).await;
+        assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_finder_quick_look_schema() {
+        let tool = FinderQuickLookTool::new();
+        assert_eq!(tool.name(), "finder_quick_look");
+        let schema = tool.input_schema();
+        let required: Vec<String> = serde_json::from_value(
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
+        assert!(required.contains(&"path".to_string()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_finder_quick_look_missing_path() {
+        let tool = FinderQuickLookTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_trash_file_missing_path() {
+        let tool = TrashFileTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_empty_trash_schema() {
+        let tool = EmptyTrashTool::new();
+        assert_eq!(tool.name(), "empty_trash");
+    }
 }

@@ -227,4 +227,111 @@ mod tests {
         let filtered_empty = registry.filter_tools(&["nonexistent".to_string()]);
         assert!(filtered_empty.is_empty());
     }
+
+    #[test]
+    fn test_registry_default() {
+        let registry = ToolRegistry::default();
+        assert!(registry.is_empty());
+        assert_eq!(registry.len(), 0);
+    }
+
+    #[test]
+    fn test_registry_get() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(DummyTool));
+
+        assert!(registry.get("dummy").is_some());
+        assert!(registry.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_registry_list_tools() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(DummyTool));
+
+        let tools = registry.list_tools();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "dummy");
+        assert_eq!(tools[0].description, "A dummy tool for testing");
+        assert!(tools[0].input_schema.get("properties").is_some());
+    }
+
+    #[test]
+    fn test_registry_overwrite() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(DummyTool));
+        registry.register(Arc::new(DummyTool));
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn test_json_schema_helper() {
+        let schema = json_schema(
+            serde_json::json!({
+                "name": {"type": "string"},
+                "age": {"type": "number"}
+            }),
+            vec!["name"],
+        );
+        assert_eq!(schema["type"], "object");
+        assert!(schema["properties"]["name"].is_object());
+        assert!(schema["properties"]["age"].is_object());
+        let required = schema["required"].as_array().unwrap();
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0], "name");
+    }
+
+    #[test]
+    fn test_json_schema_empty() {
+        let schema = json_schema(serde_json::json!({}), vec![]);
+        assert_eq!(schema["type"], "object");
+        assert!(schema["required"].as_array().unwrap().is_empty());
+    }
+
+    struct FailingTool;
+
+    #[async_trait]
+    impl ToolHandler for FailingTool {
+        fn name(&self) -> &str {
+            "failing"
+        }
+        fn description(&self) -> &str {
+            "Always fails"
+        }
+        fn input_schema(&self) -> Value {
+            json_schema(serde_json::json!({}), vec![])
+        }
+        async fn execute(&self, _input: Value) -> Result<String> {
+            Err(anyhow!("intentional failure"))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_registry_execute_failing_tool() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(FailingTool));
+
+        let result = registry.execute("failing", serde_json::json!({})).await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("intentional failure")
+        );
+    }
+
+    #[test]
+    fn test_filter_tools_partial_match() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(DummyTool));
+        registry.register(Arc::new(FailingTool));
+
+        let filtered = registry.filter_tools(&[
+            "dummy".to_string(),
+            "nonexistent".to_string(),
+            "failing".to_string(),
+        ]);
+        assert_eq!(filtered.len(), 2);
+    }
 }

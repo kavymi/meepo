@@ -319,4 +319,92 @@ mod tests {
         assert_eq!(detect_content_type("data.json"), "application/json");
         assert_eq!(detect_content_type("unknown.xyz"), "text/plain");
     }
+
+    #[test]
+    fn test_detect_content_type_all_extensions() {
+        assert_eq!(detect_content_type("doc.markdown"), "text/markdown");
+        assert_eq!(detect_content_type("file.txt"), "text/plain");
+        assert_eq!(detect_content_type("script.py"), "text/x-python");
+        assert_eq!(detect_content_type("app.js"), "text/javascript");
+        assert_eq!(detect_content_type("app.ts"), "text/javascript");
+        assert_eq!(detect_content_type("config.toml"), "application/toml");
+        assert_eq!(detect_content_type("config.yaml"), "application/yaml");
+        assert_eq!(detect_content_type("config.yml"), "application/yaml");
+        assert_eq!(detect_content_type("page.html"), "text/html");
+        assert_eq!(detect_content_type("page.htm"), "text/html");
+        assert_eq!(detect_content_type("data.csv"), "text/csv");
+    }
+
+    #[test]
+    fn test_detect_content_type_case_insensitive() {
+        assert_eq!(detect_content_type("README.MD"), "text/markdown");
+        assert_eq!(detect_content_type("Main.RS"), "text/x-rust");
+        assert_eq!(detect_content_type("DATA.JSON"), "application/json");
+    }
+
+    #[test]
+    fn test_default_config() {
+        let config = ChunkingConfig::default();
+        assert_eq!(config.chunk_size, 1000);
+        assert_eq!(config.chunk_overlap, 200);
+        assert!(!config.separators.is_empty());
+        assert_eq!(config.separators[0], "\n\n");
+    }
+
+    #[test]
+    fn test_chunk_indices_sequential() {
+        let config = ChunkingConfig {
+            chunk_size: 50,
+            chunk_overlap: 10,
+            ..Default::default()
+        };
+        let text = "Word ".repeat(100);
+        let chunks = chunk_text(&text, &config);
+        for (i, chunk) in chunks.iter().enumerate() {
+            assert_eq!(chunk.chunk_index, i);
+        }
+    }
+
+    #[test]
+    fn test_document_chunk_serde() {
+        let chunk = DocumentChunk {
+            content: "test content".to_string(),
+            chunk_index: 2,
+            start_offset: 100,
+            end_offset: 200,
+            total_chunks: 5,
+        };
+        let json = serde_json::to_string(&chunk).unwrap();
+        let parsed: DocumentChunk = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.content, "test content");
+        assert_eq!(parsed.chunk_index, 2);
+        assert_eq!(parsed.total_chunks, 5);
+    }
+
+    #[test]
+    fn test_document_metadata_serde() {
+        let meta = DocumentMetadata {
+            source_path: Some("/tmp/test.md".to_string()),
+            title: Some("Test Doc".to_string()),
+            content_type: "text/markdown".to_string(),
+            total_chars: 5000,
+            chunk_count: 5,
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        let parsed: DocumentMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.title.as_deref(), Some("Test Doc"));
+        assert_eq!(parsed.chunk_count, 5);
+    }
+
+    #[test]
+    fn test_chunk_no_overlap() {
+        let config = ChunkingConfig {
+            chunk_size: 50,
+            chunk_overlap: 0,
+            ..Default::default()
+        };
+        let text = "Sentence one. Sentence two. Sentence three. Sentence four. Sentence five. Sentence six.";
+        let chunks = chunk_text(text, &config);
+        assert!(chunks.len() > 1);
+    }
 }

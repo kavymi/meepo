@@ -505,8 +505,9 @@ mod tests {
 
     #[test]
     fn test_heuristic_medium_query_defaults_single_step() {
+        // Medium-length query with no keyword signals defaults to SingleStep
         assert_eq!(
-            classify_heuristic("how are you doing today my friend"),
+            classify_heuristic("I have a question about something interesting"),
             QueryComplexity::SingleStep
         );
     }

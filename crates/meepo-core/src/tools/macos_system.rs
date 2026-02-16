@@ -647,4 +647,107 @@ mod tests {
         let tool = GetRunningAppsTool::new();
         assert_eq!(tool.name(), "get_running_apps");
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_toggle_mute_schema() {
+        let tool = ToggleMuteTool::new();
+        assert_eq!(tool.name(), "toggle_mute");
+        assert!(!tool.description().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_set_dnd_schema() {
+        let tool = SetDoNotDisturbTool::new();
+        assert_eq!(tool.name(), "set_do_not_disturb");
+        let schema = tool.input_schema();
+        let required: Vec<String> = serde_json::from_value(
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
+        assert!(required.contains(&"enabled".to_string()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_set_dnd_missing_param() {
+        let tool = SetDoNotDisturbTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_get_wifi_info_schema() {
+        let tool = GetWifiInfoTool::new();
+        assert_eq!(tool.name(), "get_wifi_info");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_get_disk_usage_schema() {
+        let tool = GetDiskUsageTool::new();
+        assert_eq!(tool.name(), "get_disk_usage");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_lock_screen_schema() {
+        let tool = LockScreenTool::new();
+        assert_eq!(tool.name(), "lock_screen");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_sleep_display_schema() {
+        let tool = SleepDisplayTool::new();
+        assert_eq!(tool.name(), "sleep_display");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_quit_app_missing_param() {
+        let tool = QuitAppTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_force_quit_app_path_traversal() {
+        let tool = ForceQuitAppTool::new();
+        let result = tool
+            .execute(serde_json::json!({"app_name": "evil/app"}))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("path separators"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_force_quit_app_missing_param() {
+        let tool = ForceQuitAppTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_force_quit_app_schema() {
+        let tool = ForceQuitAppTool::new();
+        assert_eq!(tool.name(), "force_quit_app");
+        let schema = tool.input_schema();
+        let required: Vec<String> = serde_json::from_value(
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
+        assert!(required.contains(&"app_name".to_string()));
+    }
 }

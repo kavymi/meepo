@@ -290,4 +290,49 @@ mod tests {
         assert_eq!(msg.id, "test-1");
         assert_eq!(msg.content, "hello");
     }
+
+    #[tokio::test]
+    async fn test_bus_send_directly() {
+        let mut bus = MessageBus::new(32);
+        let mock = MockChannel::new(ChannelType::Discord);
+        let sent_flag = mock.sent.clone();
+        bus.register(Box::new(mock));
+
+        let msg = OutgoingMessage {
+            content: "direct send".to_string(),
+            channel: ChannelType::Discord,
+            reply_to: None,
+            kind: MessageKind::Response,
+        };
+        bus.send(msg).await.unwrap();
+        assert!(sent_flag.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_bus_send_unknown_channel() {
+        let bus = MessageBus::new(32);
+        let msg = OutgoingMessage {
+            content: "test".to_string(),
+            channel: ChannelType::Slack,
+            reply_to: None,
+            kind: MessageKind::Response,
+        };
+        let result = bus.send(msg).await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No channel registered")
+        );
+    }
+
+    #[test]
+    fn test_bus_register_overwrites() {
+        let mut bus = MessageBus::new(32);
+        bus.register(Box::new(MockChannel::new(ChannelType::Discord)));
+        bus.register(Box::new(MockChannel::new(ChannelType::Discord)));
+        // Should still be 1 since same channel type overwrites
+        assert_eq!(bus.channel_count(), 1);
+    }
 }

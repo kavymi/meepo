@@ -185,4 +185,133 @@ mod tests {
         assert_eq!(req.method, "tools/list");
         assert_eq!(req.id, Some(serde_json::json!(1)));
     }
+
+    #[test]
+    fn test_request_without_id() {
+        let json = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+        let req: JsonRpcRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.method, "notifications/initialized");
+        assert!(req.id.is_none());
+        assert_eq!(req.params, Value::Null);
+    }
+
+    #[test]
+    fn test_request_with_string_id() {
+        let json = r#"{"jsonrpc":"2.0","id":"abc","method":"test","params":{"key":"val"}}"#;
+        let req: JsonRpcRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.id, Some(serde_json::json!("abc")));
+        assert_eq!(req.params["key"], "val");
+    }
+
+    #[test]
+    fn test_jsonrpc_response_success_serialization() {
+        let resp =
+            JsonRpcResponse::success(serde_json::json!(42), serde_json::json!({"tools": []}));
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["jsonrpc"], "2.0");
+        assert_eq!(json["id"], 42);
+        assert!(json["result"]["tools"].is_array());
+        assert!(json.get("error").is_none());
+    }
+
+    #[test]
+    fn test_jsonrpc_response_error_serialization() {
+        let resp = JsonRpcResponse::error(
+            serde_json::json!(1),
+            INVALID_PARAMS,
+            "missing required field".to_string(),
+        );
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["error"]["code"], INVALID_PARAMS);
+        assert_eq!(json["error"]["message"], "missing required field");
+        assert!(json["result"].is_null());
+    }
+
+    #[test]
+    fn test_notification_serialization() {
+        let notif = JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "notifications/initialized".to_string(),
+            params: None,
+        };
+        let json = serde_json::to_value(&notif).unwrap();
+        assert_eq!(json["jsonrpc"], "2.0");
+        assert_eq!(json["method"], "notifications/initialized");
+        assert!(json.get("params").is_none());
+    }
+
+    #[test]
+    fn test_notification_with_params() {
+        let notif = JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "notifications/progress".to_string(),
+            params: Some(serde_json::json!({"progress": 50})),
+        };
+        let json = serde_json::to_value(&notif).unwrap();
+        assert_eq!(json["params"]["progress"], 50);
+    }
+
+    #[test]
+    fn test_tool_call_result_serialization() {
+        let result = ToolCallResult {
+            content: vec![ToolContent {
+                content_type: "text".to_string(),
+                text: "Hello world".to_string(),
+            }],
+            is_error: None,
+        };
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["content"][0]["type"], "text");
+        assert_eq!(json["content"][0]["text"], "Hello world");
+        assert!(json.get("isError").is_none());
+    }
+
+    #[test]
+    fn test_tool_call_result_with_error() {
+        let result = ToolCallResult {
+            content: vec![ToolContent {
+                content_type: "text".to_string(),
+                text: "Something went wrong".to_string(),
+            }],
+            is_error: Some(true),
+        };
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["isError"], true);
+    }
+
+    #[test]
+    fn test_mcp_tool_roundtrip() {
+        let tool = McpTool {
+            name: "web_search".to_string(),
+            description: "Search the web".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"}
+                },
+                "required": ["query"]
+            }),
+        };
+        let json = serde_json::to_string(&tool).unwrap();
+        let parsed: McpTool = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "web_search");
+        assert_eq!(parsed.description, "Search the web");
+        assert_eq!(parsed.input_schema["required"][0], "query");
+    }
+
+    #[test]
+    fn test_error_codes() {
+        assert_eq!(METHOD_NOT_FOUND, -32601);
+        assert_eq!(INVALID_PARAMS, -32602);
+        assert_eq!(INTERNAL_ERROR, -32603);
+    }
+
+    #[test]
+    fn test_server_capabilities_serialization() {
+        let caps = ServerCapabilities {
+            tools: ToolsCapability { list_changed: true },
+        };
+        let json = serde_json::to_value(&caps).unwrap();
+        assert_eq!(json["tools"]["listChanged"], true);
+    }
 }

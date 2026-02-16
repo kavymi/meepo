@@ -305,4 +305,222 @@ mod tests {
         assert!(rust_score > sp_score);
         assert!(sp_score > ms_score);
     }
+
+    #[tokio::test]
+    async fn test_graph_expand_empty_seeds() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = KnowledgeDb::new(&temp.path().join("test.db")).unwrap();
+        let config = GraphRagConfig::default();
+
+        let results = graph_expand(&db, &[], &config).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_graph_expand_max_results_cap() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = KnowledgeDb::new(&temp.path().join("test.db")).unwrap();
+
+        // Create a star graph: center -> many leaves
+        let center = db.insert_entity("Center", "node", None).await.unwrap();
+        for i in 0..10 {
+            let leaf = db
+                .insert_entity(&format!("Leaf{}", i), "node", None)
+                .await
+                .unwrap();
+            db.insert_relationship(&center, &leaf, "connects", None)
+                .await
+                .unwrap();
+        }
+
+        let config = GraphRagConfig {
+            max_hops: 1,
+            max_expanded_results: 5,
+            ..Default::default()
+        };
+
+        let seeds = vec![(center.clone(), 1.0)];
+        let results = graph_expand(&db, &seeds, &config).await.unwrap();
+        assert!(results.len() <= 5);
+    }
+
+    #[tokio::test]
+    async fn test_graph_expand_no_relationships() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = KnowledgeDb::new(&temp.path().join("test.db")).unwrap();
+
+        let id = db.insert_entity("Lonely", "node", None).await.unwrap();
+
+        let config = GraphRagConfig::default();
+        let seeds = vec![(id.clone(), 0.9)];
+        let results = graph_expand(&db, &seeds, &config).await.unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].entity.name, "Lonely");
+        assert!((results[0].score - 0.9).abs() < 1e-6);
+        assert!(matches!(
+            results[0].source,
+            EntitySource::DirectMatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_format_graph_context_direct_only() {
+        let config = GraphRagConfig::default();
+        let results = vec![ScoredEntity {
+            entity: Entity {
+                id: "e1".to_string(),
+                name: "Rust".to_string(),
+                entity_type: "language".to_string(),
+                metadata: Some(serde_json::json!({"year": 2010})),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            },
+            score: 0.95,
+            source: EntitySource::DirectMatch { search_score: 0.95 },
+            connecting_relationships: vec![],
+        }];
+
+        let context = format_graph_context(&results, &config);
+        assert!(context.contains("Direct Matches"));
+        assert!(context.contains("Rust"));
+        assert!(context.contains("language"));
+        assert!(!context.contains("Related Knowledge"));
+    }
+
+    #[test]
+    fn test_format_graph_context_with_expansion() {
+        let config = GraphRagConfig {
+            include_relationship_context: true,
+            ..Default::default()
+        };
+        let results = vec![
+            ScoredEntity {
+                entity: Entity {
+                    id: "e1".to_string(),
+                    name: "Rust".to_string(),
+                    entity_type: "language".to_string(),
+                    metadata: None,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                },
+                score: 1.0,
+                source: EntitySource::DirectMatch { search_score: 1.0 },
+                connecting_relationships: vec![],
+            },
+            ScoredEntity {
+                entity: Entity {
+                    id: "e2".to_string(),
+                    name: "Memory Safety".to_string(),
+                    entity_type: "concept".to_string(),
+                    metadata: None,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                },
+                score: 0.5,
+                source: EntitySource::GraphExpansion {
+                    hops: 1,
+                    from_entity_id: "e1".to_string(),
+                },
+                connecting_relationships: vec![Relationship {
+                    id: "r1".to_string(),
+                    source_id: "e1".to_string(),
+                    target_id: "e2".to_string(),
+                    relation_type: "enables".to_string(),
+                    metadata: None,
+                    created_at: chrono::Utc::now(),
+                }],
+            },
+        ];
+
+        let context = format_graph_context(&results, &config);
+        assert!(context.contains("Direct Matches"));
+        assert!(context.contains("Related Knowledge"));
+        assert!(context.contains("Memory Safety"));
+        assert!(context.contains("1 hop(s) away"));
+        assert!(context.contains("enables"));
+    }
+
+    #[test]
+    fn test_format_graph_context_no_relationship_context() {
+        let config = GraphRagConfig {
+            include_relationship_context: false,
+            ..Default::default()
+        };
+        let results = vec![ScoredEntity {
+            entity: Entity {
+                id: "e1".to_string(),
+                name: "Test".to_string(),
+                entity_type: "node".to_string(),
+                metadata: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            },
+            score: 0.5,
+            source: EntitySource::GraphExpansion {
+                hops: 1,
+                from_entity_id: "e0".to_string(),
+            },
+            connecting_relationships: vec![Relationship {
+                id: "r1".to_string(),
+                source_id: "e0".to_string(),
+                target_id: "e1".to_string(),
+                relation_type: "links_to".to_string(),
+                metadata: None,
+                created_at: chrono::Utc::now(),
+            }],
+        }];
+
+        let context = format_graph_context(&results, &config);
+        assert!(!context.contains("Relationship:"));
+    }
+
+    #[test]
+    fn test_entity_source_debug() {
+        let direct = EntitySource::DirectMatch { search_score: 0.9 };
+        let expanded = EntitySource::GraphExpansion {
+            hops: 2,
+            from_entity_id: "abc".to_string(),
+        };
+        let d1 = format!("{:?}", direct);
+        let d2 = format!("{:?}", expanded);
+        assert!(d1.contains("0.9"));
+        assert!(d2.contains("abc"));
+        assert!(d2.contains("2"));
+    }
+
+    #[test]
+    fn test_scored_entity_serde() {
+        let scored = ScoredEntity {
+            entity: Entity {
+                id: "e1".to_string(),
+                name: "Test".to_string(),
+                entity_type: "concept".to_string(),
+                metadata: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            },
+            score: 0.75,
+            source: EntitySource::DirectMatch { search_score: 0.75 },
+            connecting_relationships: vec![],
+        };
+        let json = serde_json::to_string(&scored).unwrap();
+        let parsed: ScoredEntity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.entity.name, "Test");
+        assert_eq!(parsed.score, 0.75);
+    }
+
+    #[test]
+    fn test_config_custom() {
+        let config = GraphRagConfig {
+            max_hops: 5,
+            max_expanded_results: 50,
+            hop_decay: 0.7,
+            include_relationship_context: false,
+        };
+        assert_eq!(config.max_hops, 5);
+        assert_eq!(config.max_expanded_results, 50);
+        assert!((config.hop_decay - 0.7).abs() < 1e-6);
+        assert!(!config.include_relationship_context);
+    }
 }

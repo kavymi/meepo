@@ -354,4 +354,254 @@ mod tests {
         assert_eq!(event.kind, "email_received");
         assert!(event.payload.get("from").is_some());
     }
+
+    #[test]
+    fn test_watcher_description_email() {
+        let watcher = Watcher::new(
+            WatcherKind::EmailWatch {
+                from: Some("alice@example.com".to_string()),
+                subject_contains: Some("urgent".to_string()),
+                interval_secs: 120,
+            },
+            "notify".to_string(),
+            "slack".to_string(),
+        );
+        let desc = watcher.description();
+        assert!(desc.contains("Email watcher"));
+        assert!(desc.contains("120s"));
+        assert!(desc.contains("alice@example.com"));
+        assert!(desc.contains("urgent"));
+    }
+
+    #[test]
+    fn test_watcher_description_email_no_filters() {
+        let watcher = Watcher::new(
+            WatcherKind::EmailWatch {
+                from: None,
+                subject_contains: None,
+                interval_secs: 60,
+            },
+            "check".to_string(),
+            "ch".to_string(),
+        );
+        let desc = watcher.description();
+        assert!(desc.contains("Email watcher"));
+        assert!(!desc.contains("from:"));
+    }
+
+    #[test]
+    fn test_watcher_description_calendar() {
+        let watcher = Watcher::new(
+            WatcherKind::CalendarWatch {
+                lookahead_hours: 24,
+                interval_secs: 600,
+            },
+            "remind".to_string(),
+            "ch".to_string(),
+        );
+        let desc = watcher.description();
+        assert!(desc.contains("Calendar watcher"));
+        assert!(desc.contains("24h"));
+        assert!(desc.contains("600s"));
+    }
+
+    #[test]
+    fn test_watcher_description_github() {
+        let watcher = Watcher::new(
+            WatcherKind::GitHubWatch {
+                repo: "user/repo".to_string(),
+                events: vec!["push".to_string(), "pull_request".to_string()],
+                interval_secs: 60,
+                github_token: None,
+            },
+            "notify".to_string(),
+            "ch".to_string(),
+        );
+        let desc = watcher.description();
+        assert!(desc.contains("GitHub watcher"));
+        assert!(desc.contains("user/repo"));
+    }
+
+    #[test]
+    fn test_watcher_description_file() {
+        let watcher = Watcher::new(
+            WatcherKind::FileWatch {
+                path: "/tmp/test.log".to_string(),
+            },
+            "alert".to_string(),
+            "ch".to_string(),
+        );
+        assert!(watcher.description().contains("/tmp/test.log"));
+    }
+
+    #[test]
+    fn test_watcher_description_message() {
+        let watcher = Watcher::new(
+            WatcherKind::MessageWatch {
+                keyword: "deploy".to_string(),
+            },
+            "act".to_string(),
+            "ch".to_string(),
+        );
+        assert!(watcher.description().contains("deploy"));
+    }
+
+    #[test]
+    fn test_watcher_description_scheduled() {
+        let watcher = Watcher::new(
+            WatcherKind::Scheduled {
+                cron_expr: "0 9 * * MON".to_string(),
+                task: "Weekly report".to_string(),
+            },
+            "run".to_string(),
+            "ch".to_string(),
+        );
+        let desc = watcher.description();
+        assert!(desc.contains("Weekly report"));
+        assert!(desc.contains("0 9 * * MON"));
+    }
+
+    #[test]
+    fn test_watcher_description_oneshot() {
+        let at = Utc::now();
+        let watcher = Watcher::new(
+            WatcherKind::OneShot {
+                at,
+                task: "Send reminder".to_string(),
+            },
+            "run".to_string(),
+            "ch".to_string(),
+        );
+        let desc = watcher.description();
+        assert!(desc.contains("Send reminder"));
+        assert!(desc.contains("One-shot"));
+    }
+
+    #[test]
+    fn test_watcher_kind_github_min_interval() {
+        let gh = WatcherKind::GitHubWatch {
+            repo: "a/b".to_string(),
+            events: vec![],
+            interval_secs: 10,
+            github_token: None,
+        };
+        assert_eq!(gh.min_interval_secs(), 30);
+        assert!(gh.is_polling());
+        assert!(!gh.is_event_driven());
+        assert!(!gh.is_scheduled());
+    }
+
+    #[test]
+    fn test_watcher_kind_calendar_min_interval() {
+        let cal = WatcherKind::CalendarWatch {
+            lookahead_hours: 12,
+            interval_secs: 60,
+        };
+        assert_eq!(cal.min_interval_secs(), 300);
+        assert!(cal.is_polling());
+    }
+
+    #[test]
+    fn test_watcher_kind_message_classification() {
+        let msg = WatcherKind::MessageWatch {
+            keyword: "test".to_string(),
+        };
+        assert!(msg.is_event_driven());
+        assert!(!msg.is_polling());
+        assert!(!msg.is_scheduled());
+        assert_eq!(msg.min_interval_secs(), 0);
+    }
+
+    #[test]
+    fn test_watcher_kind_oneshot_classification() {
+        let oneshot = WatcherKind::OneShot {
+            at: Utc::now(),
+            task: "test".to_string(),
+        };
+        assert!(oneshot.is_scheduled());
+        assert!(!oneshot.is_polling());
+        assert!(!oneshot.is_event_driven());
+        assert_eq!(oneshot.min_interval_secs(), 0);
+    }
+
+    #[test]
+    fn test_watcher_event_calendar() {
+        let event =
+            WatcherEvent::calendar("w1".to_string(), "Team Meeting".to_string(), Utc::now());
+        assert_eq!(event.kind, "calendar_event");
+        assert_eq!(event.payload["title"], "Team Meeting");
+    }
+
+    #[test]
+    fn test_watcher_event_file_changed() {
+        let event = WatcherEvent::file_changed(
+            "w2".to_string(),
+            "/tmp/test.txt".to_string(),
+            "modified".to_string(),
+        );
+        assert_eq!(event.kind, "file_changed");
+        assert_eq!(event.payload["path"], "/tmp/test.txt");
+        assert_eq!(event.payload["change_type"], "modified");
+    }
+
+    #[test]
+    fn test_watcher_event_github() {
+        let event = WatcherEvent::github(
+            "w3".to_string(),
+            "push".to_string(),
+            serde_json::json!({"ref": "main"}),
+        );
+        assert_eq!(event.kind, "github_push");
+        assert_eq!(event.payload["ref"], "main");
+    }
+
+    #[test]
+    fn test_watcher_event_task() {
+        let event = WatcherEvent::task("w4".to_string(), "backup".to_string());
+        assert_eq!(event.kind, "task_triggered");
+        assert_eq!(event.payload["task"], "backup");
+    }
+
+    #[test]
+    fn test_watcher_event_new() {
+        let event = WatcherEvent::new(
+            "w5".to_string(),
+            "custom".to_string(),
+            serde_json::json!({"key": "value"}),
+        );
+        assert_eq!(event.watcher_id, "w5");
+        assert_eq!(event.kind, "custom");
+        assert_eq!(event.payload["key"], "value");
+    }
+
+    #[test]
+    fn test_watcher_serde_roundtrip() {
+        let watcher = Watcher::new(
+            WatcherKind::FileWatch {
+                path: "/tmp/test".to_string(),
+            },
+            "alert".to_string(),
+            "discord".to_string(),
+        );
+        let json = serde_json::to_string(&watcher).unwrap();
+        let parsed: Watcher = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, watcher.id);
+        assert_eq!(parsed.action, "alert");
+        assert_eq!(parsed.reply_channel, "discord");
+        assert!(parsed.active);
+    }
+
+    #[test]
+    fn test_watcher_event_serde_roundtrip() {
+        let event = WatcherEvent::email(
+            "w1".to_string(),
+            "a@b.com".to_string(),
+            "Hi".to_string(),
+            "Body".to_string(),
+        );
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: WatcherEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.watcher_id, "w1");
+        assert_eq!(parsed.kind, "email_received");
+    }
 }

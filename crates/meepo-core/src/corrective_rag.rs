@@ -338,4 +338,83 @@ mod tests {
         assert!(result.documents.is_empty());
         assert!(result.success);
     }
+
+    #[test]
+    fn test_relevance_equality() {
+        assert_eq!(Relevance::Relevant, Relevance::Relevant);
+        assert_eq!(Relevance::Ambiguous, Relevance::Ambiguous);
+        assert_eq!(Relevance::Irrelevant, Relevance::Irrelevant);
+        assert_ne!(Relevance::Relevant, Relevance::Irrelevant);
+        assert_ne!(Relevance::Relevant, Relevance::Ambiguous);
+    }
+
+    #[test]
+    fn test_config_custom_values() {
+        let config = CorrectiveRagConfig {
+            enabled: true,
+            max_rounds: 5,
+            relevance_threshold: 0.8,
+        };
+        assert!(config.enabled);
+        assert_eq!(config.max_rounds, 5);
+        assert_eq!(config.relevance_threshold, 0.8);
+    }
+
+    #[tokio::test]
+    async fn test_disabled_passthrough_preserves_entity_ids() {
+        let config = CorrectiveRagConfig::default();
+        let api = ApiClient::new("test-key".to_string(), None);
+        let docs = vec![
+            ("Content A".to_string(), Some("entity-1".to_string())),
+            ("Content B".to_string(), None),
+            ("Content C".to_string(), Some("entity-3".to_string())),
+        ];
+
+        let result = assess_and_correct(&api, "query", &docs, &config)
+            .await
+            .unwrap();
+
+        assert_eq!(result.documents.len(), 3);
+        assert_eq!(result.documents[0].entity_id, Some("entity-1".to_string()));
+        assert_eq!(result.documents[1].entity_id, None);
+        assert_eq!(result.documents[2].entity_id, Some("entity-3".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_disabled_passthrough_preserves_content() {
+        let config = CorrectiveRagConfig::default();
+        let api = ApiClient::new("test-key".to_string(), None);
+        let docs = vec![("Hello world".to_string(), None)];
+
+        let result = assess_and_correct(&api, "query", &docs, &config)
+            .await
+            .unwrap();
+
+        assert_eq!(result.documents[0].content, "Hello world");
+    }
+
+    #[test]
+    fn test_assessed_document_debug() {
+        let doc = AssessedDocument {
+            content: "test".to_string(),
+            entity_id: Some("id".to_string()),
+            relevance: Relevance::Relevant,
+        };
+        let debug_str = format!("{:?}", doc);
+        assert!(debug_str.contains("Relevant"));
+        assert!(debug_str.contains("test"));
+    }
+
+    #[test]
+    fn test_correction_result_debug() {
+        let result = CorrectionResult {
+            documents: vec![],
+            refined_query: Some("better query".to_string()),
+            rounds: 2,
+            success: false,
+        };
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("better query"));
+        assert!(debug_str.contains("2"));
+    }
 }

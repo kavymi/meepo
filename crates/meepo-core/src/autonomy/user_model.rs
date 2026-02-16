@@ -223,7 +223,7 @@ mod tests {
 
         profile.total_interactions = 20;
         profile.active_days[4] = 15; // Friday
-        profile.active_days[0] = 5;  // Monday
+        profile.active_days[0] = 5; // Monday
         assert_eq!(profile.peak_day(), 4);
     }
 

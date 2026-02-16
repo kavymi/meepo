@@ -414,4 +414,123 @@ allowed_directories = ["~/Projects"]
         assert!(soul.is_some());
         assert!(soul.unwrap().contains("Stock Analyst"));
     }
+
+    #[test]
+    fn test_parse_template_no_goals() {
+        let toml_str = r#"
+[template]
+name = "minimal"
+description = "No goals"
+"#;
+        let t = Template::parse(toml_str, PathBuf::from("/tmp")).unwrap();
+        assert_eq!(t.metadata.name, "minimal");
+        assert!(t.goals.is_empty());
+    }
+
+    #[test]
+    fn test_parse_template_defaults() {
+        let toml_str = r#"
+[template]
+name = "defaults"
+description = "Test defaults"
+
+[[goals]]
+description = "A goal"
+"#;
+        let t = Template::parse(toml_str, PathBuf::from("/tmp")).unwrap();
+        assert_eq!(t.metadata.version, "0.1.0");
+        assert_eq!(t.metadata.author, "");
+        assert!(t.metadata.tags.is_empty());
+        assert_eq!(t.goals[0].priority, 3);
+        assert_eq!(t.goals[0].check_interval_secs, 1800);
+        assert!(t.goals[0].success_criteria.is_none());
+    }
+
+    #[test]
+    fn test_parse_template_missing_template_section() {
+        let toml_str = r#"
+[autonomy]
+tick_interval_secs = 10
+"#;
+        let result = Template::parse(toml_str, PathBuf::from("/tmp"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_template_invalid_toml() {
+        let result = Template::parse("not valid toml {{{}}", PathBuf::from("/tmp"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deep_merge_new_key() {
+        let mut base: toml::Value = toml::from_str(
+            r#"[a]
+x = 1
+"#,
+        )
+        .unwrap();
+        let overlay: toml::Value = toml::from_str(
+            r#"[a]
+y = 2
+"#,
+        )
+        .unwrap();
+        deep_merge(&mut base, &overlay);
+        let a = base.get("a").unwrap().as_table().unwrap();
+        assert_eq!(a["x"].as_integer(), Some(1));
+        assert_eq!(a["y"].as_integer(), Some(2));
+    }
+
+    #[test]
+    fn test_deep_merge_scalar_override() {
+        let mut base = toml::Value::String("old".to_string());
+        let overlay = toml::Value::String("new".to_string());
+        deep_merge(&mut base, &overlay);
+        assert_eq!(base.as_str(), Some("new"));
+    }
+
+    #[test]
+    fn test_resolve_github_not_implemented() {
+        let result = resolve_template("gh:user/repo");
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().contains("GitHub"));
+    }
+
+    #[test]
+    fn test_get_template_memory_nonexistent() {
+        let t = resolve_template("stock-analyst").unwrap();
+        let memory = get_template_memory(&t).unwrap();
+        // Built-in templates may or may not have MEMORY.md
+        // Just verify it doesn't error
+        let _ = memory;
+    }
+
+    #[test]
+    fn test_template_metadata_serde() {
+        let meta = TemplateMetadata {
+            name: "test".to_string(),
+            description: "desc".to_string(),
+            version: "1.0.0".to_string(),
+            author: "me".to_string(),
+            tags: vec!["tag1".to_string()],
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        let parsed: TemplateMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "test");
+        assert_eq!(parsed.tags.len(), 1);
+    }
+
+    #[test]
+    fn test_active_template_serde() {
+        let at = ActiveTemplate {
+            name: "test".to_string(),
+            source: "built-in".to_string(),
+            activated_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        let toml_str = toml::to_string_pretty(&at).unwrap();
+        let parsed: ActiveTemplate = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.name, "test");
+        assert_eq!(parsed.source, "built-in");
+    }
 }

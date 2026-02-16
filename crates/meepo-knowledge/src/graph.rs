@@ -434,4 +434,210 @@ mod tests {
         let _ = std::fs::remove_dir_all(&index_path);
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_get_entity() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        let id = graph.add_entity("TestEntity", "type_a", None).await?;
+        let entity = graph.get_entity(&id).await?;
+        assert!(entity.is_some());
+        assert_eq!(entity.unwrap().name, "TestEntity");
+
+        let missing = graph.get_entity("nonexistent").await?;
+        assert!(missing.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_entities() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        graph.add_entity("Rust Lang", "language", None).await?;
+        graph.add_entity("Python Lang", "language", None).await?;
+        graph.add_entity("Rust Crate", "package", None).await?;
+
+        let all_rust = graph.search_entities("Rust", None).await?;
+        assert_eq!(all_rust.len(), 2);
+
+        let rust_lang = graph.search_entities("Rust", Some("language")).await?;
+        assert_eq!(rust_lang.len(), 1);
+        assert_eq!(rust_lang[0].name, "Rust Lang");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_relationships() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        let a = graph.add_entity("A", "node", None).await?;
+        let b = graph.add_entity("B", "node", None).await?;
+        graph.link_entities(&a, &b, "connects", None).await?;
+
+        let rels = graph.get_relationships(&a).await?;
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].relation_type, "connects");
+
+        let no_rels = graph.get_relationships("nonexistent").await?;
+        assert!(no_rels.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_store_and_get_conversations() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        graph
+            .store_conversation("discord", "user1", "Hello!", None)
+            .await?;
+        graph
+            .store_conversation("discord", "meepo", "Hi there!", None)
+            .await?;
+        graph
+            .store_conversation("slack", "user2", "Hey", None)
+            .await?;
+
+        let all = graph.get_conversations(None, 10).await?;
+        assert_eq!(all.len(), 3);
+
+        let discord_only = graph.get_conversations(Some("discord"), 10).await?;
+        assert_eq!(discord_only.len(), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_all_entities() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        assert!(graph.get_all_entities().await?.is_empty());
+
+        graph.add_entity("E1", "type", None).await?;
+        graph.add_entity("E2", "type", None).await?;
+
+        let all = graph.get_all_entities().await?;
+        assert_eq!(all.len(), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_db_accessor() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        let db = graph.db();
+        // Verify it's the same DB by inserting via db and reading via graph
+        db.insert_entity("Direct", "node", None).await?;
+        let entities = graph.get_all_entities().await?;
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].name, "Direct");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reindex() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        graph.add_entity("Searchable Item", "concept", None).await?;
+
+        // Reindex should succeed
+        graph.reindex().await?;
+
+        // Search should still work after reindex
+        let results = graph.search("Searchable", 10)?;
+        assert!(!results.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_remember_long_content() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        // Content longer than 100 chars should be truncated in entity name
+        let long_content = "A".repeat(200);
+        let id = graph.remember(&long_content, "note", None).await?;
+
+        let entity = graph.get_entity(&id).await?.unwrap();
+        assert!(entity.name.len() < 200);
+        assert!(entity.name.ends_with("..."));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_remember_without_channel() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        let id = graph.remember("No channel note", "note", None).await?;
+        assert!(!id.is_empty());
+
+        // No conversation should be stored
+        let convos = graph.get_conversations(None, 10).await?;
+        assert!(convos.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_link_nonexistent_entity() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        let a = graph.add_entity("A", "node", None).await?;
+        let result = graph.link_entities(&a, "nonexistent", "rel", None).await;
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_old_conversations() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        graph
+            .store_conversation("ch", "user", "recent msg", None)
+            .await?;
+
+        // Cleanup with 30 day retention should keep recent messages
+        let removed = graph.cleanup_old_conversations(30).await?;
+        assert_eq!(removed, 0);
+
+        let convos = graph.get_conversations(None, 10).await?;
+        assert_eq!(convos.len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_recall_empty_graph() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let graph = KnowledgeGraph::new(temp.path().join("t.db"), temp.path().join("idx"))?;
+
+        let results = graph.recall("anything", 10).await?;
+        assert!(results.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_entity_context_debug() {
+        let ctx = EntityContext {
+            entity: Entity {
+                id: "e1".to_string(),
+                name: "Test".to_string(),
+                entity_type: "node".to_string(),
+                metadata: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            },
+            related_entities: vec![],
+            relationships: vec![],
+            recent_conversations: vec![],
+        };
+        let debug = format!("{:?}", ctx);
+        assert!(debug.contains("Test"));
+    }
 }

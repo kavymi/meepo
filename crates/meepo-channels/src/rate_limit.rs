@@ -127,4 +127,46 @@ mod tests {
         assert!(limiter2.check_and_record("user1"));
         assert!(!limiter.check_and_record("user1"));
     }
+
+    #[test]
+    fn test_limit_of_one() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+        assert!(limiter.check_and_record("user1"));
+        assert!(!limiter.check_and_record("user1"));
+    }
+
+    #[test]
+    fn test_many_senders() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+        for i in 0..100 {
+            let sender = format!("user_{}", i);
+            assert!(limiter.check_and_record(&sender));
+        }
+    }
+
+    #[test]
+    fn test_empty_sender() {
+        let limiter = RateLimiter::new(2, Duration::from_secs(60));
+        assert!(limiter.check_and_record(""));
+        assert!(limiter.check_and_record(""));
+        assert!(!limiter.check_and_record(""));
+    }
+
+    #[test]
+    fn test_partial_window_expiry() {
+        let limiter = RateLimiter::new(3, Duration::from_millis(50));
+
+        assert!(limiter.check_and_record("user1"));
+        assert!(limiter.check_and_record("user1"));
+
+        // Wait for first two to expire
+        std::thread::sleep(Duration::from_millis(60));
+
+        // Third should be allowed (first two expired)
+        assert!(limiter.check_and_record("user1"));
+        assert!(limiter.check_and_record("user1"));
+        assert!(limiter.check_and_record("user1"));
+        // Fourth should be blocked
+        assert!(!limiter.check_and_record("user1"));
+    }
 }

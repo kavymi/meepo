@@ -299,4 +299,266 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_path);
         Ok(())
     }
+
+    #[test]
+    fn test_search_no_results() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_empty_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        let index = TantivyIndex::new(&temp_path)?;
+
+        index.index_document(
+            "doc-1",
+            "Rust programming language",
+            "concept",
+            &chrono::Utc::now().to_rfc3339(),
+        )?;
+
+        let results = index.search("javascript", 10)?;
+        assert!(results.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_limit() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_limit_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        let index = TantivyIndex::new(&temp_path)?;
+
+        for i in 0..5 {
+            index.index_document(
+                &format!("doc-{}", i),
+                &format!("Document about programming topic {}", i),
+                "concept",
+                &chrono::Utc::now().to_rfc3339(),
+            )?;
+        }
+
+        let results = index.search("programming", 2)?;
+        assert_eq!(results.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_index_document_overwrites() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_overwrite_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        let index = TantivyIndex::new(&temp_path)?;
+
+        index.index_document(
+            "doc-1",
+            "Original content about cats",
+            "concept",
+            &chrono::Utc::now().to_rfc3339(),
+        )?;
+
+        // Overwrite with new content
+        index.index_document(
+            "doc-1",
+            "Updated content about dogs",
+            "concept",
+            &chrono::Utc::now().to_rfc3339(),
+        )?;
+
+        // Should find the updated content
+        let results = index.search("dogs", 10)?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "doc-1");
+
+        // Old content should not be found
+        let results = index.search("cats", 10)?;
+        assert!(results.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_reindex_all_from_entities() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_reindex_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        let index = TantivyIndex::new(&temp_path)?;
+
+        // Index some initial docs
+        index.index_document(
+            "old-1",
+            "Old document that should be removed",
+            "concept",
+            &chrono::Utc::now().to_rfc3339(),
+        )?;
+
+        // Reindex with new entities
+        let entities = vec![
+            Entity {
+                id: "new-1".to_string(),
+                name: "Rust Language".to_string(),
+                entity_type: "concept".to_string(),
+                metadata: Some(serde_json::json!({"category": "programming"})),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            },
+            Entity {
+                id: "new-2".to_string(),
+                name: "Python Language".to_string(),
+                entity_type: "concept".to_string(),
+                metadata: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            },
+        ];
+
+        index.reindex_all_from_entities(&entities)?;
+
+        // Old docs should be gone
+        let results = index.search("removed", 10)?;
+        assert!(results.is_empty());
+
+        // New docs should be searchable
+        let results = index.search("Rust", 10)?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "new-1");
+
+        let results = index.search("Python", 10)?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "new-2");
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_reindex_empty_entities() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!(
+            "test_tantivy_reindex_empty_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        let index = TantivyIndex::new(&temp_path)?;
+
+        index.index_document(
+            "doc-1",
+            "Some content",
+            "concept",
+            &chrono::Utc::now().to_rfc3339(),
+        )?;
+
+        // Reindex with empty list should clear everything
+        index.reindex_all_from_entities(&[])?;
+
+        let results = index.search("content", 10)?;
+        assert!(results.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_result_fields() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_fields_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        let index = TantivyIndex::new(&temp_path)?;
+
+        index.index_document(
+            "field-test",
+            "Testing all fields are returned correctly",
+            "person",
+            "2024-01-01T00:00:00Z",
+        )?;
+
+        let results = index.search("fields", 10)?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "field-test");
+        assert_eq!(results[0].entity_type, "person");
+        assert!(results[0].score > 0.0);
+        assert!(results[0].snippet.is_some());
+        assert!(results[0].content.contains("Testing all fields"));
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_result_serde() {
+        let result = SearchResult {
+            id: "test".to_string(),
+            content: "content".to_string(),
+            entity_type: "concept".to_string(),
+            score: 0.95,
+            snippet: Some("snip".to_string()),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: SearchResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "test");
+        assert_eq!(parsed.score, 0.95);
+    }
+
+    #[test]
+    fn test_search_result_snippet_none_skipped() {
+        let result = SearchResult {
+            id: "test".to_string(),
+            content: "content".to_string(),
+            entity_type: "concept".to_string(),
+            score: 0.5,
+            snippet: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("snippet"));
+    }
+
+    #[test]
+    fn test_reopen_existing_index() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_reopen_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        // Create and populate
+        {
+            let index = TantivyIndex::new(&temp_path)?;
+            index.index_document(
+                "persist-1",
+                "Persistent document about databases",
+                "concept",
+                &chrono::Utc::now().to_rfc3339(),
+            )?;
+        }
+
+        // Reopen and verify data persists
+        {
+            let index = TantivyIndex::new(&temp_path)?;
+            let results = index.search("databases", 10)?;
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "persist-1");
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_delete_nonexistent_document() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_tantivy_del_none_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&temp_path);
+
+        let index = TantivyIndex::new(&temp_path)?;
+        // Should not error when deleting a non-existent doc
+        index.delete_document("nonexistent-id")?;
+
+        let _ = std::fs::remove_dir_all(&temp_path);
+        Ok(())
+    }
 }

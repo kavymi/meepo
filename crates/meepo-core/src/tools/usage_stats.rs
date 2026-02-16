@@ -166,4 +166,79 @@ mod tests {
         assert!(schema.get("properties").is_some());
         assert!(schema.get("required").is_some());
     }
+
+    fn make_tool() -> GetUsageStatsTool {
+        use meepo_knowledge::KnowledgeDb;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let db = Arc::new(KnowledgeDb::new(&temp.path().join("test.db")).unwrap());
+        let config = crate::usage::UsageConfig::default();
+        let tracker = Arc::new(UsageTracker::new(db, config));
+        GetUsageStatsTool::new(tracker)
+    }
+
+    #[tokio::test]
+    async fn test_usage_stats_missing_period() {
+        let tool = make_tool();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("period"));
+    }
+
+    #[tokio::test]
+    async fn test_usage_stats_invalid_period() {
+        let tool = make_tool();
+        let result = tool.execute(serde_json::json!({"period": "invalid"})).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid period"));
+    }
+
+    #[tokio::test]
+    async fn test_usage_stats_today() {
+        let tool = make_tool();
+        let result = tool
+            .execute(serde_json::json!({"period": "today"}))
+            .await
+            .unwrap();
+        assert!(result.contains("Usage Summary"));
+        assert!(result.contains("Total API calls"));
+        assert!(result.contains("Input tokens"));
+        assert!(result.contains("Output tokens"));
+        assert!(result.contains("Estimated cost"));
+    }
+
+    #[tokio::test]
+    async fn test_usage_stats_month() {
+        let tool = make_tool();
+        let result = tool
+            .execute(serde_json::json!({"period": "month"}))
+            .await
+            .unwrap();
+        assert!(result.contains("Usage Summary"));
+    }
+
+    #[tokio::test]
+    async fn test_usage_stats_date_range() {
+        let tool = make_tool();
+        let result = tool
+            .execute(serde_json::json!({"period": "2025-01-01:2025-01-31"}))
+            .await
+            .unwrap();
+        assert!(result.contains("Usage Summary"));
+    }
+
+    #[test]
+    fn test_schema_required_fields() {
+        let tool = make_tool();
+        let schema = tool.input_schema();
+        let required: Vec<String> = serde_json::from_value(
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
+        assert!(required.contains(&"period".to_string()));
+    }
 }

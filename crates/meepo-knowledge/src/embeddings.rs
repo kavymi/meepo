@@ -437,4 +437,166 @@ mod tests {
         assert_eq!(vec.len(), 384);
         assert!(vec.iter().all(|&v| v == 0.0));
     }
+
+    #[test]
+    fn test_noop_provider_dimensions() {
+        let provider = NoOpEmbeddingProvider::new(128);
+        assert_eq!(provider.dimensions(), 128);
+    }
+
+    #[test]
+    fn test_noop_provider_embed_batch() {
+        let provider = NoOpEmbeddingProvider::new(3);
+        let results = provider.embed_batch(&["hello", "world"]).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].len(), 3);
+        assert_eq!(results[1].len(), 3);
+    }
+
+    #[test]
+    fn test_vector_index_remove() {
+        let index = VectorIndex::new(3);
+        index.insert("a", vec![1.0, 0.0, 0.0]).unwrap();
+        assert_eq!(index.len(), 1);
+        assert!(!index.is_empty());
+
+        index.remove("a");
+        assert_eq!(index.len(), 0);
+        assert!(index.is_empty());
+    }
+
+    #[test]
+    fn test_vector_index_search_empty() {
+        let index = VectorIndex::new(3);
+        let results = index.search(&[1.0, 0.0, 0.0], 10);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_vector_index_persist_and_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test_embeddings.db");
+
+        // Create and populate index
+        let index = VectorIndex::new(3);
+        index.insert("entity_1", vec![1.0, 0.0, 0.0]).unwrap();
+        index.insert("entity_2", vec![0.0, 1.0, 0.0]).unwrap();
+        index.insert("entity_3", vec![0.5, 0.5, 0.0]).unwrap();
+        assert_eq!(index.len(), 3);
+
+        // Persist to DB
+        index.persist_to_db(&db_path).unwrap();
+
+        // Load from DB into a new index
+        let loaded = VectorIndex::load_from_db(&db_path, 3).unwrap();
+        assert_eq!(loaded.len(), 3);
+
+        // Verify search still works on loaded index
+        let results = loaded.search(&[1.0, 0.0, 0.0], 3);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].entity_id, "entity_1");
+        assert!((results[0].similarity - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_vector_index_load_from_empty_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("empty.db");
+
+        let index = VectorIndex::load_from_db(&db_path, 384).unwrap();
+        assert_eq!(index.len(), 0);
+        assert!(index.is_empty());
+    }
+
+    #[test]
+    fn test_cosine_similarity_empty() {
+        assert_eq!(cosine_similarity(&[], &[]), 0.0);
+    }
+
+    #[test]
+    fn test_cosine_similarity_different_lengths() {
+        let a = vec![1.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        assert_eq!(cosine_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vector() {
+        let a = vec![0.0, 0.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        assert_eq!(cosine_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn test_bytes_to_f32_vec_invalid_length() {
+        // 5 bytes is not a multiple of 4
+        let bytes = vec![0u8; 5];
+        assert!(bytes_to_f32_vec(&bytes).is_none());
+    }
+
+    #[test]
+    fn test_bytes_to_f32_vec_empty() {
+        let bytes: Vec<u8> = vec![];
+        let result = bytes_to_f32_vec(&bytes).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_hybrid_search_rrf_empty_inputs() {
+        let results = hybrid_search_rrf(&[], &[], 60.0, 10);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_hybrid_search_rrf_keyword_only() {
+        let keyword = vec!["a".to_string(), "b".to_string()];
+        let results = hybrid_search_rrf(&keyword, &[], 60.0, 10);
+        assert_eq!(results.len(), 2);
+        for r in &results {
+            assert!(r.keyword_rank.is_some());
+            assert!(r.vector_rank.is_none());
+        }
+    }
+
+    #[test]
+    fn test_hybrid_search_rrf_vector_only() {
+        let vector = vec![VectorSearchResult {
+            entity_id: "x".to_string(),
+            similarity: 0.9,
+        }];
+        let results = hybrid_search_rrf(&[], &vector, 60.0, 10);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].keyword_rank.is_none());
+        assert!(results[0].vector_rank.is_some());
+    }
+
+    #[test]
+    fn test_hybrid_search_rrf_respects_limit() {
+        let keyword: Vec<String> = (0..20).map(|i| format!("e{}", i)).collect();
+        let results = hybrid_search_rrf(&keyword, &[], 60.0, 5);
+        assert_eq!(results.len(), 5);
+    }
+
+    #[test]
+    fn test_embedding_config_default() {
+        let config = EmbeddingConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.dimensions, 384);
+        assert_eq!(config.vector_weight, 0.5);
+        assert_eq!(config.keyword_weight, 0.5);
+        assert!(config.model_name.contains("MiniLM"));
+    }
+
+    #[test]
+    fn test_vector_index_insert_overwrite() {
+        let index = VectorIndex::new(3);
+        index.insert("a", vec![1.0, 0.0, 0.0]).unwrap();
+        index.insert("a", vec![0.0, 1.0, 0.0]).unwrap();
+        assert_eq!(index.len(), 1);
+
+        // Should find the updated vector
+        let results = index.search(&[0.0, 1.0, 0.0], 1);
+        assert_eq!(results[0].entity_id, "a");
+        assert!((results[0].similarity - 1.0).abs() < 1e-6);
+    }
 }

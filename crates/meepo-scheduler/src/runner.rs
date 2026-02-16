@@ -1016,4 +1016,77 @@ mod tests {
         let result = runner.start_watcher(watcher3).await;
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_watcher_config_default() {
+        let config = WatcherConfig::default();
+        assert_eq!(config.max_concurrent_watchers, 100);
+        assert_eq!(config.min_poll_interval_secs, 10);
+        assert!(config.active_hours.is_none());
+        assert!(!config.enforce_active_hours);
+    }
+
+    #[tokio::test]
+    async fn test_stop_nonexistent_watcher() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let runner = WatcherRunner::new(tx);
+
+        let result = runner.stop_watcher("nonexistent").await.unwrap();
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_start_duplicate_watcher() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let runner = WatcherRunner::new(tx);
+
+        let watcher = Watcher::new(
+            WatcherKind::MessageWatch {
+                keyword: "test".to_string(),
+            },
+            "Test".to_string(),
+            "ch".to_string(),
+        );
+        let id = watcher.id.clone();
+
+        runner.start_watcher(watcher.clone()).await.unwrap();
+        assert_eq!(runner.active_count().await, 1);
+
+        // Starting same watcher again should be a no-op
+        runner.start_watcher(watcher).await.unwrap();
+        assert_eq!(runner.active_count().await, 1);
+        assert!(runner.is_running(&id).await);
+    }
+
+    #[tokio::test]
+    async fn test_message_watcher_registered() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let runner = WatcherRunner::new(tx);
+
+        let watcher = Watcher::new(
+            WatcherKind::MessageWatch {
+                keyword: "deploy".to_string(),
+            },
+            "Notify on deploy".to_string(),
+            "slack".to_string(),
+        );
+        let id = watcher.id.clone();
+
+        runner.start_watcher(watcher).await.unwrap();
+        assert!(runner.is_running(&id).await);
+        assert_eq!(runner.active_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_with_config() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let config = WatcherConfig {
+            max_concurrent_watchers: 5,
+            min_poll_interval_secs: 30,
+            active_hours: None,
+            enforce_active_hours: false,
+        };
+        let runner = WatcherRunner::with_config(tx, config);
+        assert_eq!(runner.active_count().await, 0);
+    }
 }

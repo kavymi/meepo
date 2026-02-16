@@ -106,4 +106,60 @@ mod tests {
         let _ = std::fs::remove_file(&temp_path);
         Ok(())
     }
+
+    #[test]
+    fn test_load_soul_nonexistent() -> Result<()> {
+        let temp_path = env::temp_dir().join("nonexistent_soul_xyz.md");
+        let _ = std::fs::remove_file(&temp_path);
+
+        let content = load_soul(&temp_path)?;
+        assert_eq!(content, "");
+        Ok(())
+    }
+
+    #[test]
+    fn test_save_creates_parent_dirs() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let nested_path = temp.path().join("a").join("b").join("c").join("memory.md");
+
+        save_memory(&nested_path, "nested content")?;
+        let loaded = load_memory(&nested_path)?;
+        assert_eq!(loaded, "nested content");
+        Ok(())
+    }
+
+    #[test]
+    fn test_save_overwrite() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let path = temp.path().join("overwrite.md");
+
+        save_memory(&path, "first")?;
+        save_memory(&path, "second")?;
+        let loaded = load_memory(&path)?;
+        assert_eq!(loaded, "second");
+        Ok(())
+    }
+
+    #[test]
+    fn test_save_empty_content() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let path = temp.path().join("empty.md");
+
+        save_memory(&path, "")?;
+        let loaded = load_memory(&path)?;
+        assert_eq!(loaded, "");
+        Ok(())
+    }
+
+    #[test]
+    fn test_save_unicode_content() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let path = temp.path().join("unicode.md");
+
+        let content = "# 日本語テスト\n\n🎉 Emoji and ñ special chars";
+        save_memory(&path, content)?;
+        let loaded = load_memory(&path)?;
+        assert_eq!(loaded, content);
+        Ok(())
+    }
 }

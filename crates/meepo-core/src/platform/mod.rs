@@ -693,4 +693,104 @@ mod tests {
         let _contacts = create_contacts_provider().unwrap();
         let _browser = create_browser_provider().unwrap();
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_macos_system_providers_create() {
+        let _system = create_system_control_provider().unwrap();
+        let _finder = create_finder_provider().unwrap();
+        let _spotlight = create_spotlight_provider().unwrap();
+        let _shortcuts = create_shortcuts_provider().unwrap();
+        let _keychain = create_keychain_provider().unwrap();
+        let _messages = create_messages_provider().unwrap();
+        let _photos = create_photos_provider().unwrap();
+        let _media = create_media_provider().unwrap();
+        let _window = create_window_manager_provider().unwrap();
+        let _terminal = create_terminal_provider().unwrap();
+        let _productivity = create_productivity_provider().unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_browser_provider_for_safari() {
+        let provider = create_browser_provider_for("safari");
+        assert!(provider.is_ok());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_browser_provider_for_chrome() {
+        let provider = create_browser_provider_for("chrome");
+        assert!(provider.is_ok());
+        let provider2 = create_browser_provider_for("Google Chrome");
+        assert!(provider2.is_ok());
+    }
+
+    #[test]
+    fn test_browser_provider_unsupported() {
+        let result = create_browser_provider_for("firefox");
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("Unsupported browser")
+        );
+    }
+
+    #[test]
+    fn test_browser_tab_serialize() {
+        let tab = BrowserTab {
+            id: "tab-1".to_string(),
+            title: "Test Page".to_string(),
+            url: "https://example.com".to_string(),
+            is_active: true,
+            window_index: 0,
+        };
+        let json = serde_json::to_value(&tab).unwrap();
+        assert_eq!(json["id"], "tab-1");
+        assert_eq!(json["title"], "Test Page");
+        assert_eq!(json["is_active"], true);
+    }
+
+    #[test]
+    fn test_browser_cookie_serialize() {
+        let cookie = BrowserCookie {
+            name: "session".to_string(),
+            value: "abc123".to_string(),
+            domain: ".example.com".to_string(),
+            path: "/".to_string(),
+        };
+        let json = serde_json::to_value(&cookie).unwrap();
+        assert_eq!(json["name"], "session");
+        assert_eq!(json["domain"], ".example.com");
+    }
+
+    #[test]
+    fn test_page_content_debug() {
+        let content = PageContent {
+            text: "Hello".to_string(),
+            html: "<p>Hello</p>".to_string(),
+            url: "https://example.com".to_string(),
+            title: "Test".to_string(),
+        };
+        let debug = format!("{:?}", content);
+        assert!(debug.contains("Hello"));
+        assert!(debug.contains("Test"));
+    }
+
+    #[test]
+    fn test_browser_tab_clone() {
+        let tab = BrowserTab {
+            id: "t1".to_string(),
+            title: "Title".to_string(),
+            url: "https://x.com".to_string(),
+            is_active: false,
+            window_index: 1,
+        };
+        let cloned = tab.clone();
+        assert_eq!(cloned.id, "t1");
+        assert_eq!(cloned.window_index, 1);
+    }
 }

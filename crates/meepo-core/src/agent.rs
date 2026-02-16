@@ -477,4 +477,130 @@ mod tests {
         // Context is a String — load_context should succeed without panic
         assert!(context.len() <= 100_000, "Context unexpectedly large");
     }
+
+    #[test]
+    fn test_update_soul() {
+        let (mut agent, _temp) = create_test_agent();
+        agent.update_soul("New soul".to_string());
+        assert_eq!(agent.soul, "New soul");
+    }
+
+    #[test]
+    fn test_db_accessor() {
+        let (agent, _temp) = create_test_agent();
+        let _db = agent.db();
+    }
+
+    #[test]
+    fn test_api_accessor() {
+        let (agent, _temp) = create_test_agent();
+        let _api = agent.api();
+    }
+
+    #[test]
+    fn test_usage_tracker_none_by_default() {
+        let (agent, _temp) = create_test_agent();
+        assert!(agent.usage_tracker().is_none());
+    }
+
+    #[test]
+    fn test_with_usage_tracker() {
+        let (agent, _temp) = create_test_agent();
+        let tracker = Arc::new(UsageTracker::new(
+            Arc::clone(agent.db()),
+            crate::usage::UsageConfig::default(),
+        ));
+        let agent = agent.with_usage_tracker(tracker);
+        assert!(agent.usage_tracker().is_some());
+    }
+
+    #[test]
+    fn test_with_router_config() {
+        let (agent, _temp) = create_test_agent();
+        let config = QueryRouterConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        let agent = agent.with_router_config(config);
+        assert!(!agent.router_config.enabled);
+    }
+
+    #[test]
+    fn test_with_summarization_config() {
+        let (agent, _temp) = create_test_agent();
+        let config = SummarizationConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        let agent = agent.with_summarization_config(config);
+        assert!(!agent.summarization_config.enabled);
+    }
+
+    #[test]
+    fn test_with_tool_selector_config() {
+        let (agent, _temp) = create_test_agent();
+        let config = ToolSelectorConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        let agent = agent.with_tool_selector_config(config);
+        assert!(!agent.tool_selector_config.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_load_context_no_history() {
+        let (agent, _temp) = create_test_agent();
+
+        let msg = IncomingMessage {
+            id: "test-2".to_string(),
+            sender: "user".to_string(),
+            content: "Hello".to_string(),
+            channel: ChannelType::Internal,
+            timestamp: Utc::now(),
+        };
+
+        let strategy = RetrievalStrategy {
+            complexity: query_router::QueryComplexity::SingleStep,
+            search_knowledge: false,
+            search_web: false,
+            load_history: false,
+            graph_expand: false,
+            corrective_rag: false,
+            knowledge_limit: 0,
+        };
+        let context = agent.load_context(&msg, &strategy).await.unwrap();
+        assert!(context.is_empty() || context.len() < 100);
+    }
+
+    #[tokio::test]
+    async fn test_load_context_with_knowledge() {
+        let (agent, _temp) = create_test_agent();
+
+        // Insert an entity so knowledge search finds something
+        agent
+            .db
+            .insert_entity("Rust Language", "concept", None)
+            .await
+            .unwrap();
+
+        let msg = IncomingMessage {
+            id: "test-3".to_string(),
+            sender: "user".to_string(),
+            content: "Tell me about Rust Language please".to_string(),
+            channel: ChannelType::Internal,
+            timestamp: Utc::now(),
+        };
+
+        let strategy = RetrievalStrategy {
+            complexity: query_router::QueryComplexity::SingleStep,
+            search_knowledge: true,
+            search_web: false,
+            load_history: false,
+            graph_expand: false,
+            corrective_rag: false,
+            knowledge_limit: 5,
+        };
+        let context = agent.load_context(&msg, &strategy).await.unwrap();
+        assert!(context.contains("Rust Language"));
+    }
 }

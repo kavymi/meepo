@@ -119,4 +119,109 @@ mod tests {
         assert_eq!(json["status"], "completed");
         assert!(json["result"].is_string());
     }
+
+    #[test]
+    fn test_task_status_all_variants_display() {
+        assert_eq!(TaskStatus::Submitted.to_string(), "submitted");
+        assert_eq!(TaskStatus::Working.to_string(), "working");
+        assert_eq!(TaskStatus::Completed.to_string(), "completed");
+        assert_eq!(TaskStatus::Failed.to_string(), "failed");
+        assert_eq!(TaskStatus::Cancelled.to_string(), "cancelled");
+    }
+
+    #[test]
+    fn test_task_status_serde_roundtrip() {
+        let statuses = [
+            TaskStatus::Submitted,
+            TaskStatus::Working,
+            TaskStatus::Completed,
+            TaskStatus::Failed,
+            TaskStatus::Cancelled,
+        ];
+        for status in &statuses {
+            let json = serde_json::to_string(status).unwrap();
+            let parsed: TaskStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(*status, parsed);
+        }
+    }
+
+    #[test]
+    fn test_task_status_equality() {
+        assert_eq!(TaskStatus::Completed, TaskStatus::Completed);
+        assert_ne!(TaskStatus::Completed, TaskStatus::Failed);
+    }
+
+    #[test]
+    fn test_agent_card_roundtrip() {
+        let card = AgentCard {
+            name: "test-agent".to_string(),
+            description: "A test agent".to_string(),
+            url: "http://localhost:9000".to_string(),
+            capabilities: vec!["search".to_string(), "code".to_string()],
+            authentication: AuthConfig {
+                schemes: vec!["bearer".to_string()],
+            },
+        };
+        let json = serde_json::to_string(&card).unwrap();
+        let parsed: AgentCard = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "test-agent");
+        assert_eq!(parsed.capabilities.len(), 2);
+        assert_eq!(parsed.authentication.schemes[0], "bearer");
+    }
+
+    #[test]
+    fn test_agent_card_default_auth() {
+        let json = r#"{"name":"a","description":"b","url":"http://x","capabilities":[]}"#;
+        let card: AgentCard = serde_json::from_str(json).unwrap();
+        assert!(card.authentication.schemes.is_empty());
+    }
+
+    #[test]
+    fn test_task_request_with_context() {
+        let req = TaskRequest {
+            prompt: "do something".to_string(),
+            context: serde_json::json!({"key": "value", "nested": {"a": 1}}),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["prompt"], "do something");
+        assert_eq!(json["context"]["nested"]["a"], 1);
+    }
+
+    #[test]
+    fn test_task_request_default_context() {
+        let json = r#"{"prompt":"hello"}"#;
+        let req: TaskRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.prompt, "hello");
+        assert_eq!(req.context, Value::Null);
+    }
+
+    #[test]
+    fn test_task_response_without_result() {
+        let resp = TaskResponse {
+            task_id: "t-1".to_string(),
+            status: TaskStatus::Working,
+            result: None,
+            created_at: Utc::now(),
+            completed_at: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("result").is_none());
+        assert!(json.get("completed_at").is_none());
+    }
+
+    #[test]
+    fn test_error_response_serde() {
+        let err = ErrorResponse {
+            error: "something went wrong".to_string(),
+        };
+        let json = serde_json::to_string(&err).unwrap();
+        let parsed: ErrorResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.error, "something went wrong");
+    }
+
+    #[test]
+    fn test_auth_config_default() {
+        let auth = AuthConfig::default();
+        assert!(auth.schemes.is_empty());
+    }
 }

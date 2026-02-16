@@ -348,4 +348,66 @@ mod tests {
         // Can't construct DynamicMcpTool without client, but verify schema types
         assert_eq!(schema["type"], "object");
     }
+
+    #[test]
+    fn test_client_config_with_env() {
+        let config = McpClientConfig {
+            name: "test-server".to_string(),
+            command: "/usr/bin/node".to_string(),
+            args: vec![
+                "server.js".to_string(),
+                "--port".to_string(),
+                "3000".to_string(),
+            ],
+            env: vec![
+                ("NODE_ENV".to_string(), "production".to_string()),
+                ("API_KEY".to_string(), "secret".to_string()),
+            ],
+        };
+        assert_eq!(config.name, "test-server");
+        assert_eq!(config.args.len(), 3);
+        assert_eq!(config.env.len(), 2);
+        assert_eq!(config.env[0].0, "NODE_ENV");
+    }
+
+    #[test]
+    fn test_client_config_debug() {
+        let config = McpClientConfig {
+            name: "debug-test".to_string(),
+            command: "echo".to_string(),
+            args: vec![],
+            env: vec![],
+        };
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("debug-test"));
+        assert!(debug.contains("echo"));
+    }
+
+    #[test]
+    fn test_client_config_clone() {
+        let config = McpClientConfig {
+            name: "original".to_string(),
+            command: "cmd".to_string(),
+            args: vec!["arg1".to_string()],
+            env: vec![("K".to_string(), "V".to_string())],
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.name, "original");
+        assert_eq!(cloned.args.len(), 1);
+        assert_eq!(cloned.env.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_connect_nonexistent_command() {
+        let config = McpClientConfig {
+            name: "bad".to_string(),
+            command: "/nonexistent/binary/path".to_string(),
+            args: vec![],
+            env: vec![],
+        };
+        let result = McpClient::connect(config).await;
+        assert!(result.is_err());
+        let err = result.err().unwrap().to_string();
+        assert!(err.contains("Failed to spawn"));
+    }
 }

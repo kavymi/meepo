@@ -2086,9 +2086,7 @@ mod tests {
         assert_eq!(limited.len(), 1);
 
         // Empty channel returns nothing
-        let empty = db
-            .get_recent_conversations(Some("nonexistent"), 10)
-            .await?;
+        let empty = db.get_recent_conversations(Some("nonexistent"), 10).await?;
         assert!(empty.is_empty());
 
         let _ = std::fs::remove_file(&temp_path);
@@ -2275,8 +2273,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_old_conversations() -> Result<()> {
-        let temp_path =
-            env::temp_dir().join(format!("test_cleanup_{}.db", std::process::id()));
+        let temp_path = env::temp_dir().join(format!("test_cleanup_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
@@ -2304,13 +2301,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_entity_with_metadata() -> Result<()> {
-        let temp_path =
-            env::temp_dir().join(format!("test_entity_meta_{}.db", std::process::id()));
+        let temp_path = env::temp_dir().join(format!("test_entity_meta_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
         let meta = serde_json::json!({"role": "developer", "team": "backend"});
-        let id = db.insert_entity("Alice", "person", Some(meta.clone())).await?;
+        let id = db
+            .insert_entity("Alice", "person", Some(meta.clone()))
+            .await?;
 
         let entity = db.get_entity(&id).await?.unwrap();
         assert_eq!(entity.name, "Alice");
@@ -2323,8 +2321,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_entity_nonexistent() -> Result<()> {
-        let temp_path =
-            env::temp_dir().join(format!("test_entity_none_{}.db", std::process::id()));
+        let temp_path = env::temp_dir().join(format!("test_entity_none_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
@@ -2360,8 +2357,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_entities_by_type() -> Result<()> {
-        let temp_path =
-            env::temp_dir().join(format!("test_search_type_{}.db", std::process::id()));
+        let temp_path = env::temp_dir().join(format!("test_search_type_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
@@ -2388,8 +2384,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_relationship_with_metadata() -> Result<()> {
-        let temp_path =
-            env::temp_dir().join(format!("test_rel_meta_{}.db", std::process::id()));
+        let temp_path = env::temp_dir().join(format!("test_rel_meta_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
@@ -2439,8 +2434,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_watchers() -> Result<()> {
-        let temp_path =
-            env::temp_dir().join(format!("test_multi_watch_{}.db", std::process::id()));
+        let temp_path = env::temp_dir().join(format!("test_multi_watch_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&temp_path);
         let db = KnowledgeDb::new(&temp_path)?;
 
@@ -2471,5 +2465,275 @@ mod tests {
 
         let _ = std::fs::remove_file(&temp_path);
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_usage_csv_empty() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_csv_empty_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let csv = db.export_usage_csv("2024-01-01", "2024-01-31").await?;
+        // Should at least have a header line
+        assert!(csv.contains("timestamp"));
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_usage_cost_for_date_empty() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_cost_date_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let cost = db.get_usage_cost_for_date("2024-01-01").await?;
+        assert_eq!(cost, 0.0);
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_usage_cost_for_range_empty() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_cost_range_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let cost = db
+            .get_usage_cost_for_range("2024-01-01", "2024-12-31")
+            .await?;
+        assert_eq!(cost, 0.0);
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_delete_goals_by_source() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_del_goals_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        db.insert_goal("Goal A", 3, 1800, None, "template:stock")
+            .await?;
+        db.insert_goal("Goal B", 2, 900, None, "template:stock")
+            .await?;
+        db.insert_goal("Goal C", 1, 600, None, "user").await?;
+
+        let deleted = db.delete_goals_by_source("template:stock").await?;
+        assert_eq!(deleted, 2);
+
+        let active = db.get_active_goals().await?;
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].description, "Goal C");
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_background_task_lifecycle() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_bg_lifecycle_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let id = db
+            .insert_background_task("compile", "Building project", "session-1")
+            .await?;
+        assert!(!id.is_empty());
+
+        let active = db.get_active_background_tasks().await?;
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].task_type, "compile");
+
+        db.update_background_task(&id, "completed", Some("Build succeeded"))
+            .await?;
+
+        let active = db.get_active_background_tasks().await?;
+        assert!(active.is_empty());
+
+        let recent = db.get_recent_background_tasks(10).await?;
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].status, "completed");
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_goal_update_checked() -> Result<()> {
+        let temp_path =
+            env::temp_dir().join(format!("test_goal_checked_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let id = db.insert_goal("Check goal", 3, 60, None, "test").await?;
+
+        db.update_goal_checked(&id, Some("improved")).await?;
+
+        // Goal should no longer be due immediately after checking
+        // (last_checked is updated)
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_goal_update_status() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_goal_status_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let id = db.insert_goal("Status goal", 3, 1800, None, "test").await?;
+
+        db.update_goal_status(&id, "completed").await?;
+
+        let active = db.get_active_goals().await?;
+        assert!(active.is_empty());
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_watcher_by_id() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_get_watcher_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let id = db
+            .insert_watcher(
+                "email",
+                serde_json::json!({"from": "boss"}),
+                "alert",
+                "slack",
+            )
+            .await?;
+
+        let watcher = db.get_watcher(&id).await?;
+        assert!(watcher.is_some());
+        let w = watcher.unwrap();
+        assert_eq!(w.kind, "email");
+        assert_eq!(w.action, "alert");
+        assert!(w.active);
+
+        let none = db.get_watcher("nonexistent").await?;
+        assert!(none.is_none());
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upsert_preference() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_upsert_pref_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        db.upsert_preference("ui", "theme", "dark", 0.9).await?;
+        let prefs = db.get_preferences(Some("ui")).await?;
+        assert_eq!(prefs.len(), 1);
+        assert_eq!(prefs[0].value, "dark");
+
+        // Upsert should update existing
+        db.upsert_preference("ui", "theme", "light", 0.95).await?;
+        let prefs = db.get_preferences(Some("ui")).await?;
+        assert_eq!(prefs.len(), 1);
+        assert_eq!(prefs[0].value, "light");
+
+        // Different category
+        db.upsert_preference("lang", "primary", "rust", 0.8).await?;
+        let all = db.get_preferences(None).await?;
+        assert_eq!(all.len(), 2);
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_conversation_with_metadata() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_conv_meta_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        let meta = serde_json::json!({"tool_used": "search"});
+        db.insert_conversation("discord", "user1", "hello", Some(meta.clone()))
+            .await?;
+
+        let convs = db.get_recent_conversations(Some("discord"), 10).await?;
+        assert_eq!(convs.len(), 1);
+        assert_eq!(convs[0].metadata.as_ref().unwrap(), &meta);
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_recent_actions() -> Result<()> {
+        let temp_path = env::temp_dir().join(format!("test_actions_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&temp_path);
+        let db = KnowledgeDb::new(&temp_path)?;
+
+        db.insert_action_log("read_file", "low", "Read config.toml")
+            .await?;
+        db.insert_action_log("write_file", "medium", "Wrote output.txt")
+            .await?;
+
+        let actions = db.get_recent_actions(10).await?;
+        assert_eq!(actions.len(), 2);
+        // Most recent first
+        assert_eq!(actions[0].tool_name, "write_file");
+
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_entity_serde_roundtrip() {
+        let entity = Entity {
+            id: "e1".to_string(),
+            name: "Test".to_string(),
+            entity_type: "concept".to_string(),
+            metadata: Some(serde_json::json!({"key": "val"})),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let json = serde_json::to_string(&entity).unwrap();
+        let parsed: Entity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "Test");
+        assert!(parsed.metadata.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_relationship_serde_roundtrip() {
+        let rel = Relationship {
+            id: "r1".to_string(),
+            source_id: "s1".to_string(),
+            target_id: "t1".to_string(),
+            relation_type: "knows".to_string(),
+            metadata: None,
+            created_at: Utc::now(),
+        };
+        let json = serde_json::to_string(&rel).unwrap();
+        let parsed: Relationship = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.relation_type, "knows");
+        // metadata should be skipped in serialization
+        assert!(!json.contains("metadata"));
+    }
+
+    #[tokio::test]
+    async fn test_conversation_serde_roundtrip() {
+        let conv = Conversation {
+            id: "c1".to_string(),
+            channel: "discord".to_string(),
+            sender: "alice".to_string(),
+            content: "hello".to_string(),
+            metadata: None,
+            created_at: Utc::now(),
+        };
+        let json = serde_json::to_string(&conv).unwrap();
+        let parsed: Conversation = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.sender, "alice");
     }
 }

@@ -549,7 +549,10 @@ mod tests {
         assert_eq!(UsageSource::parse("autonomous"), UsageSource::Autonomous);
         assert_eq!(UsageSource::parse("sub_agent"), UsageSource::SubAgent);
         assert_eq!(UsageSource::parse("watcher"), UsageSource::Watcher);
-        assert_eq!(UsageSource::parse("summarization"), UsageSource::Summarization);
+        assert_eq!(
+            UsageSource::parse("summarization"),
+            UsageSource::Summarization
+        );
         assert_eq!(UsageSource::parse("internal"), UsageSource::Internal);
     }
 
@@ -714,7 +717,12 @@ mod tests {
         usage.add(1000, 500);
         usage.record_tool_call("test_tool");
         tracker
-            .record("claude-sonnet-4-20250514", &usage, &UsageSource::User, Some("discord"))
+            .record(
+                "claude-sonnet-4-20250514",
+                &usage,
+                &UsageSource::User,
+                Some("discord"),
+            )
             .await
             .unwrap();
 
@@ -795,26 +803,35 @@ mod tests {
         use meepo_knowledge::{ModelUsage, SourceUsage};
 
         let mut by_source = HashMap::new();
-        by_source.insert("user".to_string(), SourceUsage {
-            input_tokens: 5000,
-            output_tokens: 2500,
-            api_calls: 5,
-            estimated_cost_usd: 0.3,
-        });
-        by_source.insert("watcher".to_string(), SourceUsage {
-            input_tokens: 3000,
-            output_tokens: 1500,
-            api_calls: 3,
-            estimated_cost_usd: 0.2,
-        });
+        by_source.insert(
+            "user".to_string(),
+            SourceUsage {
+                input_tokens: 5000,
+                output_tokens: 2500,
+                api_calls: 5,
+                estimated_cost_usd: 0.3,
+            },
+        );
+        by_source.insert(
+            "watcher".to_string(),
+            SourceUsage {
+                input_tokens: 3000,
+                output_tokens: 1500,
+                api_calls: 3,
+                estimated_cost_usd: 0.2,
+            },
+        );
 
         let mut by_model = HashMap::new();
-        by_model.insert("claude-sonnet-4-20250514".to_string(), ModelUsage {
-            input_tokens: 8000,
-            output_tokens: 4000,
-            api_calls: 8,
-            estimated_cost_usd: 0.5,
-        });
+        by_model.insert(
+            "claude-sonnet-4-20250514".to_string(),
+            ModelUsage {
+                input_tokens: 8000,
+                output_tokens: 4000,
+                api_calls: 8,
+                estimated_cost_usd: 0.5,
+            },
+        );
 
         let summary = UsageSummary {
             period: "2026-02-16".to_string(),

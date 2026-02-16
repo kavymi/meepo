@@ -325,4 +325,61 @@ mod tests {
         let tool = ArrangeWindowsTool::new();
         assert_eq!(tool.name(), "arrange_windows");
     }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_arrange_windows_missing_layout() {
+        let tool = ArrangeWindowsTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("layout"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_minimize_window_schema() {
+        let tool = MinimizeWindowTool::new();
+        assert_eq!(tool.name(), "minimize_window");
+        // app_name is optional so required should be empty
+        let schema = tool.input_schema();
+        let required: Vec<String> = serde_json::from_value(
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
+        assert!(required.is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_fullscreen_window_schema() {
+        let tool = FullscreenWindowTool::new();
+        assert_eq!(tool.name(), "fullscreen_window");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn test_move_window_missing_all_params() {
+        let tool = MoveWindowTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("app_name"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_arrange_windows_required_fields() {
+        let tool = ArrangeWindowsTool::new();
+        let schema = tool.input_schema();
+        let required: Vec<String> = serde_json::from_value(
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
+        )
+        .unwrap_or_default();
+        assert!(required.contains(&"layout".to_string()));
+    }
 }

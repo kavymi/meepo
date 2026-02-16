@@ -225,4 +225,72 @@ mod tests {
         // Should not panic, values clamped to [-1, 1]
         assert_eq!(wav.len(), 44 + 4);
     }
+
+    #[test]
+    fn test_encode_wav_empty() {
+        let wav = encode_wav(&[], 44100);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(wav.len(), 44); // header only
+    }
+
+    #[test]
+    fn test_stt_provider_serde_roundtrip() {
+        let providers = [SttProvider::WhisperApi, SttProvider::WhisperLocal];
+        for p in &providers {
+            let json = serde_json::to_string(p).unwrap();
+            let parsed: SttProvider = serde_json::from_str(&json).unwrap();
+            assert_eq!(*p, parsed);
+        }
+    }
+
+    #[test]
+    fn test_tts_provider_serde_roundtrip() {
+        let providers = [
+            TtsProvider::Elevenlabs,
+            TtsProvider::MacosSay,
+            TtsProvider::OpenaiTts,
+        ];
+        for p in &providers {
+            let json = serde_json::to_string(p).unwrap();
+            let parsed: TtsProvider = serde_json::from_str(&json).unwrap();
+            assert_eq!(*p, parsed);
+        }
+    }
+
+    #[test]
+    fn test_audio_config_serde_roundtrip() {
+        let config = AudioConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: AudioConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.sample_rate, 16000);
+        assert_eq!(parsed.wake_word, "hey meepo");
+        assert!(!parsed.enabled);
+    }
+
+    #[test]
+    fn test_audio_config_debug_empty_keys() {
+        let config = AudioConfig::default();
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("(empty)"));
+    }
+
+    #[test]
+    fn test_transcription_debug() {
+        let t = Transcription {
+            text: "hello world".to_string(),
+            language: Some("en".to_string()),
+            duration_ms: 1500,
+        };
+        let debug = format!("{:?}", t);
+        assert!(debug.contains("hello world"));
+        assert!(debug.contains("1500"));
+    }
+
+    #[test]
+    fn test_audio_chunk_channels_default() {
+        let chunk = AudioChunk::new(vec![0.1, 0.2], 8000);
+        assert_eq!(chunk.channels, 1);
+        assert_eq!(chunk.sample_rate, 8000);
+        assert_eq!(chunk.samples.len(), 2);
+    }
 }

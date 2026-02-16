@@ -332,4 +332,144 @@ mod tests {
         assert_eq!(config.provider, SecretsProviderType::Env);
         assert!(config.secrets_dir.is_none());
     }
+
+    #[test]
+    fn test_secrets_config_serde_roundtrip() {
+        let config = SecretsConfig {
+            provider: SecretsProviderType::File,
+            secrets_dir: Some("/run/secrets".to_string()),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: SecretsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.provider, SecretsProviderType::File);
+        assert_eq!(parsed.secrets_dir.as_deref(), Some("/run/secrets"));
+    }
+
+    #[test]
+    fn test_secrets_provider_type_serde() {
+        let json = serde_json::to_string(&SecretsProviderType::Memory).unwrap();
+        assert_eq!(json, "\"memory\"");
+        let parsed: SecretsProviderType = serde_json::from_str("\"env\"").unwrap();
+        assert_eq!(parsed, SecretsProviderType::Env);
+        let parsed: SecretsProviderType = serde_json::from_str("\"file\"").unwrap();
+        assert_eq!(parsed, SecretsProviderType::File);
+    }
+
+    #[test]
+    fn test_from_config_env() {
+        let config = SecretsConfig::default();
+        let mgr = SecretsManager::from_config(&config);
+        // Just verify it constructs without panic
+        let _ = mgr;
+    }
+
+    #[test]
+    fn test_from_config_file() {
+        let config = SecretsConfig {
+            provider: SecretsProviderType::File,
+            secrets_dir: Some("/tmp/test_secrets".to_string()),
+        };
+        let mgr = SecretsManager::from_config(&config);
+        let _ = mgr;
+    }
+
+    #[test]
+    fn test_from_config_file_default_dir() {
+        let config = SecretsConfig {
+            provider: SecretsProviderType::File,
+            secrets_dir: None,
+        };
+        let mgr = SecretsManager::from_config(&config);
+        let _ = mgr;
+    }
+
+    #[test]
+    fn test_from_config_memory() {
+        let config = SecretsConfig {
+            provider: SecretsProviderType::Memory,
+            secrets_dir: None,
+        };
+        let mgr = SecretsManager::from_config(&config);
+        let _ = mgr;
+    }
+
+    #[tokio::test]
+    async fn test_file_provider_path_traversal_backslash() {
+        let provider = FileSecretsProvider::new("/tmp/secrets");
+        let result = provider.get("secret\\file").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_file_provider_path_traversal_null() {
+        let provider = FileSecretsProvider::new("/tmp/secrets");
+        let result = provider.get("secret\0file").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_file_provider_reads_real_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("my_key"), "  secret_value  \n").unwrap();
+
+        let provider = FileSecretsProvider::new(dir.path());
+        let result = provider.get("my_key").await.unwrap();
+        assert_eq!(result, Some("secret_value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_env_provider_allowlist_enforcement() {
+        let provider = EnvSecretsProvider;
+        // These should all return None (not on allowlist) even if they exist
+        for var in &["PATH", "SHELL", "TERM", "LANG", "PWD"] {
+            let result = provider.get(var).await.unwrap();
+            assert!(
+                result.is_none(),
+                "Expected None for non-allowlisted var {}",
+                var
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_secrets_manager_expand_multiple_same_key() {
+        let mut provider = MemorySecretsProvider::new();
+        provider.set("TOKEN", "abc123");
+
+        let mgr = SecretsManager::new(Box::new(provider));
+        let result = mgr
+            .expand("first=$secret{TOKEN} second=$secret{TOKEN}")
+            .await
+            .unwrap();
+        assert_eq!(result, "first=abc123 second=abc123");
+    }
+
+    #[tokio::test]
+    async fn test_secrets_manager_expand_adjacent() {
+        let mut provider = MemorySecretsProvider::new();
+        provider.set("A", "x");
+        provider.set("B", "y");
+
+        let mgr = SecretsManager::new(Box::new(provider));
+        let result = mgr.expand("$secret{A}$secret{B}").await.unwrap();
+        assert_eq!(result, "xy");
+    }
+
+    #[test]
+    fn test_memory_provider_default() {
+        let provider = MemorySecretsProvider::default();
+        assert_eq!(provider.name(), "memory");
+    }
+
+    #[test]
+    fn test_env_provider_name() {
+        let provider = EnvSecretsProvider;
+        assert_eq!(provider.name(), "env");
+    }
+
+    #[test]
+    fn test_file_provider_name() {
+        let provider = FileSecretsProvider::new("/tmp");
+        assert_eq!(provider.name(), "file");
+    }
 }

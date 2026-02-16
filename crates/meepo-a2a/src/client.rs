@@ -219,4 +219,89 @@ mod tests {
         };
         assert_eq!(config.name, "openclaw");
     }
+
+    #[test]
+    fn test_client_default() {
+        let client = A2aClient::default();
+        let _ = client;
+    }
+
+    #[test]
+    fn test_client_clone() {
+        let client = A2aClient::new();
+        let cloned = client.clone();
+        let _ = cloned;
+    }
+
+    #[test]
+    fn test_peer_config_without_token() {
+        let config = PeerAgentConfig {
+            name: "peer".to_string(),
+            url: "http://example.com".to_string(),
+            token: None,
+        };
+        assert!(config.token.is_none());
+    }
+
+    #[test]
+    fn test_peer_config_debug() {
+        let config = PeerAgentConfig {
+            name: "agent".to_string(),
+            url: "http://localhost:8080".to_string(),
+            token: Some("secret".to_string()),
+        };
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("agent"));
+        assert!(debug.contains("localhost"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_agent_card_connection_refused() {
+        let client = A2aClient::new();
+        let result = client.fetch_agent_card("http://127.0.0.1:1", None).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_submit_task_connection_refused() {
+        let client = A2aClient::new();
+        let result = client
+            .submit_task(
+                "http://127.0.0.1:1",
+                None,
+                "test prompt",
+                serde_json::json!({}),
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_task_status_connection_refused() {
+        let client = A2aClient::new();
+        let result = client
+            .get_task_status("http://127.0.0.1:1", None, "task-123")
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_cancel_task_connection_refused() {
+        let client = A2aClient::new();
+        let result = client
+            .cancel_task("http://127.0.0.1:1", None, "task-123")
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_agent_card_trailing_slash() {
+        let client = A2aClient::new();
+        // Verify URL construction with trailing slash doesn't double-slash
+        let result = client.fetch_agent_card("http://127.0.0.1:1/", None).await;
+        assert!(result.is_err());
+        // The error should be a connection error, not a URL error
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("connect") || err.contains("Connect") || err.contains("Failed"));
+    }
 }

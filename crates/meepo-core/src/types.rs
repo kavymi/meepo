@@ -97,7 +97,10 @@ mod tests {
         assert_eq!(ChannelType::from_string("imessage"), ChannelType::IMessage);
         assert_eq!(ChannelType::from_string("email"), ChannelType::Email);
         assert_eq!(ChannelType::from_string("alexa"), ChannelType::Alexa);
-        assert_eq!(ChannelType::from_string("reminders"), ChannelType::Reminders);
+        assert_eq!(
+            ChannelType::from_string("reminders"),
+            ChannelType::Reminders
+        );
         assert_eq!(ChannelType::from_string("notes"), ChannelType::Notes);
         assert_eq!(ChannelType::from_string("contacts"), ChannelType::Contacts);
     }

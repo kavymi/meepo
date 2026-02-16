@@ -342,5 +342,125 @@ mod tests {
         assert_eq!(SkillStatus::Available.to_string(), "available");
         assert_eq!(SkillStatus::Installed.to_string(), "installed");
         assert_eq!(SkillStatus::Disabled.to_string(), "disabled");
+        assert_eq!(SkillStatus::UpdateAvailable.to_string(), "update_available");
+    }
+
+    #[test]
+    fn test_skill_status_serde_roundtrip() {
+        let statuses = [
+            SkillStatus::Available,
+            SkillStatus::Installed,
+            SkillStatus::UpdateAvailable,
+            SkillStatus::Disabled,
+        ];
+        for status in &statuses {
+            let json = serde_json::to_string(status).unwrap();
+            let parsed: SkillStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(*status, parsed);
+        }
+    }
+
+    #[test]
+    fn test_skill_package_serde() {
+        let pkg = test_package("serde_test");
+        let json = serde_json::to_string(&pkg).unwrap();
+        let parsed: SkillPackage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "serde_test");
+        assert_eq!(parsed.version, "1.0.0");
+        assert_eq!(parsed.tools.len(), 1);
+    }
+
+    #[test]
+    fn test_skill_package_defaults() {
+        let json = r#"{"name":"min","version":"0.1","description":"d","author":"a"}"#;
+        let pkg: SkillPackage = serde_json::from_str(json).unwrap();
+        assert!(pkg.tags.is_empty());
+        assert!(pkg.dependencies.is_empty());
+        assert!(pkg.tools.is_empty());
+        assert!(pkg.source_url.is_none());
+        assert!(pkg.checksum.is_none());
+    }
+
+    #[test]
+    fn test_install_name_with_slash() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillsRegistry::new(dir.path().to_path_buf());
+
+        let mut pkg = test_package("test");
+        pkg.name = "bad/name".to_string();
+        assert!(registry.install(pkg).is_err());
+    }
+
+    #[test]
+    fn test_install_name_with_backslash() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillsRegistry::new(dir.path().to_path_buf());
+
+        let mut pkg = test_package("test");
+        pkg.name = "bad\\name".to_string();
+        assert!(registry.install(pkg).is_err());
+    }
+
+    #[test]
+    fn test_install_name_too_long() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillsRegistry::new(dir.path().to_path_buf());
+
+        let mut pkg = test_package("test");
+        pkg.name = "a".repeat(129);
+        assert!(registry.install(pkg).is_err());
+    }
+
+    #[test]
+    fn test_disable_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillsRegistry::new(dir.path().to_path_buf());
+        assert!(registry.disable("nonexistent").is_err());
+    }
+
+    #[test]
+    fn test_enable_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillsRegistry::new(dir.path().to_path_buf());
+        assert!(registry.enable("nonexistent").is_err());
+    }
+
+    #[test]
+    fn test_search_by_tag_case_insensitive() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillsRegistry::new(dir.path().to_path_buf());
+
+        let mut pkg = test_package("weather");
+        pkg.tags = vec!["Utility".to_string()];
+        registry.install(pkg).unwrap();
+
+        assert_eq!(registry.search_by_tag("utility").len(), 1);
+        assert_eq!(registry.search_by_tag("UTILITY").len(), 1);
+    }
+
+    #[test]
+    fn test_load_nonexistent_dir() {
+        let dir = TempDir::new().unwrap();
+        let new_path = dir.path().join("nonexistent_subdir");
+        let mut registry = SkillsRegistry::new(new_path.clone());
+        registry.load().unwrap();
+        assert_eq!(registry.count(), 0);
+        // Directory should have been created
+        assert!(new_path.exists());
+    }
+
+    #[test]
+    fn test_list_returns_all() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillsRegistry::new(dir.path().to_path_buf());
+
+        registry.install(test_package("a")).unwrap();
+        registry.install(test_package("b")).unwrap();
+        registry.disable("b").unwrap();
+
+        // list() returns all including disabled
+        assert_eq!(registry.list().len(), 2);
+        // list_active() excludes disabled
+        assert_eq!(registry.list_active().len(), 1);
     }
 }

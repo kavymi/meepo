@@ -237,4 +237,87 @@ mod tests {
 
         assert!(result.summary.is_none());
     }
+
+    #[test]
+    fn test_summarization_not_needed_below_keep_recent() {
+        // Even with low trigger_chars, if count <= keep_recent, no summarization
+        let config = SummarizationConfig {
+            trigger_chars: 1, // very low threshold
+            keep_recent: 10,
+            enabled: true,
+            model: None,
+        };
+        let conversations: Vec<(String, String)> = (0..5)
+            .map(|i| ("user".to_string(), format!("Message {}", i)))
+            .collect();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let api = ApiClient::new("test-key".to_string(), None);
+        let result = rt
+            .block_on(summarize_conversations(&api, &conversations, &config))
+            .unwrap();
+
+        assert!(result.summary.is_none());
+        assert_eq!(result.kept_count, 5);
+    }
+
+    #[test]
+    fn test_build_context_no_summarization() {
+        let config = SummarizationConfig::default();
+        let conversations = vec![
+            ("user".to_string(), "Hello".to_string()),
+            ("meepo".to_string(), "Hi!".to_string()),
+        ];
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let api = ApiClient::new("test-key".to_string(), None);
+        let context = rt
+            .block_on(build_summarized_context(&api, &conversations, &config))
+            .unwrap();
+
+        assert!(context.contains("Recent Conversation"));
+        assert!(context.contains("user: Hello"));
+        assert!(context.contains("meepo: Hi!"));
+        assert!(!context.contains("Conversation Summary"));
+    }
+
+    #[test]
+    fn test_build_context_empty_conversations() {
+        let config = SummarizationConfig::default();
+        let conversations: Vec<(String, String)> = vec![];
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let api = ApiClient::new("test-key".to_string(), None);
+        let context = rt
+            .block_on(build_summarized_context(&api, &conversations, &config))
+            .unwrap();
+
+        assert!(context.is_empty());
+    }
+
+    #[test]
+    fn test_config_custom_values() {
+        let config = SummarizationConfig {
+            trigger_chars: 100_000,
+            keep_recent: 20,
+            model: Some("claude-3-haiku".to_string()),
+            enabled: true,
+        };
+        assert_eq!(config.trigger_chars, 100_000);
+        assert_eq!(config.keep_recent, 20);
+        assert_eq!(config.model.as_deref(), Some("claude-3-haiku"));
+    }
+
+    #[test]
+    fn test_summarization_result_debug() {
+        let result = SummarizationResult {
+            summary: Some("A summary".to_string()),
+            summarized_count: 5,
+            kept_count: 10,
+        };
+        let debug = format!("{:?}", result);
+        assert!(debug.contains("A summary"));
+        assert!(debug.contains("5"));
+        assert!(debug.contains("10"));
+    }
 }

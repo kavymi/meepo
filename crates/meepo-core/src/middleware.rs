@@ -472,4 +472,160 @@ mod tests {
             .unwrap();
         assert_eq!(result, "start_A_B"); // A runs first, then B
     }
+
+    #[test]
+    fn test_middleware_chain_default() {
+        let chain = MiddlewareChain::default();
+        assert!(chain.is_empty());
+    }
+
+    #[test]
+    fn test_middleware_chain_add_and_len() {
+        let mut chain = MiddlewareChain::new();
+        assert_eq!(chain.len(), 0);
+        chain.add(Arc::new(LoggingMiddleware));
+        assert_eq!(chain.len(), 1);
+        assert!(!chain.is_empty());
+    }
+
+    #[test]
+    fn test_middleware_names() {
+        assert_eq!(LoggingMiddleware.name(), "logging");
+        assert_eq!(ToolCallLimitMiddleware::new(5).name(), "tool_call_limit");
+        assert_eq!(
+            ToolOutputTruncationMiddleware::new(100).name(),
+            "tool_output_truncation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chain_run_before_tool_skip() {
+        struct SkipMiddleware;
+
+        #[async_trait]
+        impl AgentMiddleware for SkipMiddleware {
+            fn name(&self) -> &str {
+                "skip"
+            }
+            async fn before_tool(
+                &self,
+                _tool_name: &str,
+                _input: Value,
+                _ctx: &MiddlewareContext,
+            ) -> Result<Option<Value>> {
+                Ok(None)
+            }
+        }
+
+        let mut chain = MiddlewareChain::new();
+        chain.add(Arc::new(SkipMiddleware));
+
+        let ctx = MiddlewareContext {
+            query: "test".to_string(),
+            channel: "ch".to_string(),
+            sender: "u".to_string(),
+            metadata: Value::Null,
+        };
+
+        let result = chain
+            .run_before_tool("any_tool", serde_json::json!({}), &ctx)
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_chain_run_after_tool() {
+        let mut chain = MiddlewareChain::new();
+        chain.add(Arc::new(ToolOutputTruncationMiddleware::new(5)));
+
+        let ctx = MiddlewareContext {
+            query: "test".to_string(),
+            channel: "ch".to_string(),
+            sender: "u".to_string(),
+            metadata: Value::Null,
+        };
+
+        let result = chain
+            .run_after_tool("tool", "very long output text".to_string(), &ctx)
+            .await
+            .unwrap();
+        assert!(result.contains("[Output truncated]"));
+    }
+
+    #[tokio::test]
+    async fn test_chain_run_after_model_empty() {
+        let chain = MiddlewareChain::new();
+        let ctx = MiddlewareContext {
+            query: "test".to_string(),
+            channel: "ch".to_string(),
+            sender: "u".to_string(),
+            metadata: Value::Null,
+        };
+
+        let content = chain.run_after_model(vec![], &ctx).await.unwrap();
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn test_middleware_context_debug() {
+        let ctx = MiddlewareContext {
+            query: "hello".to_string(),
+            channel: "discord".to_string(),
+            sender: "alice".to_string(),
+            metadata: serde_json::json!({"key": "val"}),
+        };
+        let debug = format!("{:?}", ctx);
+        assert!(debug.contains("hello"));
+        assert!(debug.contains("discord"));
+        assert!(debug.contains("alice"));
+    }
+
+    #[test]
+    fn test_middleware_context_clone() {
+        let ctx = MiddlewareContext {
+            query: "q".to_string(),
+            channel: "c".to_string(),
+            sender: "s".to_string(),
+            metadata: Value::Null,
+        };
+        let cloned = ctx.clone();
+        assert_eq!(cloned.query, "q");
+        assert_eq!(cloned.channel, "c");
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_limit_zero() {
+        let mw = ToolCallLimitMiddleware::new(0);
+        let ctx = MiddlewareContext {
+            query: "test".to_string(),
+            channel: "ch".to_string(),
+            sender: "u".to_string(),
+            metadata: Value::Null,
+        };
+        // Even the first call should be blocked with limit 0
+        let result = mw.before_tool("tool", Value::Null, &ctx).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_truncation_exact_boundary() {
+        let mw = ToolOutputTruncationMiddleware::new(5);
+        let ctx = MiddlewareContext {
+            query: "test".to_string(),
+            channel: "ch".to_string(),
+            sender: "u".to_string(),
+            metadata: Value::Null,
+        };
+        // Exactly at limit should not truncate
+        let result = mw.after_tool("t", "12345".to_string(), &ctx).await.unwrap();
+        assert_eq!(result, "12345");
+
+        // One over should truncate
+        let result = mw
+            .after_tool("t", "123456".to_string(), &ctx)
+            .await
+            .unwrap();
+        assert!(result.contains("[Output truncated]"));
+    }
 }
