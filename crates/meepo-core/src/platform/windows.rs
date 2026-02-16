@@ -336,16 +336,20 @@ mod tests {
     fn test_sanitize_single_quotes() {
         let attack = "'; Remove-Item C:\\ -Recurse -Force; '";
         let safe = sanitize_powershell_string(attack);
+        // Single quotes are doubled: ' -> ''
         assert!(safe.contains("''"));
-        assert!(!safe.contains("'; "));
+        // The original unescaped single-quote-semicolon pattern is broken
+        assert!(!safe.starts_with("'; "));
     }
 
     #[test]
     fn test_sanitize_prevents_injection() {
         let attack = "test\"; Remove-Item -Recurse -Force C:\\; \"";
         let safe = sanitize_powershell_string(attack);
+        // Double quotes are escaped with backtick: " -> `"
         assert!(safe.contains("`\""));
-        assert!(!safe.contains("\";"));
+        // The raw unescaped double-quote is no longer present without a preceding backtick
+        assert!(!safe.contains("test\""));
     }
 
     #[test]

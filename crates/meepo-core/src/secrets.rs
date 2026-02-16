@@ -67,6 +67,7 @@ const ALLOWED_SECRET_ENV_VARS: &[&str] = &[
     "MEEPO_GATEWAY_TOKEN",
     "ELEVENLABS_API_KEY",
     "HOME",
+    "USERPROFILE",
     "USER",
 ];
 
@@ -243,8 +244,11 @@ mod tests {
     #[tokio::test]
     async fn test_env_provider() {
         let provider = EnvSecretsProvider;
-        // HOME is in ALLOWED_SECRET_ENV_VARS and should always exist
+        // Use a platform-appropriate env var that should always exist
+        #[cfg(not(target_os = "windows"))]
         let result = provider.get("HOME").await.unwrap();
+        #[cfg(target_os = "windows")]
+        let result = provider.get("USERPROFILE").await.unwrap();
         assert!(result.is_some());
 
         // Non-allowlisted env var should return None even if it exists
