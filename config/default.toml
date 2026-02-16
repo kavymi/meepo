@@ -394,20 +394,29 @@ exposed_tools = []              # empty = all tools (except delegate_tasks)
 # Requires: Node.js 18+ (`brew install node`)
 #           bun for apple-mcp (`brew install oven-sh/bun/bun`)
 
-# ── Apple Native Apps (macOS) ──────────────────────────────────
-# Contacts, Notes, Messages, Mail, Reminders, Calendar, Maps
-# via JXA/AppleScript. Requires bun.
-# Tools: apple:send-message, apple:search-notes, apple:create-note,
-#        apple:search-contacts, apple:unread-emails, apple:send-email,
-#        apple:search-reminders, apple:create-reminder,
-#        apple:search-calendar-events, apple:create-calendar-event,
-#        apple:search-maps, apple:save-favorite-location, etc.
-# Repo: https://github.com/supermemoryai/apple-mcp
+# ── Apple Native Apps (macOS) — built-in bridge ────────────────
+# Local MCP server wrapping Mail, Calendar, Contacts, Reminders,
+# Notes, and Music via AppleScript. No external deps — ships with
+# Meepo as the `meepo-apple-mcp` binary.
+# Tools: apple:read_emails, apple:send_email, apple:read_calendar,
+#        apple:create_event, apple:search_contacts,
+#        apple:list_reminders, apple:create_reminder,
+#        apple:list_notes, apple:create_note,
+#        apple:get_current_track, apple:control_playback
 
 [[mcp.clients]]
 name = "apple"
-command = "bunx"
-args = ["--no-cache", "apple-mcp@latest"]
+command = "meepo-apple-mcp"
+
+# ── Apple Native Apps (third-party, requires bun) ─────────────
+# Alternative: supermemoryai/apple-mcp via bun. Broader coverage
+# (Maps, Messages) but requires `brew install oven-sh/bun/bun`.
+# Repo: https://github.com/supermemoryai/apple-mcp
+
+# [[mcp.clients]]
+# name = "apple"
+# command = "bunx"
+# args = ["--no-cache", "apple-mcp@latest"]
 
 # ── Apple Events (macOS) ───────────────────────────────────────
 # Native Swift/EventKit integration for Reminders + Calendar.

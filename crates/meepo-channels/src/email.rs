@@ -27,15 +27,14 @@ async fn is_app_running(app_name: &str) -> bool {
 "#,
         app_name
     );
-    if let Ok(output) = Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-        .await
+    match tokio::time::timeout(
+        Duration::from_secs(10),
+        Command::new("osascript").arg("-e").arg(&script).output(),
+    )
+    .await
     {
-        String::from_utf8_lossy(&output.stdout).trim() == "true"
-    } else {
-        false
+        Ok(Ok(output)) => String::from_utf8_lossy(&output.stdout).trim() == "true",
+        _ => false,
     }
 }
 

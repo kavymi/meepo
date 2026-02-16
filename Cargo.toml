@@ -8,6 +8,7 @@ members = [
     "crates/meepo-mcp",
     "crates/meepo-a2a",
     "crates/meepo-gateway",
+    "crates/meepo-apple-mcp",
     "crates/meepo-cli",
 ]
 

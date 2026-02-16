@@ -93,15 +93,14 @@ async fn is_app_running(app_name: &str) -> bool {
 "#,
         app_name
     );
-    if let Ok(output) = Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-        .await
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        Command::new("osascript").arg("-e").arg(&script).output(),
+    )
+    .await
     {
-        String::from_utf8_lossy(&output.stdout).trim() == "true"
-    } else {
-        false
+        Ok(Ok(output)) => String::from_utf8_lossy(&output.stdout).trim() == "true",
+        _ => false,
     }
 }
 
@@ -377,7 +376,8 @@ end tell
 "#,
             days_ahead
         );
-        run_applescript(&script).await
+        // Use 60s timeout with 2 retries for resilience against slow Calendar.app responses
+        run_applescript_with_retry(&script, 60, 2).await
     }
 
     async fn create_event(
