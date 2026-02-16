@@ -12,6 +12,12 @@ pub struct ListWindowsTool {
     provider: Box<dyn WindowManagerProvider>,
 }
 
+impl Default for ListWindowsTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ListWindowsTool {
     pub fn new() -> Self {
         Self {
@@ -43,6 +49,12 @@ impl ToolHandler for ListWindowsTool {
 
 pub struct MoveWindowTool {
     provider: Box<dyn WindowManagerProvider>,
+}
+
+impl Default for MoveWindowTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MoveWindowTool {
@@ -105,8 +117,14 @@ impl ToolHandler for MoveWindowTool {
             .get("y")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| anyhow::anyhow!("Missing 'y' parameter"))? as i32;
-        let width = input.get("width").and_then(|v| v.as_u64()).map(|v| v as u32);
-        let height = input.get("height").and_then(|v| v.as_u64()).map(|v| v as u32);
+        let width = input
+            .get("width")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+        let height = input
+            .get("height")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
         debug!("Moving window of {} to ({}, {})", app_name, x, y);
         self.provider
             .move_window(app_name, x, y, width, height)
@@ -116,6 +134,12 @@ impl ToolHandler for MoveWindowTool {
 
 pub struct MinimizeWindowTool {
     provider: Box<dyn WindowManagerProvider>,
+}
+
+impl Default for MinimizeWindowTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MinimizeWindowTool {
@@ -160,6 +184,12 @@ pub struct FullscreenWindowTool {
     provider: Box<dyn WindowManagerProvider>,
 }
 
+impl Default for FullscreenWindowTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FullscreenWindowTool {
     pub fn new() -> Self {
         Self {
@@ -200,6 +230,12 @@ impl ToolHandler for FullscreenWindowTool {
 
 pub struct ArrangeWindowsTool {
     provider: Box<dyn WindowManagerProvider>,
+}
+
+impl Default for ArrangeWindowsTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ArrangeWindowsTool {
@@ -262,7 +298,10 @@ mod tests {
         assert_eq!(tool.name(), "move_window");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"app_name".to_string()));
@@ -274,7 +313,9 @@ mod tests {
     #[tokio::test]
     async fn test_move_window_missing_params() {
         let tool = MoveWindowTool::new();
-        let result = tool.execute(serde_json::json!({"app_name": "Finder"})).await;
+        let result = tool
+            .execute(serde_json::json!({"app_name": "Finder"}))
+            .await;
         assert!(result.is_err());
     }
 

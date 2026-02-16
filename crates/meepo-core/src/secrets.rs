@@ -243,9 +243,13 @@ mod tests {
     #[tokio::test]
     async fn test_env_provider() {
         let provider = EnvSecretsProvider;
-        // PATH should always exist
-        let result = provider.get("PATH").await.unwrap();
+        // HOME is in ALLOWED_SECRET_ENV_VARS and should always exist
+        let result = provider.get("HOME").await.unwrap();
         assert!(result.is_some());
+
+        // Non-allowlisted env var should return None even if it exists
+        let blocked = provider.get("PATH").await.unwrap();
+        assert!(blocked.is_none());
 
         let missing = provider.get("MEEPO_NONEXISTENT_KEY_12345").await.unwrap();
         assert!(missing.is_none());

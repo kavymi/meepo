@@ -12,6 +12,12 @@ pub struct ListShortcutsTool {
     provider: Box<dyn ShortcutsProvider>,
 }
 
+impl Default for ListShortcutsTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ListShortcutsTool {
     pub fn new() -> Self {
         Self {
@@ -43,6 +49,12 @@ impl ToolHandler for ListShortcutsTool {
 
 pub struct RunShortcutTool {
     provider: Box<dyn ShortcutsProvider>,
+}
+
+impl Default for RunShortcutTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RunShortcutTool {
@@ -110,7 +122,10 @@ mod tests {
         assert_eq!(tool.name(), "run_shortcut");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"name".to_string()));

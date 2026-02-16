@@ -17,16 +17,27 @@ pub mod code;
 pub mod delegate;
 pub mod filesystem;
 pub mod lifestyle;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod macos;
+#[cfg(target_os = "macos")]
 pub mod macos_finder;
+#[cfg(target_os = "macos")]
 pub mod macos_keychain;
+#[cfg(target_os = "macos")]
 pub mod macos_media;
+#[cfg(target_os = "macos")]
 pub mod macos_messages;
+#[cfg(target_os = "macos")]
 pub mod macos_productivity;
+#[cfg(target_os = "macos")]
 pub mod macos_shortcuts;
+#[cfg(target_os = "macos")]
 pub mod macos_spotlight;
+#[cfg(target_os = "macos")]
 pub mod macos_system;
+#[cfg(target_os = "macos")]
 pub mod macos_terminal;
+#[cfg(target_os = "macos")]
 pub mod macos_windows;
 pub mod memory;
 pub mod rag;

@@ -40,6 +40,8 @@ pub struct MeepoConfig {
     pub secrets: SecretsCliConfig,
     #[serde(default)]
     pub guardrails: GuardrailsCliConfig,
+    #[serde(default)]
+    pub agent_to_agent: AgentToAgentCliConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -827,6 +829,46 @@ impl Default for GatewayConfig {
     }
 }
 
+// ── Agent-to-Agent Config ───────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentToAgentCliConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default = "default_a2a_visibility")]
+    pub visibility: String,
+    #[serde(default = "default_max_ping_pong_turns")]
+    pub max_ping_pong_turns: u8,
+    #[serde(default = "default_subagent_archive_after_minutes")]
+    pub subagent_archive_after_minutes: u32,
+}
+
+fn default_a2a_visibility() -> String {
+    "tree".to_string()
+}
+
+fn default_max_ping_pong_turns() -> u8 {
+    5
+}
+
+fn default_subagent_archive_after_minutes() -> u32 {
+    60
+}
+
+impl Default for AgentToAgentCliConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow: Vec::new(),
+            visibility: default_a2a_visibility(),
+            max_ping_pong_turns: default_max_ping_pong_turns(),
+            subagent_archive_after_minutes: default_subagent_archive_after_minutes(),
+        }
+    }
+}
+
 // ── Voice / Audio Config ────────────────────────────────────────
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1177,12 +1219,12 @@ impl MeepoConfig {
             .with_context(|| format!("Failed to parse config at {}", path.display()))?;
 
         // Check for hardcoded API keys and tokens
-        if let Some(ref anthropic) = config.providers.anthropic {
-            if anthropic.api_key.starts_with("sk-ant-") {
-                warn!(
-                    "API key is hardcoded in config file. For security, use environment variables: api_key = \"${{ANTHROPIC_API_KEY}}\""
-                );
-            }
+        if let Some(ref anthropic) = config.providers.anthropic
+            && anthropic.api_key.starts_with("sk-ant-")
+        {
+            warn!(
+                "API key is hardcoded in config file. For security, use environment variables: api_key = \"${{ANTHROPIC_API_KEY}}\""
+            );
         }
 
         if !config.channels.discord.token.is_empty()

@@ -235,8 +235,8 @@ impl Agent {
             .context("Failed to run agent tool loop")?;
 
         // Record usage
-        if let Some(tracker) = &self.usage_tracker {
-            if let Err(e) = tracker
+        if let Some(tracker) = &self.usage_tracker
+            && let Err(e) = tracker
                 .record(
                     self.api.model(),
                     &usage,
@@ -244,9 +244,8 @@ impl Agent {
                     Some(&msg.channel.to_string()),
                 )
                 .await
-            {
-                debug!("Failed to record usage: {}", e);
-            }
+        {
+            debug!("Failed to record usage: {}", e);
         }
 
         // Store the response in conversation history

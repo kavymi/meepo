@@ -2,9 +2,9 @@
 $ErrorActionPreference = "Stop"
 
 # Meepo Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/kavymi/meepo/main/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/leancoderkavy/meepo/main/install.ps1 | iex
 
-$Repo = "kavymi/meepo"
+$Repo = "leancoderkavy/meepo"
 $InstallDir = if ($env:MEEPO_INSTALL_DIR) { $env:MEEPO_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".local\bin" }
 
 Write-Host ""

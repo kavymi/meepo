@@ -12,7 +12,7 @@ If you discover a security vulnerability in Meepo, please report it responsibly.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please report vulnerabilities by emailing the maintainers or by using [GitHub's private vulnerability reporting](https://github.com/kavymi/meepo/security/advisories/new).
+Instead, please report vulnerabilities by emailing the maintainers or by using [GitHub's private vulnerability reporting](https://github.com/leancoderkavy/meepo/security/advisories/new).
 
 ### What to include
 

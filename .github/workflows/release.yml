@@ -148,7 +148,7 @@ jobs:
             exit 0
           fi
           TMPDIR=$(mktemp -d)
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/kavymi/homebrew-tap.git" "$TMPDIR"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/leancoderkavy/homebrew-tap.git" "$TMPDIR"
           mkdir -p "$TMPDIR/Formula"
           cp Formula/meepo.rb "$TMPDIR/Formula/meepo.rb"
           cd "$TMPDIR"

@@ -172,10 +172,10 @@ impl OpenAiProvider {
 
         let mut blocks = Vec::new();
 
-        if let Some(content) = choice.message.content {
-            if !content.is_empty() {
-                blocks.push(ChatResponseBlock::Text { text: content });
-            }
+        if let Some(content) = choice.message.content
+            && !content.is_empty()
+        {
+            blocks.push(ChatResponseBlock::Text { text: content });
         }
 
         if let Some(tool_calls) = choice.message.tool_calls {

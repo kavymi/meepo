@@ -12,6 +12,12 @@ pub struct GetVolumeTool {
     provider: Box<dyn SystemControlProvider>,
 }
 
+impl Default for GetVolumeTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GetVolumeTool {
     pub fn new() -> Self {
         Self {
@@ -43,6 +49,12 @@ impl ToolHandler for GetVolumeTool {
 
 pub struct SetVolumeTool {
     provider: Box<dyn SystemControlProvider>,
+}
+
+impl Default for SetVolumeTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SetVolumeTool {
@@ -90,6 +102,12 @@ pub struct ToggleMuteTool {
     provider: Box<dyn SystemControlProvider>,
 }
 
+impl Default for ToggleMuteTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ToggleMuteTool {
     pub fn new() -> Self {
         Self {
@@ -121,6 +139,12 @@ impl ToolHandler for ToggleMuteTool {
 
 pub struct ToggleDarkModeTool {
     provider: Box<dyn SystemControlProvider>,
+}
+
+impl Default for ToggleDarkModeTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ToggleDarkModeTool {
@@ -169,6 +193,12 @@ pub struct SetDoNotDisturbTool {
     provider: Box<dyn SystemControlProvider>,
 }
 
+impl Default for SetDoNotDisturbTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SetDoNotDisturbTool {
     pub fn new() -> Self {
         Self {
@@ -213,6 +243,12 @@ pub struct GetBatteryStatusTool {
     provider: Box<dyn SystemControlProvider>,
 }
 
+impl Default for GetBatteryStatusTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GetBatteryStatusTool {
     pub fn new() -> Self {
         Self {
@@ -243,6 +279,12 @@ impl ToolHandler for GetBatteryStatusTool {
 
 pub struct GetWifiInfoTool {
     provider: Box<dyn SystemControlProvider>,
+}
+
+impl Default for GetWifiInfoTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GetWifiInfoTool {
@@ -277,6 +319,12 @@ pub struct GetDiskUsageTool {
     provider: Box<dyn SystemControlProvider>,
 }
 
+impl Default for GetDiskUsageTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GetDiskUsageTool {
     pub fn new() -> Self {
         Self {
@@ -307,6 +355,12 @@ impl ToolHandler for GetDiskUsageTool {
 
 pub struct LockScreenTool {
     provider: Box<dyn SystemControlProvider>,
+}
+
+impl Default for LockScreenTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LockScreenTool {
@@ -341,6 +395,12 @@ pub struct SleepDisplayTool {
     provider: Box<dyn SystemControlProvider>,
 }
 
+impl Default for SleepDisplayTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SleepDisplayTool {
     pub fn new() -> Self {
         Self {
@@ -373,6 +433,12 @@ pub struct GetRunningAppsTool {
     provider: Box<dyn SystemControlProvider>,
 }
 
+impl Default for GetRunningAppsTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GetRunningAppsTool {
     pub fn new() -> Self {
         Self {
@@ -403,6 +469,12 @@ impl ToolHandler for GetRunningAppsTool {
 
 pub struct QuitAppTool {
     provider: Box<dyn SystemControlProvider>,
+}
+
+impl Default for QuitAppTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl QuitAppTool {
@@ -450,6 +522,12 @@ impl ToolHandler for QuitAppTool {
 
 pub struct ForceQuitAppTool {
     provider: Box<dyn SystemControlProvider>,
+}
+
+impl Default for ForceQuitAppTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ForceQuitAppTool {
@@ -515,7 +593,10 @@ mod tests {
         assert_eq!(tool.name(), "set_volume");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"level".to_string()));

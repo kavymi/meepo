@@ -12,6 +12,12 @@ pub struct SearchPhotosTool {
     provider: Box<dyn PhotosProvider>,
 }
 
+impl Default for SearchPhotosTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SearchPhotosTool {
     pub fn new() -> Self {
         Self {
@@ -60,6 +66,12 @@ impl ToolHandler for SearchPhotosTool {
 
 pub struct ExportPhotosTool {
     provider: Box<dyn PhotosProvider>,
+}
+
+impl Default for ExportPhotosTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ExportPhotosTool {
@@ -120,6 +132,12 @@ pub struct RecordAudioTool {
     provider: Box<dyn MediaProvider>,
 }
 
+impl Default for RecordAudioTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RecordAudioTool {
     pub fn new() -> Self {
         Self {
@@ -170,6 +188,12 @@ pub struct TextToSpeechTool {
     provider: Box<dyn MediaProvider>,
 }
 
+impl Default for TextToSpeechTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TextToSpeechTool {
     pub fn new() -> Self {
         Self {
@@ -218,6 +242,12 @@ impl ToolHandler for TextToSpeechTool {
 
 pub struct OcrImageTool {
     provider: Box<dyn MediaProvider>,
+}
+
+impl Default for OcrImageTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OcrImageTool {
@@ -280,7 +310,10 @@ mod tests {
         assert_eq!(tool.name(), "text_to_speech");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"text".to_string()));

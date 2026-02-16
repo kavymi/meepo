@@ -40,7 +40,7 @@ impl std::fmt::Display for UsageSource {
 }
 
 impl UsageSource {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "user" => Self::User,
             "autonomous" => Self::Autonomous,

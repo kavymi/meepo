@@ -91,7 +91,7 @@ Ollama runs entirely on your machine — no API key needed, no data sent to exte
 
 **macOS (Homebrew) — recommended:**
 ```bash
-brew install kavymi/tap/meepo
+brew install leancoderkavy/tap/meepo
 meepo setup
 ```
 
@@ -102,23 +102,23 @@ brew services start meepo
 
 **macOS / Linux (curl):**
 ```bash
-curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/leancoderkavy/meepo/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/kavymi/meepo/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/leancoderkavy/meepo/main/install.ps1 | iex
 ```
 
 **From source (macOS/Linux):**
 ```bash
-git clone https://github.com/kavymi/meepo.git && cd meepo
+git clone https://github.com/leancoderkavy/meepo.git && cd meepo
 cargo build --release && ./target/release/meepo setup
 ```
 
 **From source (Windows PowerShell):**
 ```powershell
-git clone https://github.com/kavymi/meepo.git; cd meepo
+git clone https://github.com/leancoderkavy/meepo.git; cd meepo
 cargo build --release; .\target\release\meepo.exe setup
 ```
 
@@ -131,7 +131,7 @@ If something isn't working, run `meepo doctor` to diagnose the issue.
 ### 1. Build
 
 ```bash
-git clone https://github.com/kavymi/meepo.git
+git clone https://github.com/leancoderkavy/meepo.git
 cd meepo
 cargo build --release
 ```
@@ -468,7 +468,7 @@ tart create meepo-vm --from-oci ghcr.io/cirruslabs/macos-sequoia-base:latest
 tart run meepo-vm
 
 # Inside the VM — install and set up Meepo
-curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/leancoderkavy/meepo/main/install.sh | bash
 export ANTHROPIC_API_KEY="sk-ant-..."  # or OPENAI_API_KEY, or use Ollama
 meepo setup
 meepo start

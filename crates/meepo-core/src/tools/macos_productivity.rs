@@ -12,6 +12,12 @@ pub struct SetClipboardTool {
     provider: Box<dyn ProductivityProvider>,
 }
 
+impl Default for SetClipboardTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SetClipboardTool {
     pub fn new() -> Self {
         Self {
@@ -57,6 +63,12 @@ pub struct GetFrontmostDocumentTool {
     provider: Box<dyn ProductivityProvider>,
 }
 
+impl Default for GetFrontmostDocumentTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GetFrontmostDocumentTool {
     pub fn new() -> Self {
         Self {
@@ -98,7 +110,10 @@ mod tests {
         assert_eq!(tool.name(), "set_clipboard");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"text".to_string()));

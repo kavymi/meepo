@@ -230,20 +230,20 @@ fn check_llm_api_key() -> CheckResult {
     ];
 
     for (env_var, name) in &providers {
-        if let Ok(val) = std::env::var(env_var) {
-            if !val.is_empty() {
-                let masked = if val.len() > 8 {
-                    format!("{}...{}", &val[..4], &val[val.len() - 4..])
-                } else {
-                    "****".to_string()
-                };
-                return CheckResult {
-                    name: "llm_api_key".to_string(),
-                    status: CheckStatus::Pass,
-                    message: format!("{} provider configured via {} ({})", name, env_var, masked),
-                    fix_hint: None,
-                };
-            }
+        if let Ok(val) = std::env::var(env_var)
+            && !val.is_empty()
+        {
+            let masked = if val.len() > 8 {
+                format!("{}...{}", &val[..4], &val[val.len() - 4..])
+            } else {
+                "****".to_string()
+            };
+            return CheckResult {
+                name: "llm_api_key".to_string(),
+                status: CheckStatus::Pass,
+                message: format!("{} provider configured via {} ({})", name, env_var, masked),
+                fix_hint: None,
+            };
         }
     }
 
@@ -252,30 +252,6 @@ fn check_llm_api_key() -> CheckResult {
         status: CheckStatus::Warn,
         message: "No LLM provider API key found (checked ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_AI_API_KEY)".to_string(),
         fix_hint: Some("Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_AI_API_KEY — or use Ollama (no key needed)".to_string()),
-    }
-}
-
-fn check_api_key(env_var: &str) -> CheckResult {
-    match std::env::var(env_var) {
-        Ok(val) if !val.is_empty() => {
-            let masked = if val.len() > 8 {
-                format!("{}...{}", &val[..4], &val[val.len() - 4..])
-            } else {
-                "****".to_string()
-            };
-            CheckResult {
-                name: format!("api_key_{}", env_var.to_lowercase()),
-                status: CheckStatus::Pass,
-                message: format!("{} is set ({})", env_var, masked),
-                fix_hint: None,
-            }
-        }
-        _ => CheckResult {
-            name: format!("api_key_{}", env_var.to_lowercase()),
-            status: CheckStatus::Fail,
-            message: format!("{} is not set", env_var),
-            fix_hint: Some(format!("export {}=\"your-api-key\"", env_var)),
-        },
     }
 }
 
@@ -497,6 +473,30 @@ mod tests {
         let result = check_secret_leaks();
         // Should not fail on a clean system
         assert_ne!(result.status, CheckStatus::Fail);
+    }
+
+    fn check_api_key(env_var: &str) -> CheckResult {
+        match std::env::var(env_var) {
+            Ok(val) if !val.is_empty() => {
+                let masked = if val.len() > 8 {
+                    format!("{}...{}", &val[..4], &val[val.len() - 4..])
+                } else {
+                    "****".to_string()
+                };
+                CheckResult {
+                    name: format!("api_key_{}", env_var.to_lowercase()),
+                    status: CheckStatus::Pass,
+                    message: format!("{} is set ({})", env_var, masked),
+                    fix_hint: None,
+                }
+            }
+            _ => CheckResult {
+                name: format!("api_key_{}", env_var.to_lowercase()),
+                status: CheckStatus::Fail,
+                message: format!("{} is not set", env_var),
+                fix_hint: Some(format!("export {}=\"your-api-key\"", env_var)),
+            },
+        }
     }
 
     #[test]

@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [0.1.1] - 2026-02-09
 
 ### Added
-- Homebrew formula (`brew install kavymi/tap/meepo`)
+- Homebrew formula (`brew install leancoderkavy/tap/meepo`)
 - GitHub Actions release workflow with cross-compilation
 - Install scripts for macOS/Linux (curl) and Windows (PowerShell)
 
@@ -44,6 +44,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Configuration via TOML with environment variable expansion
 - Background service support: launchd (macOS) and Task Scheduler (Windows)
 
-[Unreleased]: https://github.com/kavymi/meepo/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/kavymi/meepo/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/kavymi/meepo/releases/tag/v0.1.0
+[Unreleased]: https://github.com/leancoderkavy/meepo/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/leancoderkavy/meepo/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/leancoderkavy/meepo/releases/tag/v0.1.0

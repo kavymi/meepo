@@ -12,6 +12,12 @@ pub struct FinderGetSelectionTool {
     provider: Box<dyn FinderProvider>,
 }
 
+impl Default for FinderGetSelectionTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FinderGetSelectionTool {
     pub fn new() -> Self {
         Self {
@@ -43,6 +49,12 @@ impl ToolHandler for FinderGetSelectionTool {
 
 pub struct FinderRevealTool {
     provider: Box<dyn FinderProvider>,
+}
+
+impl Default for FinderRevealTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FinderRevealTool {
@@ -87,6 +99,12 @@ impl ToolHandler for FinderRevealTool {
 
 pub struct FinderTagTool {
     provider: Box<dyn FinderProvider>,
+}
+
+impl Default for FinderTagTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FinderTagTool {
@@ -137,13 +155,22 @@ impl ToolHandler for FinderTagTool {
             .get("tag")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'tag' parameter"))?;
-        let remove = input.get("remove").and_then(|v| v.as_bool()).unwrap_or(false);
+        let remove = input
+            .get("remove")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         self.provider.set_tag(path, tag, remove).await
     }
 }
 
 pub struct FinderQuickLookTool {
     provider: Box<dyn FinderProvider>,
+}
+
+impl Default for FinderQuickLookTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FinderQuickLookTool {
@@ -190,6 +217,12 @@ pub struct TrashFileTool {
     provider: Box<dyn FinderProvider>,
 }
 
+impl Default for TrashFileTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrashFileTool {
     pub fn new() -> Self {
         Self {
@@ -234,6 +267,12 @@ pub struct EmptyTrashTool {
     provider: Box<dyn FinderProvider>,
 }
 
+impl Default for EmptyTrashTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EmptyTrashTool {
     pub fn new() -> Self {
         Self {
@@ -265,6 +304,12 @@ impl ToolHandler for EmptyTrashTool {
 
 pub struct GetRecentFilesTool {
     provider: Box<dyn FinderProvider>,
+}
+
+impl Default for GetRecentFilesTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GetRecentFilesTool {

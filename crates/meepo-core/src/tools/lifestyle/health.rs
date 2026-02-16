@@ -267,10 +267,10 @@ impl ToolHandler for HabitStreakTool {
                 .and_then(|n| n.as_str())
                 .unwrap_or(&def.name);
 
-            if let Some(filter) = habit {
-                if !habit_name.contains(filter) {
-                    continue;
-                }
+            if let Some(filter) = habit
+                && !habit_name.contains(filter)
+            {
+                continue;
             }
 
             let entries = self

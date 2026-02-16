@@ -862,45 +862,42 @@ fn update_config_array(
 
 fn prompt_api_key() -> Result<String> {
     use std::io::{self, BufRead, Write};
-    loop {
-        print!("  API key (sk-ant-...): ");
-        io::stdout().flush()?;
-        let mut key = String::new();
-        io::stdin().lock().read_line(&mut key)?;
-        let key = key.trim().to_string();
-        if key.starts_with("sk-ant-") {
-            return Ok(key);
-        }
-        if key.is_empty() {
-            anyhow::bail!(
-                "API key is required. Get one at https://console.anthropic.com/settings/keys"
-            );
-        }
-        println!("  Key should start with 'sk-ant-'. Try again.");
+    print!("  API key (sk-ant-...): ");
+    io::stdout().flush()?;
+    let mut key = String::new();
+    io::stdin().lock().read_line(&mut key)?;
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        anyhow::bail!(
+            "API key is required. Get one at https://console.anthropic.com/settings/keys"
+        );
     }
+    if !key.starts_with("sk-ant-") {
+        anyhow::bail!("Key should start with 'sk-ant-'. Please try again.");
+    }
+    Ok(key)
 }
 
 fn prompt_generic_api_key(env_var: &str, prefix: &str) -> Result<String> {
     use std::io::{self, BufRead, Write};
 
-    if let Ok(existing) = std::env::var(env_var) {
-        if !existing.is_empty() && existing.starts_with(prefix) {
-            println!("  ✓ Found {} in environment.", env_var);
-            return Ok(existing);
-        }
+    if let Ok(existing) = std::env::var(env_var)
+        && !existing.is_empty()
+        && existing.starts_with(prefix)
+    {
+        println!("  ✓ Found {} in environment.", env_var);
+        return Ok(existing);
     }
 
-    loop {
-        print!("  API key: ");
-        io::stdout().flush()?;
-        let mut key = String::new();
-        io::stdin().lock().read_line(&mut key)?;
-        let key = key.trim().to_string();
-        if !key.is_empty() {
-            return Ok(key);
-        }
+    print!("  API key: ");
+    io::stdout().flush()?;
+    let mut key = String::new();
+    io::stdin().lock().read_line(&mut key)?;
+    let key = key.trim().to_string();
+    if key.is_empty() {
         anyhow::bail!("API key is required.");
     }
+    Ok(key)
 }
 
 fn detect_shell_rc() -> Option<PathBuf> {
@@ -1109,28 +1106,26 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                 }
             }
             // Check if model looks like a Gemini model
-            else if model.starts_with("gemini") {
-                if let Some(google_cfg) = &cfg.providers.google {
-                    let key = shellexpand_str(&google_cfg.api_key);
-                    if !key.is_empty() && !key.contains("${") {
-                        use meepo_core::providers::google::GoogleProvider;
-                        providers.push(Box::new(GoogleProvider::new(
-                            key,
-                            model.clone(),
-                            google_cfg.max_tokens,
-                        )));
-                        info!("Provider: google/{}", model);
-                        primary_added = true;
-                    }
+            else if model.starts_with("gemini")
+                && let Some(google_cfg) = &cfg.providers.google
+            {
+                let key = shellexpand_str(&google_cfg.api_key);
+                if !key.is_empty() && !key.contains("${") {
+                    use meepo_core::providers::google::GoogleProvider;
+                    providers.push(Box::new(GoogleProvider::new(
+                        key,
+                        model.clone(),
+                        google_cfg.max_tokens,
+                    )));
+                    info!("Provider: google/{}", model);
+                    primary_added = true;
                 }
             }
 
             // Default: try Anthropic as primary
-            if !primary_added {
-                if add_anthropic(&mut providers, model, cfg.agent.max_tokens) {
-                    info!("Provider: anthropic/{}", model);
-                    primary_added = true;
-                }
+            if !primary_added && add_anthropic(&mut providers, model, cfg.agent.max_tokens) {
+                info!("Provider: anthropic/{}", model);
+                primary_added = true;
             }
 
             if !primary_added {
@@ -1140,7 +1135,8 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
                      1. Set ANTHROPIC_API_KEY and use a Claude model\n  \
                      2. Set OPENAI_API_KEY and default_model = \"gpt-4o\"\n  \
                      3. Set default_model = \"ollama\" for local inference\n\n\
-                     Run `meepo setup` for guided configuration."
+                     Run `meepo setup` for guided configuration.",
+                    model
                 );
             }
 
@@ -1298,59 +1294,143 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
         registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
         // ── New macOS Automation Tools ──────────────────────────────
         // System control
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetVolumeTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::SetVolumeTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleMuteTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleDarkModeTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::SetDoNotDisturbTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetBatteryStatusTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetWifiInfoTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetDiskUsageTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::LockScreenTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::SleepDisplayTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetRunningAppsTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetVolumeTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::SetVolumeTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::ToggleMuteTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::ToggleDarkModeTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::SetDoNotDisturbTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetBatteryStatusTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetWifiInfoTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetDiskUsageTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::LockScreenTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::SleepDisplayTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetRunningAppsTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos_system::QuitAppTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::ForceQuitAppTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::ForceQuitAppTool::new(),
+        ));
         // Finder
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderGetSelectionTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderRevealTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderTagTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderQuickLookTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::TrashFileTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::EmptyTrashTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::GetRecentFilesTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderGetSelectionTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderRevealTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderTagTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderQuickLookTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::TrashFileTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::EmptyTrashTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::GetRecentFilesTool::new(),
+        ));
         // Spotlight
-        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightSearchTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightMetadataTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_spotlight::SpotlightSearchTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_spotlight::SpotlightMetadataTool::new(),
+        ));
         // Shortcuts
-        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::ListShortcutsTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::RunShortcutTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_shortcuts::ListShortcutsTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_shortcuts::RunShortcutTool::new(),
+        ));
         // Keychain
-        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainGetPasswordTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainStorePasswordTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_keychain::KeychainGetPasswordTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_keychain::KeychainStorePasswordTool::new(),
+        ));
         // Messages & FaceTime
-        registry.register(Arc::new(meepo_core::tools::macos_messages::ReadMessagesTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_messages::SendMessageTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_messages::StartFaceTimeTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_messages::ReadMessagesTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_messages::SendMessageTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_messages::StartFaceTimeTool::new(),
+        ));
         // Media (Photos, Audio, TTS, OCR)
-        registry.register(Arc::new(meepo_core::tools::macos_media::SearchPhotosTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_media::ExportPhotosTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_media::RecordAudioTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_media::TextToSpeechTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::SearchPhotosTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::ExportPhotosTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::RecordAudioTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::TextToSpeechTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos_media::OcrImageTool::new()));
         // Window management
-        registry.register(Arc::new(meepo_core::tools::macos_windows::ListWindowsTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::MoveWindowTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::MinimizeWindowTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::FullscreenWindowTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::ArrangeWindowsTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::ListWindowsTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::MoveWindowTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::MinimizeWindowTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::FullscreenWindowTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::ArrangeWindowsTool::new(),
+        ));
         // Terminal
-        registry.register(Arc::new(meepo_core::tools::macos_terminal::ListTerminalTabsTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_terminal::SendTerminalCommandTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_terminal::GetOpenPortsTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_terminal::ListTerminalTabsTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_terminal::SendTerminalCommandTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_terminal::GetOpenPortsTool::new(),
+        ));
         // Productivity
-        registry.register(Arc::new(meepo_core::tools::macos_productivity::SetClipboardTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_productivity::GetFrontmostDocumentTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_productivity::SetClipboardTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_productivity::GetFrontmostDocumentTool::new(),
+        ));
     }
     // Browser automation tools (macOS: Safari/Chrome via AppleScript)
     #[cfg(target_os = "macos")]
@@ -1705,6 +1785,40 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
     registry.register(Arc::new(
         meepo_core::tools::canvas::CanvasSnapshotTool::new(),
     ));
+    // ── Agent-to-Agent Session Tools ──────────────────────────────
+    let shared_sessions = Arc::new(meepo_gateway::session::SessionManager::new());
+    let a2a_tool_config = meepo_gateway::AgentToAgentConfig {
+        enabled: cfg.agent_to_agent.enabled,
+        allow: cfg.agent_to_agent.allow.clone(),
+        visibility: match cfg.agent_to_agent.visibility.as_str() {
+            "own" => meepo_gateway::session::SessionVisibility::Own,
+            "agent" => meepo_gateway::session::SessionVisibility::Agent,
+            "all" => meepo_gateway::session::SessionVisibility::All,
+            _ => meepo_gateway::session::SessionVisibility::Tree,
+        },
+        max_ping_pong_turns: cfg.agent_to_agent.max_ping_pong_turns,
+        subagent_archive_after_minutes: cfg.agent_to_agent.subagent_archive_after_minutes,
+    };
+    registry.register(Arc::new(meepo_gateway::SessionsListTool::new(
+        shared_sessions.clone(),
+        a2a_tool_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_gateway::SessionsHistoryTool::new(
+        shared_sessions.clone(),
+        a2a_tool_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_gateway::SessionsSendTool::new(
+        shared_sessions.clone(),
+        a2a_tool_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_gateway::SessionsSpawnTool::new(
+        shared_sessions.clone(),
+        a2a_tool_config.clone(),
+    )));
+    registry.register(Arc::new(meepo_gateway::AgentsListTool::new(
+        vec!["main".to_string()],
+        a2a_tool_config.clone(),
+    )));
     // ── Docker Sandbox Tool ───────────────────────────────────────
     registry.register(Arc::new(
         meepo_core::tools::sandbox_exec::SandboxExecTool::new(meepo_core::sandbox::SandboxConfig {
@@ -2678,7 +2792,11 @@ async fn cmd_start(config_path: &Option<PathBuf>) -> Result<()> {
             .context("Invalid gateway bind address")?;
 
         let gateway_token = shellexpand_str(&cfg.gateway.auth_token);
-        let gateway = meepo_gateway::GatewayServer::new(bind_addr, gateway_token);
+        let gateway = meepo_gateway::GatewayServer::with_sessions(
+            bind_addr,
+            gateway_token,
+            shared_sessions.clone(),
+        );
 
         tokio::spawn(async move {
             if let Err(e) = gateway.run().await {
@@ -2848,7 +2966,19 @@ async fn cmd_ask(config_path: &Option<PathBuf>, message: &str) -> Result<()> {
             ));
             meepo_core::api::ApiClient::from_router(ModelRouter::single(provider))
         } else {
-            let api_key = shellexpand_str(&cfg.providers.anthropic.api_key);
+            let anthropic_cfg = cfg.providers.anthropic.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "ANTHROPIC_API_KEY is not set.\n\n\
+                     Fix it with:\n  \
+                     export ANTHROPIC_API_KEY=\"sk-ant-...\"\n\n\
+                     Or use Ollama (no API key needed):\n  \
+                     Set default_model = \"ollama\" in config.toml\n\n\
+                     Or run the setup wizard:\n  \
+                     meepo setup\n\n\
+                     Get a key at: https://console.anthropic.com/settings/keys"
+                )
+            })?;
+            let api_key = shellexpand_str(&anthropic_cfg.api_key);
             if api_key.is_empty() || api_key.contains("${") {
                 anyhow::bail!(
                     "ANTHROPIC_API_KEY is not set.\n\n\
@@ -2861,7 +2991,7 @@ async fn cmd_ask(config_path: &Option<PathBuf>, message: &str) -> Result<()> {
                      Get a key at: https://console.anthropic.com/settings/keys"
                 );
             }
-            let base_url = shellexpand_str(&cfg.providers.anthropic.base_url);
+            let base_url = shellexpand_str(&anthropic_cfg.base_url);
             meepo_core::api::ApiClient::new(api_key, Some(cfg.agent.default_model.clone()))
                 .with_max_tokens(cfg.agent.max_tokens)
                 .with_base_url(base_url)
@@ -3081,59 +3211,143 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
         registry.register(Arc::new(meepo_core::tools::macos::SearchContactsTool::new()));
         // ── New macOS Automation Tools (MCP) ────────────────────────
         // System control
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetVolumeTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::SetVolumeTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleMuteTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::ToggleDarkModeTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::SetDoNotDisturbTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetBatteryStatusTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetWifiInfoTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetDiskUsageTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::LockScreenTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::SleepDisplayTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::GetRunningAppsTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetVolumeTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::SetVolumeTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::ToggleMuteTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::ToggleDarkModeTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::SetDoNotDisturbTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetBatteryStatusTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetWifiInfoTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetDiskUsageTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::LockScreenTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::SleepDisplayTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::GetRunningAppsTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos_system::QuitAppTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_system::ForceQuitAppTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_system::ForceQuitAppTool::new(),
+        ));
         // Finder
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderGetSelectionTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderRevealTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderTagTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::FinderQuickLookTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::TrashFileTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::EmptyTrashTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_finder::GetRecentFilesTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderGetSelectionTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderRevealTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderTagTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::FinderQuickLookTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::TrashFileTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::EmptyTrashTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_finder::GetRecentFilesTool::new(),
+        ));
         // Spotlight
-        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightSearchTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_spotlight::SpotlightMetadataTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_spotlight::SpotlightSearchTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_spotlight::SpotlightMetadataTool::new(),
+        ));
         // Shortcuts
-        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::ListShortcutsTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_shortcuts::RunShortcutTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_shortcuts::ListShortcutsTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_shortcuts::RunShortcutTool::new(),
+        ));
         // Keychain
-        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainGetPasswordTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_keychain::KeychainStorePasswordTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_keychain::KeychainGetPasswordTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_keychain::KeychainStorePasswordTool::new(),
+        ));
         // Messages & FaceTime
-        registry.register(Arc::new(meepo_core::tools::macos_messages::ReadMessagesTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_messages::SendMessageTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_messages::StartFaceTimeTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_messages::ReadMessagesTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_messages::SendMessageTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_messages::StartFaceTimeTool::new(),
+        ));
         // Media (Photos, Audio, TTS, OCR)
-        registry.register(Arc::new(meepo_core::tools::macos_media::SearchPhotosTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_media::ExportPhotosTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_media::RecordAudioTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_media::TextToSpeechTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::SearchPhotosTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::ExportPhotosTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::RecordAudioTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_media::TextToSpeechTool::new(),
+        ));
         registry.register(Arc::new(meepo_core::tools::macos_media::OcrImageTool::new()));
         // Window management
-        registry.register(Arc::new(meepo_core::tools::macos_windows::ListWindowsTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::MoveWindowTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::MinimizeWindowTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::FullscreenWindowTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_windows::ArrangeWindowsTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::ListWindowsTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::MoveWindowTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::MinimizeWindowTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::FullscreenWindowTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_windows::ArrangeWindowsTool::new(),
+        ));
         // Terminal
-        registry.register(Arc::new(meepo_core::tools::macos_terminal::ListTerminalTabsTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_terminal::SendTerminalCommandTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_terminal::GetOpenPortsTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_terminal::ListTerminalTabsTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_terminal::SendTerminalCommandTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_terminal::GetOpenPortsTool::new(),
+        ));
         // Productivity
-        registry.register(Arc::new(meepo_core::tools::macos_productivity::SetClipboardTool::new()));
-        registry.register(Arc::new(meepo_core::tools::macos_productivity::GetFrontmostDocumentTool::new()));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_productivity::SetClipboardTool::new(),
+        ));
+        registry.register(Arc::new(
+            meepo_core::tools::macos_productivity::GetFrontmostDocumentTool::new(),
+        ));
     }
     // Browser automation tools for MCP mode
     #[cfg(target_os = "macos")]
@@ -3402,6 +3616,43 @@ async fn cmd_mcp_server(config_path: &Option<PathBuf>) -> Result<()> {
             },
         }),
     ));
+
+    // ── Agent-to-Agent Session Tools (MCP mode) ──────────────────────
+    {
+        let mcp_sessions = Arc::new(meepo_gateway::session::SessionManager::new());
+        let mcp_a2a_config = meepo_gateway::AgentToAgentConfig {
+            enabled: cfg.agent_to_agent.enabled,
+            allow: cfg.agent_to_agent.allow.clone(),
+            visibility: match cfg.agent_to_agent.visibility.as_str() {
+                "own" => meepo_gateway::session::SessionVisibility::Own,
+                "agent" => meepo_gateway::session::SessionVisibility::Agent,
+                "all" => meepo_gateway::session::SessionVisibility::All,
+                _ => meepo_gateway::session::SessionVisibility::Tree,
+            },
+            max_ping_pong_turns: cfg.agent_to_agent.max_ping_pong_turns,
+            subagent_archive_after_minutes: cfg.agent_to_agent.subagent_archive_after_minutes,
+        };
+        registry.register(Arc::new(meepo_gateway::SessionsListTool::new(
+            mcp_sessions.clone(),
+            mcp_a2a_config.clone(),
+        )));
+        registry.register(Arc::new(meepo_gateway::SessionsHistoryTool::new(
+            mcp_sessions.clone(),
+            mcp_a2a_config.clone(),
+        )));
+        registry.register(Arc::new(meepo_gateway::SessionsSendTool::new(
+            mcp_sessions.clone(),
+            mcp_a2a_config.clone(),
+        )));
+        registry.register(Arc::new(meepo_gateway::SessionsSpawnTool::new(
+            mcp_sessions.clone(),
+            mcp_a2a_config.clone(),
+        )));
+        registry.register(Arc::new(meepo_gateway::AgentsListTool::new(
+            vec!["main".to_string()],
+            mcp_a2a_config,
+        )));
+    }
 
     // ── Usage Tracker (MCP mode) ────────────────────────────────────
     if cfg.usage.enabled {

@@ -10,13 +10,11 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::Value;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use meepo_core::tools::{ToolHandler, json_schema};
 
-use crate::session::{
-    MessageProvenance, SessionKind, SessionManager, SessionVisibility,
-};
+use crate::session::{MessageProvenance, SessionManager, SessionVisibility};
 
 /// Configuration for agent-to-agent interaction
 #[derive(Debug, Clone)]
@@ -100,14 +98,9 @@ impl ToolHandler for SessionsListTool {
             return Err(anyhow!("Agent-to-agent communication is disabled"));
         }
 
-        let limit = input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50) as usize;
+        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
 
-        let active_minutes = input
-            .get("active_minutes")
-            .and_then(|v| v.as_u64());
+        let active_minutes = input.get("active_minutes").and_then(|v| v.as_u64());
 
         let agent_id = input.get("agent_id").and_then(|v| v.as_str());
 
@@ -120,17 +113,13 @@ impl ToolHandler for SessionsListTool {
 
         // Filter by kind if specified
         if let Some(kinds_val) = input.get("kinds").and_then(|v| v.as_array()) {
-            let kind_strs: Vec<&str> = kinds_val
-                .iter()
-                .filter_map(|v| v.as_str())
-                .collect();
+            let kind_strs: Vec<&str> = kinds_val.iter().filter_map(|v| v.as_str()).collect();
             sessions.retain(|s| kind_strs.contains(&s.kind.to_string().as_str()));
         }
 
         // Filter by activity recency
         if let Some(minutes) = active_minutes {
-            let cutoff = chrono::Utc::now()
-                - chrono::Duration::minutes(minutes as i64);
+            let cutoff = chrono::Utc::now() - chrono::Duration::minutes(minutes as i64);
             sessions.retain(|s| s.last_activity >= cutoff);
         }
 
@@ -218,10 +207,7 @@ impl ToolHandler for SessionsHistoryTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'session_id'"))?;
 
-        let limit = input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50) as usize;
+        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
 
         let include_tools = input
             .get("include_tools")
@@ -525,10 +511,7 @@ impl ToolHandler for SessionsSpawnTool {
 
         // Verify parent session exists
         if self.sessions.get(parent_session_id).await.is_none() {
-            return Err(anyhow!(
-                "Parent session '{}' not found",
-                parent_session_id
-            ));
+            return Err(anyhow!("Parent session '{}' not found", parent_session_id));
         }
 
         // Create the sub-agent session
@@ -555,10 +538,7 @@ impl ToolHandler for SessionsSpawnTool {
 
         info!(
             "sessions_spawn: created sub-agent session '{}' (label: {:?}, agent: {}, run_id: {})",
-            child_session.id,
-            label,
-            agent_id,
-            run_id
+            child_session.id, label, agent_id, run_id
         );
 
         serde_json::to_string_pretty(&serde_json::json!({
@@ -613,9 +593,7 @@ impl ToolHandler for AgentsListTool {
         } else {
             self.agent_ids
                 .iter()
-                .filter(|id| {
-                    self.config.allow.iter().any(|a| a == *id || a == "*")
-                })
+                .filter(|id| self.config.allow.iter().any(|a| a == *id || a == "*"))
                 .collect()
         };
 
@@ -631,6 +609,7 @@ impl ToolHandler for AgentsListTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::SessionKind;
 
     fn test_config() -> AgentToAgentConfig {
         AgentToAgentConfig {
@@ -681,7 +660,9 @@ mod tests {
     #[tokio::test]
     async fn test_sessions_list_filter_by_kind() {
         let mgr = Arc::new(SessionManager::new());
-        mgr.create_subagent("main", "main", Some("sub")).await.unwrap();
+        mgr.create_subagent("main", "main", Some("sub"))
+            .await
+            .unwrap();
 
         let tool = SessionsListTool::new(mgr, test_config());
         let result = tool
@@ -720,10 +701,7 @@ mod tests {
         }
 
         let tool = SessionsListTool::new(mgr, test_config());
-        let result = tool
-            .execute(serde_json::json!({"limit": 3}))
-            .await
-            .unwrap();
+        let result = tool.execute(serde_json::json!({"limit": 3})).await.unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed["count"], 3);
     }
@@ -993,7 +971,11 @@ mod tests {
     #[tokio::test]
     async fn test_agents_list_basic() {
         let tool = AgentsListTool::new(
-            vec!["main".to_string(), "work".to_string(), "personal".to_string()],
+            vec![
+                "main".to_string(),
+                "work".to_string(),
+                "personal".to_string(),
+            ],
             test_config(),
         );
 
@@ -1006,7 +988,11 @@ mod tests {
     #[tokio::test]
     async fn test_agents_list_restricted() {
         let tool = AgentsListTool::new(
-            vec!["main".to_string(), "work".to_string(), "personal".to_string()],
+            vec![
+                "main".to_string(),
+                "work".to_string(),
+                "personal".to_string(),
+            ],
             restricted_config(),
         );
 

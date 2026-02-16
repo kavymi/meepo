@@ -615,3 +615,24 @@ provider = "env"                        # env | file
 enabled = true
 block_severity = "high"                 # low | medium | high | critical
 max_input_length = 100000              # Max input chars (100KB)
+
+# ── Agent-to-Agent Communication ─────────────────────────────────
+# Enables inter-agent messaging via sessions_list, sessions_history,
+# sessions_send, and sessions_spawn tools.
+#
+# Visibility scopes: own, tree, agent, all
+#   own   — only the current session
+#   tree  — current session + sessions spawned by it
+#   agent — any session belonging to the same agent id
+#   all   — all sessions (cross-agent)
+#
+# allow: list of agent IDs permitted to communicate (empty = all)
+# max_ping_pong_turns: max back-and-forth turns for sessions_send (0-5)
+# subagent_archive_after_minutes: auto-archive subagent sessions (0 = never)
+
+[agent_to_agent]
+enabled = false
+allow = []
+visibility = "tree"
+max_ping_pong_turns = 5
+subagent_archive_after_minutes = 60

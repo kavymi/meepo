@@ -12,6 +12,12 @@ pub struct KeychainGetPasswordTool {
     provider: Box<dyn KeychainProvider>,
 }
 
+impl Default for KeychainGetPasswordTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeychainGetPasswordTool {
     pub fn new() -> Self {
         Self {
@@ -63,6 +69,12 @@ impl ToolHandler for KeychainGetPasswordTool {
 
 pub struct KeychainStorePasswordTool {
     provider: Box<dyn KeychainProvider>,
+}
+
+impl Default for KeychainStorePasswordTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KeychainStorePasswordTool {
@@ -118,7 +130,9 @@ impl ToolHandler for KeychainStorePasswordTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'password' parameter"))?;
         debug!("Storing keychain password for service: {}", service);
-        self.provider.store_password(service, account, password).await
+        self.provider
+            .store_password(service, account, password)
+            .await
     }
 }
 
@@ -134,7 +148,10 @@ mod tests {
         assert_eq!(tool.name(), "keychain_get_password");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"service".to_string()));

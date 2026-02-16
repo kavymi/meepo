@@ -12,6 +12,12 @@ pub struct ListTerminalTabsTool {
     provider: Box<dyn TerminalProvider>,
 }
 
+impl Default for ListTerminalTabsTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ListTerminalTabsTool {
     pub fn new() -> Self {
         Self {
@@ -43,6 +49,12 @@ impl ToolHandler for ListTerminalTabsTool {
 
 pub struct SendTerminalCommandTool {
     provider: Box<dyn TerminalProvider>,
+}
+
+impl Default for SendTerminalCommandTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SendTerminalCommandTool {
@@ -100,6 +112,12 @@ pub struct GetOpenPortsTool {
     provider: Box<dyn TerminalProvider>,
 }
 
+impl Default for GetOpenPortsTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GetOpenPortsTool {
     pub fn new() -> Self {
         Self {
@@ -148,7 +166,10 @@ mod tests {
         assert_eq!(tool.name(), "send_terminal_command");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"command".to_string()));

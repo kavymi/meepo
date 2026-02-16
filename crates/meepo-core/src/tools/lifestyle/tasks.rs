@@ -248,9 +248,9 @@ impl ToolHandler for ListTasksTool {
                 let task_context = meta.and_then(|m| m.get("context")).and_then(|s| s.as_str());
 
                 (status == "all" || task_status == status)
-                    && priority.map_or(true, |p| task_priority == Some(p))
-                    && project.map_or(true, |p| task_project == Some(p))
-                    && context.map_or(true, |c| task_context == Some(c))
+                    && priority.is_none_or(|p| task_priority == Some(p))
+                    && project.is_none_or(|p| task_project == Some(p))
+                    && context.is_none_or(|c| task_context == Some(c))
             })
             .take(limit as usize)
             .collect();
@@ -580,18 +580,17 @@ impl ToolHandler for ProjectStatusTool {
                 _ => {}
             }
             // Check for overdue (simplified — would need date parsing for real check)
-            if status != "completed" {
-                if let Some(due) = meta
+            if status != "completed"
+                && let Some(due) = meta
                     .and_then(|m| m.get("due_date"))
                     .and_then(|d| d.as_str())
-                {
-                    if !due.is_empty() && due != "none" {
-                        // Simple heuristic: if due date string is before today
-                        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-                        if due < today.as_str() {
-                            overdue += 1;
-                        }
-                    }
+                && !due.is_empty()
+                && due != "none"
+            {
+                // Simple heuristic: if due date string is before today
+                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                if due < today.as_str() {
+                    overdue += 1;
                 }
             }
         }

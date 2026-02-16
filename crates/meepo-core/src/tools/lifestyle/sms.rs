@@ -69,13 +69,20 @@ impl ToolHandler for SendSmsTool {
 
         debug!("Sending SMS to: {}", to);
 
-        // Sanitize for AppleScript injection
-        let safe_to = to.replace('\"', "\\\"").replace('\\', "\\\\");
-        let safe_message = message.replace('\"', "\\\"").replace('\\', "\\\\");
+        #[cfg(not(target_os = "macos"))]
+        {
+            return Err(anyhow::anyhow!(
+                "SMS/iMessage sending is only available on macOS"
+            ));
+        }
 
         // Send via AppleScript on macOS
         #[cfg(target_os = "macos")]
         {
+            // Sanitize for AppleScript injection
+            let safe_to = to.replace('\"', "\\\"").replace('\\', "\\\\");
+            let safe_message = message.replace('\"', "\\\"").replace('\\', "\\\\");
+
             let script = format!(
                 r#"tell application "Messages"
     set targetService to 1st account whose service type = iMessage
@@ -95,30 +102,23 @@ end tell"#,
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(anyhow::anyhow!("Failed to send message: {}", stderr));
             }
+
+            // Log in knowledge graph
+            let _ = self
+                .db
+                .insert_entity(
+                    &format!("sms_sent:{}", to),
+                    "sent_message",
+                    Some(serde_json::json!({
+                        "to": to,
+                        "preview": &message[..message.len().min(100)],
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    })),
+                )
+                .await;
+
+            Ok(format!("Message sent to {}: \"{}\"", to, message))
         }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            return Err(anyhow::anyhow!(
-                "SMS/iMessage sending is only available on macOS"
-            ));
-        }
-
-        // Log in knowledge graph
-        let _ = self
-            .db
-            .insert_entity(
-                &format!("sms_sent:{}", to),
-                "sent_message",
-                Some(serde_json::json!({
-                    "to": to,
-                    "preview": &message[..message.len().min(100)],
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                })),
-            )
-            .await;
-
-        Ok(format!("Message sent to {}: \"{}\"", to, message))
     }
 }
 

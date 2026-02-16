@@ -16,8 +16,8 @@ version = "0.1.2"
 edition = "2024"
 license = "MIT"
 description = "A local AI agent that connects Claude to your digital life"
-repository = "https://github.com/kavymi/meepo"
-homepage = "https://github.com/kavymi/meepo"
+repository = "https://github.com/leancoderkavy/meepo"
+homepage = "https://github.com/leancoderkavy/meepo"
 keywords = ["ai", "agent", "claude", "automation", "mcp"]
 categories = ["command-line-utilities"]
 

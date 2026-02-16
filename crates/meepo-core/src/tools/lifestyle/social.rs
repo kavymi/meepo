@@ -100,10 +100,10 @@ impl ToolHandler for RelationshipSummaryTool {
 
         for conv in &conversations {
             let sender = &conv.sender;
-            if let Some(name) = contact {
-                if !sender.to_lowercase().contains(&name.to_lowercase()) {
-                    continue;
-                }
+            if let Some(name) = contact
+                && !sender.to_lowercase().contains(&name.to_lowercase())
+            {
+                continue;
             }
             let entry = last_contact
                 .entry(sender.clone())
@@ -116,11 +116,14 @@ impl ToolHandler for RelationshipSummaryTool {
 
         let cutoff = chrono::Utc::now() - chrono::Duration::days(days_inactive as i64);
 
-        if contact.is_some() && contacts.is_empty() && last_contact.is_empty() {
+        if let Some(ref c) = contact
+            && contacts.is_empty()
+            && last_contact.is_empty()
+        {
             return Ok(format!(
                 "No information found for '{}'. The contact may not be tracked yet. \
                  Interactions are automatically tracked from conversations.",
-                contact.unwrap()
+                c
             ));
         }
 

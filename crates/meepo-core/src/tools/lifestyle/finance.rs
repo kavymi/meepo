@@ -258,10 +258,10 @@ impl ToolHandler for SpendingSummaryTool {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
 
-            if let Some(filter) = category_filter {
-                if cat != filter {
-                    continue;
-                }
+            if let Some(filter) = category_filter
+                && cat != filter
+            {
+                continue;
             }
 
             total += amount;
@@ -446,10 +446,10 @@ impl ToolHandler for BudgetCheckTool {
                     .and_then(|l| l.as_f64())
                     .unwrap_or(0.0);
 
-                if let Some(filter_cat) = category {
-                    if cat != filter_cat {
-                        continue;
-                    }
+                if let Some(filter_cat) = category
+                    && cat != filter_cat
+                {
+                    continue;
                 }
 
                 let spent = if cat == "overall" {

@@ -7,10 +7,10 @@ use tracing::{debug, warn};
 
 use super::{
     BrowserCookie, BrowserProvider, BrowserTab, CalendarProvider, ContactsProvider, EmailProvider,
-    FinderProvider, KeychainProvider, MediaProvider, MessagesProvider, MusicProvider, NotesProvider,
-    NotificationProvider, PageContent, PhotosProvider, ProductivityProvider, RemindersProvider,
-    ScreenCaptureProvider, ShortcutsProvider, SpotlightProvider, SystemControlProvider,
-    TerminalProvider, UiAutomation, WindowManagerProvider,
+    FinderProvider, KeychainProvider, MediaProvider, MessagesProvider, MusicProvider,
+    NotesProvider, NotificationProvider, PageContent, PhotosProvider, ProductivityProvider,
+    RemindersProvider, ScreenCaptureProvider, ShortcutsProvider, SpotlightProvider,
+    SystemControlProvider, TerminalProvider, UiAutomation, WindowManagerProvider,
 };
 
 /// Sanitize a string for safe use in AppleScript
@@ -618,6 +618,134 @@ end tell
     }
 }
 
+// ── Notifications ──────────────────────────────────────────────────────────
+
+pub struct MacOsNotificationProvider;
+
+#[async_trait]
+impl NotificationProvider for MacOsNotificationProvider {
+    async fn send_notification(
+        &self,
+        title: &str,
+        message: &str,
+        sound: Option<&str>,
+    ) -> Result<String> {
+        if title.len() > 200 {
+            return Err(anyhow::anyhow!("Title too long"));
+        }
+        if message.len() > 2000 {
+            return Err(anyhow::anyhow!("Message too long"));
+        }
+        let safe_title = sanitize_applescript_string(title);
+        let safe_message = sanitize_applescript_string(message);
+        let sound_clause = if let Some(s) = sound {
+            let safe_sound = sanitize_applescript_string(s);
+            format!(r#" sound name "{}""#, safe_sound)
+        } else {
+            String::new()
+        };
+        debug!("Sending notification: {}", title);
+        run_applescript(&format!(
+            r#"display notification "{}" with title "{}"{}"#,
+            safe_message, safe_title, sound_clause
+        ))
+        .await?;
+        Ok(format!("Notification sent: {}", title))
+    }
+}
+
+// ── Screen Capture ─────────────────────────────────────────────────────────
+
+pub struct MacOsScreenCaptureProvider;
+
+#[async_trait]
+impl ScreenCaptureProvider for MacOsScreenCaptureProvider {
+    async fn capture_screen(&self, path: Option<&str>) -> Result<String> {
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let output_path = path
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| format!("/tmp/meepo-screenshot-{}.png", timestamp));
+        if output_path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
+        validate_screenshot_path(&output_path)?;
+        debug!("Capturing screen to {}", output_path);
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            Command::new("screencapture")
+                .arg("-x")
+                .arg(&output_path)
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Screen capture timed out"))?
+        .context("Failed to run screencapture")?;
+        if output.status.success() {
+            Ok(format!("Screenshot saved to {}", output_path))
+        } else {
+            Err(anyhow::anyhow!(
+                "Screen capture failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    }
+}
+
+// ── Music ──────────────────────────────────────────────────────────────────
+
+pub struct MacOsMusicProvider;
+
+#[async_trait]
+impl MusicProvider for MacOsMusicProvider {
+    async fn get_current_track(&self) -> Result<String> {
+        debug!("Getting current track");
+        run_applescript(
+            r#"
+tell application "Music"
+    if player state is playing then
+        set trackName to name of current track
+        set trackArtist to artist of current track
+        set trackAlbum to album of current track
+        set trackDuration to duration of current track
+        set trackPosition to player position
+        return "Playing: " & trackName & " by " & trackArtist & " from " & trackAlbum & " (" & (round trackPosition) & "s / " & (round trackDuration) & "s)"
+    else
+        return "Not playing"
+    end if
+end tell"#,
+        )
+        .await
+    }
+
+    async fn control_playback(&self, action: &str) -> Result<String> {
+        debug!("Music control: {}", action);
+        let script = match action.to_lowercase().as_str() {
+            "play" => r#"tell application "Music" to play
+return "Playing""#
+                .to_string(),
+            "pause" => r#"tell application "Music" to pause
+return "Paused""#
+                .to_string(),
+            "next" | "skip" => r#"tell application "Music" to next track
+return "Skipped to next track""#
+                .to_string(),
+            "previous" | "prev" | "back" => r#"tell application "Music" to previous track
+return "Went to previous track""#
+                .to_string(),
+            "toggle" => r#"tell application "Music" to playpause
+return "Toggled playback""#
+                .to_string(),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unknown action: {}. Supported: play, pause, next, previous, toggle",
+                    action
+                ));
+            }
+        };
+        run_applescript(&script).await
+    }
+}
+
 /// Safari browser automation via AppleScript
 pub struct MacOsSafariBrowser;
 
@@ -1145,6 +1273,56 @@ end tell
         let url = run_applescript(&script).await?;
         Ok(url.trim().to_string())
     }
+
+    async fn scroll(&self, tab_id: Option<&str>, direction: &str, amount: u32) -> Result<()> {
+        let js_scroll = match direction {
+            "up" => format!("window.scrollBy(0, -{})", amount),
+            "down" => format!("window.scrollBy(0, {})", amount),
+            "left" => format!("window.scrollBy(-{}, 0)", amount),
+            "right" => format!("window.scrollBy({}, 0)", amount),
+            _ => return Err(anyhow::anyhow!("Invalid scroll direction: {}", direction)),
+        };
+        self.execute_javascript(tab_id, &js_scroll).await?;
+        Ok(())
+    }
+
+    async fn wait_for_element(
+        &self,
+        tab_id: Option<&str>,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<bool> {
+        let safe_selector = sanitize_applescript_string(selector);
+        let poll_ms = 200u64;
+        let max_polls = timeout_ms / poll_ms;
+        for _ in 0..max_polls {
+            let js = format!("document.querySelector('{}') !== null", safe_selector);
+            let result = self.execute_javascript(tab_id, &js).await?;
+            if result.trim() == "true" {
+                return Ok(true);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(poll_ms)).await;
+        }
+        Ok(false)
+    }
+
+    async fn screenshot_tab(&self, _tab_id: Option<&str>, path: Option<&str>) -> Result<String> {
+        let output = path.unwrap_or("/tmp/chrome_screenshot.png");
+        validate_screenshot_path(output)?;
+        let output_result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            Command::new("screencapture").arg("-x").arg(output).output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Screenshot timed out"))?
+        .context("Failed to run screencapture")?;
+        if output_result.status.success() {
+            Ok(format!("Screenshot saved to {}", output))
+        } else {
+            let error = String::from_utf8_lossy(&output_result.stderr);
+            Err(anyhow::anyhow!("Screenshot failed: {}", error))
+        }
+    }
 }
 
 /// Parse a Chrome tab ID like "chrome:1:2" into (window, tab) indices
@@ -1201,14 +1379,17 @@ impl SystemControlProvider for MacOsSystemControl {
     }
 
     async fn toggle_mute(&self) -> Result<String> {
-        run_applescript(r#"
+        run_applescript(
+            r#"
 set curMuted to output muted of (get volume settings)
 set volume output muted (not curMuted)
 if curMuted then
     return "Unmuted"
 else
     return "Muted"
-end if"#).await
+end if"#,
+        )
+        .await
     }
 
     async fn get_dark_mode(&self) -> Result<bool> {
@@ -1223,7 +1404,10 @@ end if"#).await
             r#"tell application "System Events" to tell appearance preferences to set dark mode to {}"#,
             enabled
         )).await?;
-        Ok(format!("Dark mode {}", if enabled { "enabled" } else { "disabled" }))
+        Ok(format!(
+            "Dark mode {}",
+            if enabled { "enabled" } else { "disabled" }
+        ))
     }
 
     async fn set_do_not_disturb(&self, enabled: bool) -> Result<String> {
@@ -1243,7 +1427,10 @@ return "Do Not Disturb disabled""#
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             Command::new("pmset").arg("-g").arg("batt").output(),
-        ).await.map_err(|_| anyhow::anyhow!("Battery status timed out"))?.context("Failed to run pmset")?;
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Battery status timed out"))?
+        .context("Failed to run pmset")?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
@@ -1255,15 +1442,26 @@ return "Do Not Disturb disabled""#
         debug!("Getting WiFi info");
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            Command::new("networksetup").args(["-getairportnetwork", "en0"]).output(),
-        ).await.map_err(|_| anyhow::anyhow!("WiFi info timed out"))?.context("Failed to run networksetup")?;
+            Command::new("networksetup")
+                .args(["-getairportnetwork", "en0"])
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("WiFi info timed out"))?
+        .context("Failed to run networksetup")?;
         let mut info = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let ip_output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             Command::new("ipconfig").args(["getifaddr", "en0"]).output(),
-        ).await.map_err(|_| anyhow::anyhow!("IP lookup timed out"))?.context("Failed to get IP")?;
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("IP lookup timed out"))?
+        .context("Failed to get IP")?;
         if ip_output.status.success() {
-            info.push_str(&format!("\nIP Address: {}", String::from_utf8_lossy(&ip_output.stdout).trim()));
+            info.push_str(&format!(
+                "\nIP Address: {}",
+                String::from_utf8_lossy(&ip_output.stdout).trim()
+            ));
         }
         Ok(info)
     }
@@ -1273,7 +1471,10 @@ return "Do Not Disturb disabled""#
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             Command::new("df").args(["-h", "/"]).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Disk usage timed out"))?.context("Failed to run df")?;
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Disk usage timed out"))?
+        .context("Failed to run df")?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
@@ -1286,8 +1487,15 @@ return "Do Not Disturb disabled""#
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             Command::new("pmset").arg("displaysleepnow").output(),
-        ).await.map_err(|_| anyhow::anyhow!("Lock screen timed out"))?.context("Failed to lock screen")?;
-        if output.status.success() { Ok("Screen locked".to_string()) } else { Err(anyhow::anyhow!("Failed to lock screen")) }
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Lock screen timed out"))?
+        .context("Failed to lock screen")?;
+        if output.status.success() {
+            Ok("Screen locked".to_string())
+        } else {
+            Err(anyhow::anyhow!("Failed to lock screen"))
+        }
     }
 
     async fn sleep_display(&self) -> Result<String> {
@@ -1295,39 +1503,58 @@ return "Do Not Disturb disabled""#
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             Command::new("pmset").arg("displaysleepnow").output(),
-        ).await.map_err(|_| anyhow::anyhow!("Sleep display timed out"))?.context("Failed to sleep display")?;
-        if output.status.success() { Ok("Display sleeping".to_string()) } else { Err(anyhow::anyhow!("Failed to sleep display")) }
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Sleep display timed out"))?
+        .context("Failed to sleep display")?;
+        if output.status.success() {
+            Ok("Display sleeping".to_string())
+        } else {
+            Err(anyhow::anyhow!("Failed to sleep display"))
+        }
     }
 
     async fn get_running_apps(&self) -> Result<String> {
         debug!("Getting running apps");
-        run_applescript(r#"
+        run_applescript(
+            r#"
 tell application "System Events"
     set output to ""
     repeat with p in (every application process whose background only is false)
         set output to output & (name of p) & "\n"
     end repeat
     return output
-end tell"#).await
+end tell"#,
+        )
+        .await
     }
 
     async fn quit_app(&self, app_name: &str) -> Result<String> {
         let safe_name = sanitize_applescript_string(app_name);
-        if safe_name.len() > 100 { return Err(anyhow::anyhow!("App name too long")); }
+        if safe_name.len() > 100 {
+            return Err(anyhow::anyhow!("App name too long"));
+        }
         debug!("Quitting app: {}", app_name);
-        run_applescript(&format!(r#"
+        run_applescript(&format!(
+            r#"
 tell application "{}"
     quit
 end tell
 return "Quit {}"
-"#, safe_name, safe_name)).await
+"#,
+            safe_name, safe_name
+        ))
+        .await
     }
 
     async fn force_quit_app(&self, app_name: &str) -> Result<String> {
         let safe_name = sanitize_applescript_string(app_name);
-        if safe_name.len() > 100 { return Err(anyhow::anyhow!("App name too long")); }
+        if safe_name.len() > 100 {
+            return Err(anyhow::anyhow!("App name too long"));
+        }
         debug!("Force quitting app: {}", app_name);
-        run_applescript(&format!(r#"
+        run_applescript(&format!(
+            r#"
 tell application "System Events"
     set targetProcs to every application process whose name is "{}"
     if (count of targetProcs) > 0 then
@@ -1338,7 +1565,10 @@ tell application "System Events"
     else
         return "No process found: {}"
     end if
-end tell"#, safe_name, safe_name, safe_name)).await
+end tell"#,
+            safe_name, safe_name, safe_name
+        ))
+        .await
     }
 }
 
@@ -1350,7 +1580,8 @@ pub struct MacOsFinderProvider;
 impl FinderProvider for MacOsFinderProvider {
     async fn get_selection(&self) -> Result<String> {
         debug!("Getting Finder selection");
-        run_applescript(r#"
+        run_applescript(
+            r#"
 tell application "Finder"
     try
         set sel to selection
@@ -1363,59 +1594,111 @@ tell application "Finder"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#).await
+end tell"#,
+        )
+        .await
     }
 
     async fn reveal_in_finder(&self, path: &str) -> Result<String> {
-        if path.contains("..") { return Err(anyhow::anyhow!("Path cannot contain '..'")); }
-        if path.len() > 1000 { return Err(anyhow::anyhow!("Path too long")); }
+        if path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
+        if path.len() > 1000 {
+            return Err(anyhow::anyhow!("Path too long"));
+        }
         debug!("Revealing in Finder: {}", path);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             Command::new("open").arg("-R").arg(path).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Finder reveal timed out"))?.context("Failed to reveal in Finder")?;
-        if output.status.success() { Ok(format!("Revealed in Finder: {}", path)) }
-        else { Err(anyhow::anyhow!("Failed to reveal: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Finder reveal timed out"))?
+        .context("Failed to reveal in Finder")?;
+        if output.status.success() {
+            Ok(format!("Revealed in Finder: {}", path))
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to reveal: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 
     async fn set_tag(&self, path: &str, tag: &str, remove: bool) -> Result<String> {
-        if path.contains("..") { return Err(anyhow::anyhow!("Path cannot contain '..'")); }
-        if path.len() > 1000 || tag.len() > 100 { return Err(anyhow::anyhow!("Path or tag too long")); }
+        if path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
+        if path.len() > 1000 || tag.len() > 100 {
+            return Err(anyhow::anyhow!("Path or tag too long"));
+        }
         let valid_tags = ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Gray"];
         if !valid_tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
-            return Err(anyhow::anyhow!("Invalid tag: {}. Valid: {}", tag, valid_tags.join(", ")));
+            return Err(anyhow::anyhow!(
+                "Invalid tag: {}. Valid: {}",
+                tag,
+                valid_tags.join(", ")
+            ));
         }
         let safe_path = sanitize_applescript_string(path);
         let safe_tag = sanitize_applescript_string(tag);
-        debug!("{} tag '{}' on: {}", if remove { "Removing" } else { "Setting" }, tag, path);
+        debug!(
+            "{} tag '{}' on: {}",
+            if remove { "Removing" } else { "Setting" },
+            tag,
+            path
+        );
         let script = if remove {
-            format!(r#"do shell script "xattr -w com.apple.metadata:_kMDItemUserTags '()' '{}'"
-return "Tag removed from {}""#, safe_path, safe_path)
+            format!(
+                r#"do shell script "xattr -w com.apple.metadata:_kMDItemUserTags '()' '{}'"
+return "Tag removed from {}""#,
+                safe_path, safe_path
+            )
         } else {
-            format!(r#"do shell script "xattr -w com.apple.metadata:_kMDItemUserTags '(\"{}\")' '{}'"
-return "Tagged {} with {}""#, safe_tag, safe_path, safe_path, safe_tag)
+            format!(
+                r#"do shell script "xattr -w com.apple.metadata:_kMDItemUserTags '(\"{}\")' '{}'"
+return "Tagged {} with {}""#,
+                safe_tag, safe_path, safe_path, safe_tag
+            )
         };
         run_applescript(&script).await
     }
 
     async fn quick_look(&self, path: &str) -> Result<String> {
-        if path.contains("..") { return Err(anyhow::anyhow!("Path cannot contain '..'")); }
-        if path.len() > 1000 { return Err(anyhow::anyhow!("Path too long")); }
+        if path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
+        if path.len() > 1000 {
+            return Err(anyhow::anyhow!("Path too long"));
+        }
         debug!("Quick Look: {}", path);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             Command::new("qlmanage").arg("-p").arg(path).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Quick Look timed out"))?.context("Failed to run Quick Look")?;
-        if output.status.success() { Ok(format!("Quick Look opened for: {}", path)) }
-        else { Err(anyhow::anyhow!("Quick Look failed: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Quick Look timed out"))?
+        .context("Failed to run Quick Look")?;
+        if output.status.success() {
+            Ok(format!("Quick Look opened for: {}", path))
+        } else {
+            Err(anyhow::anyhow!(
+                "Quick Look failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 
     async fn trash_file(&self, path: &str) -> Result<String> {
-        if path.contains("..") { return Err(anyhow::anyhow!("Path cannot contain '..'")); }
-        if path.len() > 1000 { return Err(anyhow::anyhow!("Path too long")); }
+        if path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
+        if path.len() > 1000 {
+            return Err(anyhow::anyhow!("Path too long"));
+        }
         let safe_path = sanitize_applescript_string(path);
         debug!("Moving to trash: {}", path);
-        run_applescript(&format!(r#"
+        run_applescript(&format!(
+            r#"
 tell application "Finder"
     try
         move POSIX file "{}" to trash
@@ -1423,12 +1706,16 @@ tell application "Finder"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#, safe_path, safe_path)).await
+end tell"#,
+            safe_path, safe_path
+        ))
+        .await
     }
 
     async fn empty_trash(&self) -> Result<String> {
         debug!("Emptying trash");
-        run_applescript(r#"
+        run_applescript(
+            r#"
 tell application "Finder"
     try
         empty trash
@@ -1436,23 +1723,43 @@ tell application "Finder"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#).await
+end tell"#,
+        )
+        .await
     }
 
     async fn get_recent_files(&self, days: u64, limit: u64) -> Result<String> {
         let days = days.min(30);
         let limit = limit.min(50);
         debug!("Getting recent files (last {} days, limit {})", days, limit);
-        let home = dirs::home_dir().unwrap_or_default().to_string_lossy().to_string();
+        let home = dirs::home_dir()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            Command::new("mdfind").args(["-onlyin", &home, &format!("kMDItemLastUsedDate > $time.today(-{}d)", days)]).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Recent files search timed out"))?.context("Failed to search recent files")?;
+            Command::new("mdfind")
+                .args([
+                    "-onlyin",
+                    &home,
+                    &format!("kMDItemLastUsedDate > $time.today(-{}d)", days),
+                ])
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Recent files search timed out"))?
+        .context("Failed to search recent files")?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = text.lines().take(limit as usize).collect();
-            if lines.is_empty() { Ok("No recent files found".to_string()) } else { Ok(lines.join("\n")) }
-        } else { Err(anyhow::anyhow!("Failed to search recent files")) }
+            if lines.is_empty() {
+                Ok("No recent files found".to_string())
+            } else {
+                Ok(lines.join("\n"))
+            }
+        } else {
+            Err(anyhow::anyhow!("Failed to search recent files"))
+        }
     }
 }
 
@@ -1463,31 +1770,58 @@ pub struct MacOsSpotlightProvider;
 #[async_trait]
 impl SpotlightProvider for MacOsSpotlightProvider {
     async fn search(&self, query: &str, limit: u64) -> Result<String> {
-        if query.len() > 500 { return Err(anyhow::anyhow!("Query too long (max 500 characters)")); }
+        if query.len() > 500 {
+            return Err(anyhow::anyhow!("Query too long (max 500 characters)"));
+        }
         let limit = limit.min(100);
         debug!("Spotlight search: {}", query);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             Command::new("mdfind").arg(query).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Spotlight search timed out"))?.context("Failed to run mdfind")?;
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Spotlight search timed out"))?
+        .context("Failed to run mdfind")?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = text.lines().take(limit as usize).collect();
-            if lines.is_empty() { Ok(format!("No results for: {}", query)) }
-            else { Ok(format!("Found {} results:\n{}", lines.len(), lines.join("\n"))) }
-        } else { Err(anyhow::anyhow!("Spotlight search failed")) }
+            if lines.is_empty() {
+                Ok(format!("No results for: {}", query))
+            } else {
+                Ok(format!(
+                    "Found {} results:\n{}",
+                    lines.len(),
+                    lines.join("\n")
+                ))
+            }
+        } else {
+            Err(anyhow::anyhow!("Spotlight search failed"))
+        }
     }
 
     async fn get_metadata(&self, path: &str) -> Result<String> {
-        if path.contains("..") { return Err(anyhow::anyhow!("Path cannot contain '..'")); }
-        if path.len() > 1000 { return Err(anyhow::anyhow!("Path too long")); }
+        if path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
+        if path.len() > 1000 {
+            return Err(anyhow::anyhow!("Path too long"));
+        }
         debug!("Getting metadata for: {}", path);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             Command::new("mdls").arg(path).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Metadata lookup timed out"))?.context("Failed to run mdls")?;
-        if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim().to_string()) }
-        else { Err(anyhow::anyhow!("Metadata lookup failed: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Metadata lookup timed out"))?
+        .context("Failed to run mdls")?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Metadata lookup failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 }
 
@@ -1502,25 +1836,55 @@ impl ShortcutsProvider for MacOsShortcutsProvider {
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(15),
             Command::new("shortcuts").arg("list").output(),
-        ).await.map_err(|_| anyhow::anyhow!("Shortcuts list timed out"))?.context("Failed to list shortcuts")?;
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Shortcuts list timed out"))?
+        .context("Failed to list shortcuts")?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if text.is_empty() { Ok("No shortcuts found".to_string()) } else { Ok(text) }
-        } else { Err(anyhow::anyhow!("Failed to list shortcuts: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+            if text.is_empty() {
+                Ok("No shortcuts found".to_string())
+            } else {
+                Ok(text)
+            }
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to list shortcuts: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 
     async fn run_shortcut(&self, name: &str, input: Option<&str>) -> Result<String> {
-        if name.len() > 200 { return Err(anyhow::anyhow!("Shortcut name too long (max 200 characters)")); }
+        if name.len() > 200 {
+            return Err(anyhow::anyhow!(
+                "Shortcut name too long (max 200 characters)"
+            ));
+        }
         debug!("Running shortcut: {}", name);
         let mut cmd = Command::new("shortcuts");
         cmd.arg("run").arg(name);
-        if let Some(input_text) = input { cmd.arg("-i").arg(input_text); }
+        if let Some(input_text) = input {
+            cmd.arg("-i").arg(input_text);
+        }
         let output = tokio::time::timeout(std::time::Duration::from_secs(60), cmd.output())
-            .await.map_err(|_| anyhow::anyhow!("Shortcut execution timed out"))?.context("Failed to run shortcut")?;
+            .await
+            .map_err(|_| anyhow::anyhow!("Shortcut execution timed out"))?
+            .context("Failed to run shortcut")?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if text.is_empty() { Ok(format!("Shortcut '{}' completed", name)) } else { Ok(text) }
-        } else { Err(anyhow::anyhow!("Shortcut '{}' failed: {}", name, String::from_utf8_lossy(&output.stderr).trim())) }
+            if text.is_empty() {
+                Ok(format!("Shortcut '{}' completed", name))
+            } else {
+                Ok(text)
+            }
+        } else {
+            Err(anyhow::anyhow!(
+                "Shortcut '{}' failed: {}",
+                name,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 }
 
@@ -1531,26 +1895,67 @@ pub struct MacOsKeychainProvider;
 #[async_trait]
 impl KeychainProvider for MacOsKeychainProvider {
     async fn get_password(&self, service: &str, account: &str) -> Result<String> {
-        if service.len() > 200 || account.len() > 200 { return Err(anyhow::anyhow!("Service or account name too long")); }
+        if service.len() > 200 || account.len() > 200 {
+            return Err(anyhow::anyhow!("Service or account name too long"));
+        }
         debug!("Getting keychain password for service: {}", service);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            Command::new("security").args(["find-generic-password", "-s", service, "-a", account, "-w"]).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Keychain lookup timed out"))?.context("Failed to query keychain")?;
-        if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim().to_string()) }
-        else { Err(anyhow::anyhow!("Password not found for service '{}', account '{}'", service, account)) }
+            Command::new("security")
+                .args(["find-generic-password", "-s", service, "-a", account, "-w"])
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Keychain lookup timed out"))?
+        .context("Failed to query keychain")?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Password not found for service '{}', account '{}'",
+                service,
+                account
+            ))
+        }
     }
 
     async fn store_password(&self, service: &str, account: &str, password: &str) -> Result<String> {
-        if service.len() > 200 || account.len() > 200 { return Err(anyhow::anyhow!("Service or account name too long")); }
-        if password.len() > 10_000 { return Err(anyhow::anyhow!("Password too long")); }
+        if service.len() > 200 || account.len() > 200 {
+            return Err(anyhow::anyhow!("Service or account name too long"));
+        }
+        if password.len() > 10_000 {
+            return Err(anyhow::anyhow!("Password too long"));
+        }
         debug!("Storing keychain password for service: {}", service);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            Command::new("security").args(["add-generic-password", "-s", service, "-a", account, "-w", password, "-U"]).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Keychain store timed out"))?.context("Failed to store in keychain")?;
-        if output.status.success() { Ok(format!("Password stored for service '{}', account '{}'", service, account)) }
-        else { Err(anyhow::anyhow!("Failed to store password: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+            Command::new("security")
+                .args([
+                    "add-generic-password",
+                    "-s",
+                    service,
+                    "-a",
+                    account,
+                    "-w",
+                    password,
+                    "-U",
+                ])
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Keychain store timed out"))?
+        .context("Failed to store in keychain")?;
+        if output.status.success() {
+            Ok(format!(
+                "Password stored for service '{}', account '{}'",
+                service, account
+            ))
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to store password: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 }
 
@@ -1561,7 +1966,9 @@ pub struct MacOsMessagesProvider;
 #[async_trait]
 impl MessagesProvider for MacOsMessagesProvider {
     async fn read_messages(&self, contact: &str, limit: u64) -> Result<String> {
-        if contact.len() > 200 { return Err(anyhow::anyhow!("Contact too long")); }
+        if contact.len() > 200 {
+            return Err(anyhow::anyhow!("Contact too long"));
+        }
         let limit = limit.min(50);
         let safe_contact = sanitize_applescript_string(contact);
         debug!("Reading messages from: {}", contact);
@@ -1586,9 +1993,16 @@ impl MessagesProvider for MacOsMessagesProvider {
             ).await.map_err(|_| anyhow::anyhow!("Message read timed out"))?.context("Failed to read messages database")?;
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if text.is_empty() { Ok(format!("No messages found with '{}'", contact)) } else { Ok(text) }
+                if text.is_empty() {
+                    Ok(format!("No messages found with '{}'", contact))
+                } else {
+                    Ok(text)
+                }
             } else {
-                Ok(format!("Could not read messages for '{}' (database access denied)", contact))
+                Ok(format!(
+                    "Could not read messages for '{}' (database access denied)",
+                    contact
+                ))
             }
         } else {
             Ok("Messages database not found".to_string())
@@ -1596,12 +2010,17 @@ impl MessagesProvider for MacOsMessagesProvider {
     }
 
     async fn send_message(&self, contact: &str, message: &str) -> Result<String> {
-        if contact.len() > 200 { return Err(anyhow::anyhow!("Contact too long")); }
-        if message.len() > 10_000 { return Err(anyhow::anyhow!("Message too long")); }
+        if contact.len() > 200 {
+            return Err(anyhow::anyhow!("Contact too long"));
+        }
+        if message.len() > 10_000 {
+            return Err(anyhow::anyhow!("Message too long"));
+        }
         let safe_contact = sanitize_applescript_string(contact);
         let safe_message = sanitize_applescript_string(message);
         debug!("Sending message to: {}", contact);
-        run_applescript(&format!(r#"
+        run_applescript(&format!(
+            r#"
 tell application "Messages"
     try
         set targetService to first service whose service type is iMessage
@@ -1611,21 +2030,44 @@ tell application "Messages"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#, safe_contact, safe_message, safe_contact)).await
+end tell"#,
+            safe_contact, safe_message, safe_contact
+        ))
+        .await
     }
 
     async fn start_facetime(&self, contact: &str, audio_only: bool) -> Result<String> {
-        if contact.len() > 200 { return Err(anyhow::anyhow!("Contact too long")); }
+        if contact.len() > 200 {
+            return Err(anyhow::anyhow!("Contact too long"));
+        }
         let safe_contact = sanitize_applescript_string(contact);
         debug!("Starting FaceTime with: {}", contact);
-        let scheme = if audio_only { "facetime-audio" } else { "facetime" };
+        let scheme = if audio_only {
+            "facetime-audio"
+        } else {
+            "facetime"
+        };
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            Command::new("open").arg(format!("{}://{}", scheme, safe_contact)).output(),
-        ).await.map_err(|_| anyhow::anyhow!("FaceTime launch timed out"))?.context("Failed to start FaceTime")?;
+            Command::new("open")
+                .arg(format!("{}://{}", scheme, safe_contact))
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("FaceTime launch timed out"))?
+        .context("Failed to start FaceTime")?;
         if output.status.success() {
-            Ok(format!("FaceTime {} call started with {}", if audio_only { "audio" } else { "video" }, contact))
-        } else { Err(anyhow::anyhow!("Failed to start FaceTime: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+            Ok(format!(
+                "FaceTime {} call started with {}",
+                if audio_only { "audio" } else { "video" },
+                contact
+            ))
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to start FaceTime: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 }
 
@@ -1636,11 +2078,14 @@ pub struct MacOsPhotosProvider;
 #[async_trait]
 impl PhotosProvider for MacOsPhotosProvider {
     async fn search_photos(&self, query: &str, limit: u64) -> Result<String> {
-        if query.len() > 200 { return Err(anyhow::anyhow!("Query too long")); }
+        if query.len() > 200 {
+            return Err(anyhow::anyhow!("Query too long"));
+        }
         let limit = limit.min(50);
         let safe_query = sanitize_applescript_string(query);
         debug!("Searching photos: {}", query);
-        run_applescript(&format!(r#"
+        run_applescript(&format!(
+            r#"
 tell application "Photos"
     try
         set results to search for "{}"
@@ -1656,18 +2101,28 @@ tell application "Photos"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#, safe_query, limit)).await
+end tell"#,
+            safe_query, limit
+        ))
+        .await
     }
 
     async fn export_photos(&self, query: &str, destination: &str, limit: u64) -> Result<String> {
-        if query.len() > 200 { return Err(anyhow::anyhow!("Query too long")); }
-        if destination.contains("..") { return Err(anyhow::anyhow!("Destination cannot contain '..'")); }
-        if destination.len() > 1000 { return Err(anyhow::anyhow!("Destination too long")); }
+        if query.len() > 200 {
+            return Err(anyhow::anyhow!("Query too long"));
+        }
+        if destination.contains("..") {
+            return Err(anyhow::anyhow!("Destination cannot contain '..'"));
+        }
+        if destination.len() > 1000 {
+            return Err(anyhow::anyhow!("Destination too long"));
+        }
         let limit = limit.min(50);
         let safe_query = sanitize_applescript_string(query);
         let safe_dest = sanitize_applescript_string(destination);
         debug!("Exporting photos matching '{}' to {}", query, destination);
-        run_applescript(&format!(r#"
+        run_applescript(&format!(
+            r#"
 tell application "Photos"
     try
         set results to search for "{}"
@@ -1679,7 +2134,10 @@ tell application "Photos"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#, safe_query, limit, safe_dest, safe_dest)).await
+end tell"#,
+            safe_query, limit, safe_dest, safe_dest
+        ))
+        .await
     }
 }
 
@@ -1692,38 +2150,64 @@ impl MediaProvider for MacOsMediaProvider {
     async fn record_audio(&self, duration_secs: u64, output_path: Option<&str>) -> Result<String> {
         let duration_secs = duration_secs.min(300);
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        let path = output_path.map(|p| p.to_string())
+        let path = output_path
+            .map(|p| p.to_string())
             .unwrap_or_else(|| format!("/tmp/meepo-recording-{}.m4a", timestamp));
-        if path.contains("..") { return Err(anyhow::anyhow!("Path cannot contain '..'")); }
+        if path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
         debug!("Recording audio for {}s to {}", duration_secs, path);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(duration_secs + 5),
-            Command::new("rec").args([&path, "trim", "0", &duration_secs.to_string()]).output(),
-        ).await;
+            Command::new("rec")
+                .args([&path, "trim", "0", &duration_secs.to_string()])
+                .output(),
+        )
+        .await;
         match output {
-            Ok(Ok(o)) if o.status.success() => Ok(format!("Audio recorded to {} ({}s)", path, duration_secs)),
-            _ => Err(anyhow::anyhow!("Audio recording failed. Install sox (`brew install sox`) for recording support.")),
+            Ok(Ok(o)) if o.status.success() => {
+                Ok(format!("Audio recorded to {} ({}s)", path, duration_secs))
+            }
+            _ => Err(anyhow::anyhow!(
+                "Audio recording failed. Install sox (`brew install sox`) for recording support."
+            )),
         }
     }
 
     async fn text_to_speech(&self, text: &str, voice: Option<&str>) -> Result<String> {
-        if text.len() > 10_000 { return Err(anyhow::anyhow!("Text too long (max 10,000 characters)")); }
+        if text.len() > 10_000 {
+            return Err(anyhow::anyhow!("Text too long (max 10,000 characters)"));
+        }
         debug!("Text to speech ({} chars)", text.len());
         let mut cmd = Command::new("say");
         if let Some(v) = voice {
-            if v.len() > 50 { return Err(anyhow::anyhow!("Voice name too long")); }
+            if v.len() > 50 {
+                return Err(anyhow::anyhow!("Voice name too long"));
+            }
             cmd.arg("-v").arg(v);
         }
         cmd.arg(text);
         let output = tokio::time::timeout(std::time::Duration::from_secs(60), cmd.output())
-            .await.map_err(|_| anyhow::anyhow!("Text-to-speech timed out"))?.context("Failed to run say")?;
-        if output.status.success() { Ok("Speech completed".to_string()) }
-        else { Err(anyhow::anyhow!("Text-to-speech failed: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+            .await
+            .map_err(|_| anyhow::anyhow!("Text-to-speech timed out"))?
+            .context("Failed to run say")?;
+        if output.status.success() {
+            Ok("Speech completed".to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Text-to-speech failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 
     async fn ocr_image(&self, image_path: &str) -> Result<String> {
-        if image_path.contains("..") { return Err(anyhow::anyhow!("Path cannot contain '..'")); }
-        if image_path.len() > 1000 { return Err(anyhow::anyhow!("Path too long")); }
+        if image_path.contains("..") {
+            return Err(anyhow::anyhow!("Path cannot contain '..'"));
+        }
+        if image_path.len() > 1000 {
+            return Err(anyhow::anyhow!("Path too long"));
+        }
         debug!("OCR on image: {}", image_path);
         let safe_path = sanitize_applescript_string(image_path);
         let swift_code = format!(
@@ -1740,11 +2224,23 @@ impl MediaProvider for MacOsMediaProvider {
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             Command::new("swift").arg("-e").arg(&swift_code).output(),
-        ).await.map_err(|_| anyhow::anyhow!("OCR timed out"))?.context("Failed to run OCR")?;
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("OCR timed out"))?
+        .context("Failed to run OCR")?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if text.is_empty() { Ok("No text detected in image".to_string()) } else { Ok(text) }
-        } else { Err(anyhow::anyhow!("OCR failed: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+            if text.is_empty() {
+                Ok("No text detected in image".to_string())
+            } else {
+                Ok(text)
+            }
+        } else {
+            Err(anyhow::anyhow!(
+                "OCR failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 }
 
@@ -1771,14 +2267,26 @@ tell application "System Events"
 end tell"#).await
     }
 
-    async fn move_window(&self, app_name: &str, x: i32, y: i32, width: Option<u32>, height: Option<u32>) -> Result<String> {
-        if app_name.len() > 100 { return Err(anyhow::anyhow!("App name too long")); }
+    async fn move_window(
+        &self,
+        app_name: &str,
+        x: i32,
+        y: i32,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<String> {
+        if app_name.len() > 100 {
+            return Err(anyhow::anyhow!("App name too long"));
+        }
         let safe_name = sanitize_applescript_string(app_name);
         debug!("Moving window of {} to ({}, {})", app_name, x, y);
         let size_clause = if let (Some(w), Some(h)) = (width, height) {
             format!("\n            set size of window 1 to {{{}, {}}}", w, h)
-        } else { String::new() };
-        run_applescript(&format!(r#"
+        } else {
+            String::new()
+        };
+        run_applescript(&format!(
+            r#"
 tell application "System Events"
     try
         tell application process "{}"
@@ -1788,14 +2296,18 @@ tell application "System Events"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#, safe_name, x, y, size_clause)).await
+end tell"#,
+            safe_name, x, y, size_clause
+        ))
+        .await
     }
 
     async fn minimize_window(&self, app_name: Option<&str>) -> Result<String> {
         debug!("Minimizing window");
         let script = if let Some(name) = app_name {
             let safe_name = sanitize_applescript_string(name);
-            format!(r#"
+            format!(
+                r#"
 tell application "System Events"
     try
         tell application process "{}"
@@ -1805,7 +2317,9 @@ tell application "System Events"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#, safe_name)
+end tell"#,
+                safe_name
+            )
         } else {
             r#"
 tell application "System Events"
@@ -1818,7 +2332,8 @@ tell application "System Events"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#.to_string()
+end tell"#
+                .to_string()
         };
         run_applescript(&script).await
     }
@@ -1826,7 +2341,10 @@ end tell"#.to_string()
     async fn fullscreen_window(&self, app_name: Option<&str>) -> Result<String> {
         debug!("Toggling fullscreen");
         let target = if let Some(name) = app_name {
-            format!(r#"tell application process "{}""#, sanitize_applescript_string(name))
+            format!(
+                r#"tell application process "{}""#,
+                sanitize_applescript_string(name)
+            )
         } else {
             r#"tell (first application process whose frontmost is true)"#.to_string()
         };
@@ -1903,7 +2421,8 @@ pub struct MacOsTerminalProvider;
 impl TerminalProvider for MacOsTerminalProvider {
     async fn list_terminal_tabs(&self) -> Result<String> {
         debug!("Listing terminal tabs");
-        run_applescript(r#"
+        run_applescript(
+            r#"
 tell application "Terminal"
     set output to ""
     set winIdx to 1
@@ -1925,25 +2444,35 @@ tell application "Terminal"
         set winIdx to winIdx + 1
     end repeat
     return output
-end tell"#).await
+end tell"#,
+        )
+        .await
     }
 
     async fn send_terminal_command(&self, command: &str, tab_index: Option<u32>) -> Result<String> {
-        if command.len() > 5000 { return Err(anyhow::anyhow!("Command too long (max 5000 characters)")); }
+        if command.len() > 5000 {
+            return Err(anyhow::anyhow!("Command too long (max 5000 characters)"));
+        }
         let safe_command = sanitize_applescript_string(command);
         debug!("Sending terminal command");
         let script = if let Some(idx) = tab_index {
-            format!(r#"
+            format!(
+                r#"
 tell application "Terminal"
     do script "{}" in tab {} of window 1
     return "Command sent to tab {}"
-end tell"#, safe_command, idx, idx)
+end tell"#,
+                safe_command, idx, idx
+            )
         } else {
-            format!(r#"
+            format!(
+                r#"
 tell application "Terminal"
     do script "{}" in front window
     return "Command sent"
-end tell"#, safe_command)
+end tell"#,
+                safe_command
+            )
         };
         run_applescript(&script).await
     }
@@ -1952,12 +2481,23 @@ end tell"#, safe_command)
         debug!("Getting open ports");
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            Command::new("lsof").args(["-iTCP", "-sTCP:LISTEN", "-P", "-n"]).output(),
-        ).await.map_err(|_| anyhow::anyhow!("Open ports lookup timed out"))?.context("Failed to list open ports")?;
+            Command::new("lsof")
+                .args(["-iTCP", "-sTCP:LISTEN", "-P", "-n"])
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Open ports lookup timed out"))?
+        .context("Failed to list open ports")?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if text.is_empty() { Ok("No listening ports found".to_string()) } else { Ok(text) }
-        } else { Err(anyhow::anyhow!("Failed to list open ports")) }
+            if text.is_empty() {
+                Ok("No listening ports found".to_string())
+            } else {
+                Ok(text)
+            }
+        } else {
+            Err(anyhow::anyhow!("Failed to list open ports"))
+        }
     }
 }
 
@@ -1968,7 +2508,9 @@ pub struct MacOsProductivityProvider;
 #[async_trait]
 impl ProductivityProvider for MacOsProductivityProvider {
     async fn set_clipboard(&self, text: &str) -> Result<String> {
-        if text.len() > 1_000_000 { return Err(anyhow::anyhow!("Text too long for clipboard")); }
+        if text.len() > 1_000_000 {
+            return Err(anyhow::anyhow!("Text too long for clipboard"));
+        }
         debug!("Setting clipboard ({} chars)", text.len());
         use tokio::io::AsyncWriteExt;
         let mut child = Command::new("pbcopy")
@@ -1976,7 +2518,10 @@ impl ProductivityProvider for MacOsProductivityProvider {
             .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to spawn pbcopy: {}", e))?;
         if let Some(stdin) = child.stdin.as_mut() {
-            stdin.write_all(text.as_bytes()).await.context("Failed to write to clipboard")?;
+            stdin
+                .write_all(text.as_bytes())
+                .await
+                .context("Failed to write to clipboard")?;
         }
         child.wait().await.context("pbcopy failed")?;
         Ok(format!("Clipboard set ({} chars)", text.len()))
@@ -1984,7 +2529,8 @@ impl ProductivityProvider for MacOsProductivityProvider {
 
     async fn get_frontmost_document(&self) -> Result<String> {
         debug!("Getting frontmost document path");
-        run_applescript(r#"
+        run_applescript(
+            r#"
 tell application "System Events"
     try
         set frontApp to first application process whose frontmost is true
@@ -2007,7 +2553,9 @@ tell application "System Events"
     on error errMsg
         return "Error: " & errMsg
     end try
-end tell"#).await
+end tell"#,
+        )
+        .await
     }
 }
 

@@ -12,6 +12,12 @@ pub struct ReadMessagesTool {
     provider: Box<dyn MessagesProvider>,
 }
 
+impl Default for ReadMessagesTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReadMessagesTool {
     pub fn new() -> Self {
         Self {
@@ -60,6 +66,12 @@ impl ToolHandler for ReadMessagesTool {
 
 pub struct SendMessageTool {
     provider: Box<dyn MessagesProvider>,
+}
+
+impl Default for SendMessageTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SendMessageTool {
@@ -113,6 +125,12 @@ impl ToolHandler for SendMessageTool {
 
 pub struct StartFaceTimeTool {
     provider: Box<dyn MessagesProvider>,
+}
+
+impl Default for StartFaceTimeTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StartFaceTimeTool {
@@ -176,7 +194,10 @@ mod tests {
         assert_eq!(tool.name(), "read_messages");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"contact".to_string()));

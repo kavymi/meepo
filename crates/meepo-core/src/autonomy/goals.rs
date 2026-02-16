@@ -197,10 +197,10 @@ fn extract_json_array(text: &str) -> String {
         }
     }
     // Try to find a raw JSON array
-    if let Some(start) = text.find('[') {
-        if let Some(end) = text.rfind(']') {
-            return text[start..=end].to_string();
-        }
+    if let Some(start) = text.find('[')
+        && let Some(end) = text.rfind(']')
+    {
+        return text[start..=end].to_string();
     }
     text.to_string()
 }

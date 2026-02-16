@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Meepo Installer
-# Usage: curl -sSL https://raw.githubusercontent.com/kavymi/meepo/main/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/leancoderkavy/meepo/main/install.sh | bash
 
-REPO="kavymi/meepo"
+REPO="leancoderkavy/meepo"
 INSTALL_DIR="${MEEPO_INSTALL_DIR:-$HOME/.local/bin}"
 
 # ── Detect platform ──────────────────────────────────────────────

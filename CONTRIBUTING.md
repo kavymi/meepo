@@ -24,7 +24,7 @@
 ## Getting Started
 
 ```bash
-git clone https://github.com/kavymi/meepo.git
+git clone https://github.com/leancoderkavy/meepo.git
 cd meepo
 
 # Build the workspace
@@ -222,7 +222,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Clone and build
-git clone https://github.com/kavymi/meepo.git && cd meepo
+git clone https://github.com/leancoderkavy/meepo.git && cd meepo
 cargo build
 
 # Run tests

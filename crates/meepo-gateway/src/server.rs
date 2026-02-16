@@ -6,11 +6,11 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
+use axum::http::HeaderValue;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use tokio::sync::broadcast;
-use axum::http::HeaderValue;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::{debug, error, info, warn};
 
@@ -39,8 +39,17 @@ pub struct GatewayServer {
 impl GatewayServer {
     /// Create a new gateway server
     pub fn new(bind: SocketAddr, auth_token: String) -> Self {
+        Self::with_sessions(bind, auth_token, Arc::new(SessionManager::new()))
+    }
+
+    /// Create a new gateway server with an externally-provided session manager
+    pub fn with_sessions(
+        bind: SocketAddr,
+        auth_token: String,
+        sessions: Arc<SessionManager>,
+    ) -> Self {
         let state = GatewayState {
-            sessions: Arc::new(SessionManager::new()),
+            sessions,
             events: EventBus::new(256),
             auth_token,
             start_time: std::time::Instant::now(),

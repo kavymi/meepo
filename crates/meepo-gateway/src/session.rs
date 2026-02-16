@@ -79,21 +79,17 @@ pub struct SessionMessage {
 /// Visibility scope for session tools
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SessionVisibility {
     /// Only the current session
     Own,
     /// Current session + sessions spawned by it
+    #[default]
     Tree,
     /// Any session belonging to the same agent id
     Agent,
     /// All sessions (cross-agent; requires agent_to_agent enabled)
     All,
-}
-
-impl Default for SessionVisibility {
-    fn default() -> Self {
-        Self::Tree
-    }
 }
 
 /// A single chat session
@@ -366,9 +362,7 @@ impl SessionManager {
     ) -> Result<(), &'static str> {
         let normalized = normalize_session_key(session_id).map_err(|_| "Invalid session ID")?;
         let mut sessions = self.sessions.write().await;
-        let session = sessions
-            .get_mut(&normalized)
-            .ok_or("Session not found")?;
+        let session = sessions.get_mut(&normalized).ok_or("Session not found")?;
 
         let msg = SessionMessage {
             role: role.to_string(),
@@ -567,7 +561,10 @@ mod tests {
     #[tokio::test]
     async fn test_create_subagent() {
         let mgr = SessionManager::new();
-        let child = mgr.create_subagent("main", "main", Some("research")).await.unwrap();
+        let child = mgr
+            .create_subagent("main", "main", Some("research"))
+            .await
+            .unwrap();
         assert_eq!(child.kind, SessionKind::Subagent);
         assert_eq!(child.parent_session.as_deref(), Some("main"));
         assert_eq!(child.name, "research");
@@ -595,8 +592,14 @@ mod tests {
     #[tokio::test]
     async fn test_list_children() {
         let mgr = SessionManager::new();
-        let child1 = mgr.create_subagent("main", "main", Some("child1")).await.unwrap();
-        let _child2 = mgr.create_subagent("main", "main", Some("child2")).await.unwrap();
+        let child1 = mgr
+            .create_subagent("main", "main", Some("child1"))
+            .await
+            .unwrap();
+        let _child2 = mgr
+            .create_subagent("main", "main", Some("child2"))
+            .await
+            .unwrap();
         // Unrelated session
         mgr.create_with_kind("Other", "main", SessionKind::Other, None)
             .await
@@ -616,9 +619,14 @@ mod tests {
         mgr.append_message("main", "user", "Hello", MessageProvenance::User)
             .await
             .unwrap();
-        mgr.append_message("main", "assistant", "Hi there!", MessageProvenance::Assistant)
-            .await
-            .unwrap();
+        mgr.append_message(
+            "main",
+            "assistant",
+            "Hi there!",
+            MessageProvenance::Assistant,
+        )
+        .await
+        .unwrap();
         mgr.append_message("main", "tool", "result", MessageProvenance::ToolResult)
             .await
             .unwrap();
@@ -638,9 +646,14 @@ mod tests {
     async fn test_get_history_with_limit() {
         let mgr = SessionManager::new();
         for i in 0..5 {
-            mgr.append_message("main", "user", &format!("msg {}", i), MessageProvenance::User)
-                .await
-                .unwrap();
+            mgr.append_message(
+                "main",
+                "user",
+                &format!("msg {}", i),
+                MessageProvenance::User,
+            )
+            .await
+            .unwrap();
         }
         let history = mgr.get_history("main", 2, true).await.unwrap();
         assert_eq!(history.len(), 2);
@@ -660,7 +673,9 @@ mod tests {
     #[tokio::test]
     async fn test_list_by_kind() {
         let mgr = SessionManager::new();
-        mgr.create_subagent("main", "main", Some("sub1")).await.unwrap();
+        mgr.create_subagent("main", "main", Some("sub1"))
+            .await
+            .unwrap();
         mgr.create_with_kind("Cron Job", "main", SessionKind::Cron, None)
             .await
             .unwrap();

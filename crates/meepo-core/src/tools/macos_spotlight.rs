@@ -12,6 +12,12 @@ pub struct SpotlightSearchTool {
     provider: Box<dyn SpotlightProvider>,
 }
 
+impl Default for SpotlightSearchTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpotlightSearchTool {
     pub fn new() -> Self {
         Self {
@@ -60,6 +66,12 @@ impl ToolHandler for SpotlightSearchTool {
 
 pub struct SpotlightMetadataTool {
     provider: Box<dyn SpotlightProvider>,
+}
+
+impl Default for SpotlightMetadataTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SpotlightMetadataTool {
@@ -115,7 +127,10 @@ mod tests {
         assert_eq!(tool.name(), "spotlight_search");
         let schema = tool.input_schema();
         let required: Vec<String> = serde_json::from_value(
-            schema.get("required").cloned().unwrap_or(serde_json::json!([])),
+            schema
+                .get("required")
+                .cloned()
+                .unwrap_or(serde_json::json!([])),
         )
         .unwrap_or_default();
         assert!(required.contains(&"query".to_string()));
