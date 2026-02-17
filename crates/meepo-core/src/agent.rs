@@ -145,27 +145,24 @@ impl Agent {
             .context("Failed to store conversation")?;
 
         // Route the query to determine retrieval strategy (with usage tracking)
-        let (strategy, router_usage) = query_router::route_query_tracked(
-            &msg.content,
-            Some(&self.api),
-            &self.router_config,
-        )
-        .await
-        .unwrap_or_else(|e| {
-            debug!("Query routing failed, using default strategy: {}", e);
-            (
-                RetrievalStrategy {
-                    complexity: query_router::QueryComplexity::SingleStep,
-                    search_knowledge: true,
-                    search_web: false,
-                    load_history: true,
-                    graph_expand: false,
-                    corrective_rag: false,
-                    knowledge_limit: 5,
-                },
-                None,
-            )
-        });
+        let (strategy, router_usage) =
+            query_router::route_query_tracked(&msg.content, Some(&self.api), &self.router_config)
+                .await
+                .unwrap_or_else(|e| {
+                    debug!("Query routing failed, using default strategy: {}", e);
+                    (
+                        RetrievalStrategy {
+                            complexity: query_router::QueryComplexity::SingleStep,
+                            search_knowledge: true,
+                            search_web: false,
+                            load_history: true,
+                            graph_expand: false,
+                            corrective_rag: false,
+                            knowledge_limit: 5,
+                        },
+                        None,
+                    )
+                });
 
         // Record router LLM usage if any
         if let (Some(tracker), Some(usage)) = (&self.usage_tracker, &router_usage) {

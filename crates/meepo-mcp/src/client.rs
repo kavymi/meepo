@@ -86,7 +86,12 @@ impl McpClient {
         // Send initialize with a 60s timeout to handle slow npm-based servers
         tokio::time::timeout(std::time::Duration::from_secs(60), client.initialize())
             .await
-            .map_err(|_| anyhow!("MCP server '{}' initialize timed out after 60s", client.config.name))??;
+            .map_err(|_| {
+                anyhow!(
+                    "MCP server '{}' initialize timed out after 60s",
+                    client.config.name
+                )
+            })??;
 
         Ok(client)
     }

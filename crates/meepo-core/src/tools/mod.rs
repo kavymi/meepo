@@ -183,11 +183,8 @@ impl ToolExecutor for GuardedToolExecutor {
 
         match self.guardrails.evaluate(&result, &ctx).await {
             Ok(check) if !check.passed => {
-                let violations: Vec<String> = check
-                    .violations
-                    .iter()
-                    .map(|v| v.rule.clone())
-                    .collect();
+                let violations: Vec<String> =
+                    check.violations.iter().map(|v| v.rule.clone()).collect();
                 warn!(
                     "Guardrail flagged tool output from '{}': {:?}",
                     tool_name, violations

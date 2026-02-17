@@ -1619,9 +1619,11 @@ return "Do Not Disturb disabled""#
         debug!("Locking screen");
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            Command::new("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession")
-                .arg("-suspend")
-                .output(),
+            Command::new(
+                "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
+            )
+            .arg("-suspend")
+            .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Lock screen timed out"))?
@@ -2109,7 +2111,15 @@ impl MessagesProvider for MacOsMessagesProvider {
         let safe_contact: String = contact
             .replace('\'', "''")
             .chars()
-            .filter(|&c| c.is_alphanumeric() || c == '@' || c == '.' || c == '+' || c == '-' || c == '_' || c == ' ')
+            .filter(|&c| {
+                c.is_alphanumeric()
+                    || c == '@'
+                    || c == '.'
+                    || c == '+'
+                    || c == '-'
+                    || c == '_'
+                    || c == ' '
+            })
             .collect();
         debug!("Reading messages from: {}", contact);
         let db_path = dirs::home_dir()

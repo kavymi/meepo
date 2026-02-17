@@ -84,17 +84,41 @@ impl Default for PromptInjectionDetector {
 impl PromptInjectionDetector {
     pub fn new() -> Self {
         let raw_patterns = vec![
-            ("system_prompt_override", r"(?i)(ignore|forget|disregard)\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)", Severity::Critical),
-            ("role_hijack", r"(?i)(you\s+are\s+now|act\s+as|pretend\s+to\s+be|your\s+new\s+(role|instructions))", Severity::High),
-            ("system_prompt_extraction", r"(?i)(reveal|show|display|print|output)\s+(your\s+)?(system\s+prompt|instructions|initial\s+prompt|hidden\s+prompt)", Severity::High),
-            ("delimiter_injection", r"(?i)(```\s*system|<\|im_start\|>|<\|system\|>|\[INST\]|\[/INST\])", Severity::Critical),
-            ("tool_abuse", r"(?i)(execute|run|call)\s+(the\s+)?(tool|function|command)\s+.{0,20}(rm\s+-rf|drop\s+table|delete\s+all|format\s+disk)", Severity::Critical),
-            ("data_exfiltration", r"(?i)(send|post|upload|transmit|exfiltrate)\s+.{0,30}(to\s+|http|ftp|webhook)", Severity::Medium),
+            (
+                "system_prompt_override",
+                r"(?i)(ignore|forget|disregard)\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)",
+                Severity::Critical,
+            ),
+            (
+                "role_hijack",
+                r"(?i)(you\s+are\s+now|act\s+as|pretend\s+to\s+be|your\s+new\s+(role|instructions))",
+                Severity::High,
+            ),
+            (
+                "system_prompt_extraction",
+                r"(?i)(reveal|show|display|print|output)\s+(your\s+)?(system\s+prompt|instructions|initial\s+prompt|hidden\s+prompt)",
+                Severity::High,
+            ),
+            (
+                "delimiter_injection",
+                r"(?i)(```\s*system|<\|im_start\|>|<\|system\|>|\[INST\]|\[/INST\])",
+                Severity::Critical,
+            ),
+            (
+                "tool_abuse",
+                r"(?i)(execute|run|call)\s+(the\s+)?(tool|function|command)\s+.{0,20}(rm\s+-rf|drop\s+table|delete\s+all|format\s+disk)",
+                Severity::Critical,
+            ),
+            (
+                "data_exfiltration",
+                r"(?i)(send|post|upload|transmit|exfiltrate)\s+.{0,30}(to\s+|http|ftp|webhook)",
+                Severity::Medium,
+            ),
         ];
         let patterns = raw_patterns
             .into_iter()
-            .filter_map(|(name, pattern, severity)| {
-                match regex::Regex::new(pattern) {
+            .filter_map(
+                |(name, pattern, severity)| match regex::Regex::new(pattern) {
                     Ok(regex) => Some(CompiledInjectionPattern {
                         name: name.to_string(),
                         regex,
@@ -104,8 +128,8 @@ impl PromptInjectionDetector {
                         warn!("Failed to compile guardrail pattern '{}': {}", name, e);
                         None
                     }
-                }
-            })
+                },
+            )
             .collect();
         Self { patterns }
     }
@@ -129,10 +153,7 @@ impl GuardrailRule for PromptInjectionDetector {
                 violations.push(Violation {
                     rule: pattern.name.clone(),
                     severity: pattern.severity,
-                    description: format!(
-                        "Potential prompt injection detected: {}",
-                        pattern.name
-                    ),
+                    description: format!("Potential prompt injection detected: {}", pattern.name),
                 });
             }
         }

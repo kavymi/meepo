@@ -1392,12 +1392,12 @@ mod tests {
 
     #[test]
     fn test_expand_env_vars_adjacent() {
-        unsafe { std::env::set_var("HOME", "/h") };
-        unsafe { std::env::set_var("USER", "u") };
-        let result = expand_env_vars("${HOME}${USER}");
+        unsafe { std::env::set_var("GITHUB_TOKEN", "/h") };
+        unsafe { std::env::set_var("A2A_AUTH_TOKEN", "u") };
+        let result = expand_env_vars("${GITHUB_TOKEN}${A2A_AUTH_TOKEN}");
         assert_eq!(result, "/hu");
-        unsafe { std::env::remove_var("HOME") };
-        unsafe { std::env::remove_var("USER") };
+        unsafe { std::env::remove_var("GITHUB_TOKEN") };
+        unsafe { std::env::remove_var("A2A_AUTH_TOKEN") };
     }
 
     #[test]

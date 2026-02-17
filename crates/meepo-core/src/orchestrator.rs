@@ -215,18 +215,17 @@ impl TaskOrchestrator {
     }
 
     /// Record usage from sub-task results via the usage tracker (if configured)
-    async fn record_subtask_usage(
-        tracker: &UsageTracker,
-        model: &str,
-        results: &[SubTaskResult],
-    ) {
+    async fn record_subtask_usage(tracker: &UsageTracker, model: &str, results: &[SubTaskResult]) {
         for result in results {
             if result.usage.total_tokens() > 0
                 && let Err(e) = tracker
                     .record(model, &result.usage, &UsageSource::SubAgent, None)
                     .await
             {
-                debug!("Failed to record sub-agent usage for {}: {}", result.task_id, e);
+                debug!(
+                    "Failed to record sub-agent usage for {}: {}",
+                    result.task_id, e
+                );
             }
         }
     }
