@@ -105,15 +105,38 @@ impl GoalEvaluator {
         Some(prompt)
     }
 
-    /// Parse the agent's evaluation response into GoalEvaluation structs
+    /// Parse the agent's evaluation response into GoalEvaluation structs.
+    ///
+    /// Validates each entry: filters out empty `goal_id`s and clamps
+    /// `confidence` to the 0.0–1.0 range.
     pub fn parse_evaluations(&self, response: &str) -> Vec<GoalEvaluation> {
         // Try to extract JSON from the response
         let json_str = extract_json_array(response);
 
         match serde_json::from_str::<Vec<GoalEvaluation>>(&json_str) {
             Ok(evals) => {
-                debug!("Parsed {} goal evaluations", evals.len());
-                evals
+                let validated: Vec<GoalEvaluation> = evals
+                    .into_iter()
+                    .filter(|e| {
+                        if e.goal_id.is_empty() {
+                            warn!("Skipping goal evaluation with empty goal_id");
+                            return false;
+                        }
+                        true
+                    })
+                    .map(|mut e| {
+                        if e.confidence < 0.0 || e.confidence > 1.0 {
+                            warn!(
+                                "Clamping out-of-range confidence {:.2} for goal {}",
+                                e.confidence, e.goal_id
+                            );
+                            e.confidence = e.confidence.clamp(0.0, 1.0);
+                        }
+                        e
+                    })
+                    .collect();
+                debug!("Parsed {} goal evaluations", validated.len());
+                validated
             }
             Err(e) => {
                 warn!("Failed to parse goal evaluations: {}", e);
@@ -385,6 +408,31 @@ mod tests {
         let active = db.get_active_goals().await.unwrap();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, g2);
+    }
+
+    #[test]
+    fn test_parse_evaluations_filters_empty_goal_id() {
+        let db = Arc::new(
+            KnowledgeDb::new(&tempfile::TempDir::new().unwrap().path().join("test.db")).unwrap(),
+        );
+        let evaluator = GoalEvaluator::new(db, 0.7);
+        let json = r#"[{"goal_id": "", "decision": "act", "confidence": 0.9, "reasoning": "test", "action_prompt": "do it"}, {"goal_id": "g1", "decision": "defer", "confidence": 0.5, "reasoning": "wait", "action_prompt": null}]"#;
+        let evals = evaluator.parse_evaluations(json);
+        assert_eq!(evals.len(), 1);
+        assert_eq!(evals[0].goal_id, "g1");
+    }
+
+    #[test]
+    fn test_parse_evaluations_clamps_confidence() {
+        let db = Arc::new(
+            KnowledgeDb::new(&tempfile::TempDir::new().unwrap().path().join("test.db")).unwrap(),
+        );
+        let evaluator = GoalEvaluator::new(db, 0.7);
+        let json = r#"[{"goal_id": "g1", "decision": "act", "confidence": 1.5, "reasoning": "over", "action_prompt": "do"}, {"goal_id": "g2", "decision": "defer", "confidence": -0.3, "reasoning": "under", "action_prompt": null}]"#;
+        let evals = evaluator.parse_evaluations(json);
+        assert_eq!(evals.len(), 2);
+        assert!((evals[0].confidence - 1.0).abs() < f64::EPSILON);
+        assert!((evals[1].confidence - 0.0).abs() < f64::EPSILON);
     }
 
     #[tokio::test]

@@ -152,6 +152,65 @@ impl ToolExecutor for ToolRegistry {
     }
 }
 
+/// A tool executor wrapper that runs guardrail checks on tool outputs.
+///
+/// Protects against indirect prompt injection: malicious content in web pages,
+/// emails, files, etc. that could hijack the agent when fed back to the LLM.
+pub struct GuardedToolExecutor {
+    inner: Arc<dyn ToolExecutor>,
+    guardrails: Arc<crate::guardrails::GuardrailPipeline>,
+}
+
+impl GuardedToolExecutor {
+    pub fn new(
+        inner: Arc<dyn ToolExecutor>,
+        guardrails: Arc<crate::guardrails::GuardrailPipeline>,
+    ) -> Self {
+        Self { inner, guardrails }
+    }
+}
+
+#[async_trait]
+impl ToolExecutor for GuardedToolExecutor {
+    async fn execute(&self, tool_name: &str, input: Value) -> Result<String> {
+        let result = self.inner.execute(tool_name, input).await?;
+
+        let ctx = crate::guardrails::GuardrailContext {
+            source: format!("tool:{}", tool_name),
+            channel: String::new(),
+            is_tool_output: true,
+        };
+
+        match self.guardrails.evaluate(&result, &ctx).await {
+            Ok(check) if !check.passed => {
+                let violations: Vec<String> = check
+                    .violations
+                    .iter()
+                    .map(|v| v.rule.clone())
+                    .collect();
+                warn!(
+                    "Guardrail flagged tool output from '{}': {:?}",
+                    tool_name, violations
+                );
+                Ok(format!(
+                    "[Tool output from '{}' was filtered by safety checks: {}]",
+                    tool_name,
+                    violations.join(", ")
+                ))
+            }
+            Err(e) => {
+                debug!("Guardrail check on tool output failed (allowing): {}", e);
+                Ok(result)
+            }
+            _ => Ok(result),
+        }
+    }
+
+    fn list_tools(&self) -> Vec<ToolDefinition> {
+        self.inner.list_tools()
+    }
+}
+
 /// Helper function to create a JSON schema for tool input
 pub fn json_schema(properties: Value, required: Vec<&str>) -> Value {
     serde_json::json!({

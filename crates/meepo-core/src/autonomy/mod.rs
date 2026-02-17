@@ -22,7 +22,9 @@ use crate::types::{ChannelType, IncomingMessage, MessageKind, OutgoingMessage};
 use meepo_knowledge::KnowledgeDb;
 use meepo_scheduler::WatcherEvent;
 
+use self::action_log::ActionLogger;
 use self::goals::GoalEvaluator;
+use self::planner::ConfidenceGate;
 use self::user_model::UserModel;
 
 /// Configuration for the autonomous loop
@@ -103,6 +105,12 @@ pub struct AutonomousLoop {
     /// Evaluates due goals and decides on actions
     goal_evaluator: GoalEvaluator,
 
+    /// Logs autonomous actions for audit trails
+    action_logger: ActionLogger,
+
+    /// Confidence gating for risk-aware autonomous actions
+    confidence_gate: ConfidenceGate,
+
     /// Tracks user interaction patterns
     user_model: UserModel,
 
@@ -141,6 +149,8 @@ impl AutonomousLoop {
         wake: Arc<Notify>,
     ) -> Self {
         let goal_evaluator = GoalEvaluator::new(db.clone(), 0.7);
+        let action_logger = ActionLogger::new(db.clone());
+        let confidence_gate = ConfidenceGate::default();
         let user_model = UserModel::new(db.clone());
         let rate_limiter = RateLimiter::new(config.max_calls_per_minute, Duration::from_secs(60));
         Self {
@@ -148,6 +158,8 @@ impl AutonomousLoop {
             db,
             config,
             goal_evaluator,
+            action_logger,
+            confidence_gate,
             user_model,
             rate_limiter,
             daily_plan_date: None,
@@ -444,9 +456,21 @@ impl AutonomousLoop {
                             actions.len()
                         );
 
-                        // Execute approved goal actions
+                        // Execute approved goal actions (with risk-aware gating)
                         for action in actions {
                             if let Some(ref action_prompt) = action.action_prompt {
+                                // Use ConfidenceGate to check if the action's
+                                // risk level is acceptable at this confidence
+                                let risk = action_log::classify_tool("delegate_tasks");
+                                if !self.confidence_gate.is_allowed(risk, action.confidence) {
+                                    info!(
+                                        "Goal action for {} blocked by confidence gate \
+                                         (confidence {:.2}, risk {:?})",
+                                        action.goal_id, action.confidence, risk
+                                    );
+                                    continue;
+                                }
+
                                 info!(
                                     "Executing goal action for {}: {}",
                                     action.goal_id,
@@ -472,11 +496,39 @@ impl AutonomousLoop {
                                     timestamp: chrono::Utc::now(),
                                 };
 
-                                if let Err(e) = self.agent.handle_message(action_msg).await {
-                                    error!(
-                                        "Failed to execute goal action for {}: {}",
-                                        action.goal_id, e
-                                    );
+                                match self.agent.handle_message(action_msg).await {
+                                    Ok(_response) => {
+                                        if let Err(e) = self
+                                            .action_logger
+                                            .log_action(
+                                                Some(&action.goal_id),
+                                                "goal_action",
+                                                &action_prompt[..action_prompt.len().min(200)],
+                                                "success",
+                                            )
+                                            .await
+                                        {
+                                            debug!("Failed to log goal action: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Failed to execute goal action for {}: {}",
+                                            action.goal_id, e
+                                        );
+                                        if let Err(log_err) = self
+                                            .action_logger
+                                            .log_action(
+                                                Some(&action.goal_id),
+                                                "goal_action",
+                                                &action_prompt[..action_prompt.len().min(200)],
+                                                &format!("failed: {}", e),
+                                            )
+                                            .await
+                                        {
+                                            debug!("Failed to log goal action: {}", log_err);
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -276,16 +276,16 @@ impl NotificationService {
 }
 
 /// Truncate a string to max_len, appending "..." if truncated
-fn truncate(s: &str, max_len: usize) -> &str {
+fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
-        s
+        s.to_string()
     } else {
         // Find a safe char boundary
         let mut end = max_len;
         while end > 0 && !s.is_char_boundary(end) {
             end -= 1;
         }
-        &s[..end]
+        format!("{}...", &s[..end])
     }
 }
 
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn test_truncate() {
         assert_eq!(truncate("hello", 10), "hello");
-        assert_eq!(truncate("hello world", 5), "hello");
+        assert_eq!(truncate("hello world", 5), "hello...");
     }
 
     #[test]
@@ -479,8 +479,8 @@ mod tests {
     fn test_truncate_unicode_boundary() {
         let s = "héllo wörld";
         let t = truncate(s, 3);
-        // Should not panic on multi-byte chars
-        assert!(t.len() <= 3);
+        // Should not panic on multi-byte chars and should end with "..."
+        assert!(t.ends_with("..."));
     }
 
     #[test]

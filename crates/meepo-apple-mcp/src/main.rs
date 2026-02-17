@@ -23,8 +23,8 @@ use tracing::{debug, info, warn};
 /// JSON-RPC 2.0 request
 #[derive(Debug, Deserialize)]
 struct JsonRpcRequest {
-    #[allow(dead_code)]
-    jsonrpc: String,
+    #[serde(rename = "jsonrpc")]
+    _jsonrpc: String,
     id: Option<Value>,
     method: String,
     #[serde(default)]

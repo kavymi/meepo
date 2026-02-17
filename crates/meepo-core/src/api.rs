@@ -202,10 +202,21 @@ impl ApiClient {
                 });
             } else if response.stop_reason.is_end_turn()
                 || response.stop_reason == StopReason::Unknown
+                || response.stop_reason == StopReason::MaxTokens
             {
+                if response.stop_reason == StopReason::MaxTokens {
+                    warn!(
+                        "Tool loop hit max_tokens — returning partial response (iteration {})",
+                        iterations
+                    );
+                }
+
                 debug!(
-                    "Tool loop completed (iterations: {}, tokens: in={} out={})",
-                    iterations, accumulated.input_tokens, accumulated.output_tokens
+                    "Tool loop completed (iterations: {}, tokens: in={} out={}, stop={:?})",
+                    iterations,
+                    accumulated.input_tokens,
+                    accumulated.output_tokens,
+                    response.stop_reason
                 );
 
                 let mut final_text = String::new();
@@ -220,6 +231,11 @@ impl ApiClient {
 
                 if final_text.is_empty() {
                     return Err(anyhow!("No text response from assistant"));
+                }
+
+                if response.stop_reason == StopReason::MaxTokens {
+                    final_text
+                        .push_str("\n\n[Response truncated due to length — ask me to continue]");
                 }
 
                 return Ok((final_text, accumulated));

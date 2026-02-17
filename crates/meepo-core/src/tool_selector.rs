@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use tracing::{debug, info, warn};
 
-use crate::api::{ApiClient, ApiMessage, ContentBlock, MessageContent, ToolDefinition};
+use crate::api::{ApiClient, ApiMessage, ContentBlock, MessageContent, ToolDefinition, Usage};
 
 /// Configuration for the tool selector
 #[derive(Debug, Clone)]
@@ -51,6 +51,20 @@ pub async fn select_tools(
     all_tools: &[ToolDefinition],
     config: &ToolSelectorConfig,
 ) -> Result<Vec<ToolDefinition>> {
+    let (tools, _usage) = select_tools_tracked(api, query, all_tools, config).await?;
+    Ok(tools)
+}
+
+/// Select tools and return any LLM usage incurred during selection.
+///
+/// Returns `(tools, Some(usage))` if an LLM call was made, or
+/// `(tools, None)` if only heuristics were used.
+pub async fn select_tools_tracked(
+    api: &ApiClient,
+    query: &str,
+    all_tools: &[ToolDefinition],
+    config: &ToolSelectorConfig,
+) -> Result<(Vec<ToolDefinition>, Option<Usage>)> {
     // Skip selection if disabled or too few tools
     if !config.enabled || all_tools.len() <= config.activation_threshold {
         debug!(
@@ -58,7 +72,7 @@ pub async fn select_tools(
             config.enabled,
             all_tools.len()
         );
-        return Ok(all_tools.to_vec());
+        return Ok((all_tools.to_vec(), None));
     }
 
     // Try heuristic selection first (fast, free)
@@ -70,18 +84,18 @@ pub async fn select_tools(
             "Heuristic selected {} tools for query",
             heuristic_result.len()
         );
-        return Ok(heuristic_result);
+        return Ok((heuristic_result, None));
     }
 
     // Fall back to LLM selection
     match select_with_llm(api, query, all_tools, config).await {
-        Ok(selected) => {
+        Ok((selected, usage)) => {
             info!("LLM selected {} tools for query", selected.len());
-            Ok(selected)
+            Ok((selected, Some(usage)))
         }
         Err(e) => {
             warn!("LLM tool selection failed, using all tools: {}", e);
-            Ok(all_tools.to_vec())
+            Ok((all_tools.to_vec(), None))
         }
     }
 }
@@ -213,13 +227,14 @@ fn select_heuristic(
     selected
 }
 
-/// LLM-based tool selection for when heuristics are insufficient
+/// LLM-based tool selection for when heuristics are insufficient.
+/// Returns the selected tools and the token usage from the API call.
 async fn select_with_llm(
     api: &ApiClient,
     query: &str,
     all_tools: &[ToolDefinition],
     config: &ToolSelectorConfig,
-) -> Result<Vec<ToolDefinition>> {
+) -> Result<(Vec<ToolDefinition>, Usage)> {
     // Build tool list summary
     let tool_list: String = all_tools
         .iter()
@@ -292,10 +307,10 @@ async fn select_with_llm(
 
     // Ensure we have at least the always-include tools
     if result.is_empty() {
-        return Ok(all_tools.to_vec());
+        return Ok((all_tools.to_vec(), response.usage));
     }
 
-    Ok(result)
+    Ok((result, response.usage))
 }
 
 #[cfg(test)]

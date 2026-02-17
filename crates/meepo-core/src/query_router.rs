@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use tracing::debug;
 
-use crate::api::{ApiClient, ApiMessage, ContentBlock, MessageContent};
+use crate::api::{ApiClient, ApiMessage, ContentBlock, MessageContent, Usage};
 
 /// Query complexity classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,9 +122,21 @@ pub async fn route_query(
     api: Option<&ApiClient>,
     config: &QueryRouterConfig,
 ) -> Result<RetrievalStrategy> {
+    let (strategy, _usage) = route_query_tracked(query, api, config).await?;
+    Ok(strategy)
+}
+
+/// Route a query and return any LLM usage incurred during classification.
+///
+/// Returns `(strategy, Some(usage))` if an LLM call was made, or
+/// `(strategy, None)` if only heuristics were used.
+pub async fn route_query_tracked(
+    query: &str,
+    api: Option<&ApiClient>,
+    config: &QueryRouterConfig,
+) -> Result<(RetrievalStrategy, Option<Usage>)> {
     if !config.enabled {
-        // Default: full retrieval
-        return Ok(RetrievalStrategy::multi_source());
+        return Ok((RetrievalStrategy::multi_source(), None));
     }
 
     // First try heuristic classification
@@ -134,9 +146,9 @@ pub async fn route_query(
         // Only use LLM for ambiguous cases (MultiSource is the "unsure" default)
         if let Some(api) = api {
             match classify_with_llm(api, query).await {
-                Ok(complexity) => {
+                Ok((complexity, usage)) => {
                     debug!("LLM classified query as {:?}", complexity);
-                    return Ok(strategy_for(complexity));
+                    return Ok((strategy_for(complexity), Some(usage)));
                 }
                 Err(e) => {
                     debug!("LLM classification failed, using heuristic: {}", e);
@@ -146,7 +158,7 @@ pub async fn route_query(
     }
 
     debug!("Heuristic classified query as {:?}", heuristic);
-    Ok(strategy_for(heuristic))
+    Ok((strategy_for(heuristic), None))
 }
 
 /// Heuristic-based query classification (fast, no API call)
@@ -251,8 +263,9 @@ fn classify_heuristic(query: &str) -> QueryComplexity {
     }
 }
 
-/// LLM-based query classification for ambiguous cases
-async fn classify_with_llm(api: &ApiClient, query: &str) -> Result<QueryComplexity> {
+/// LLM-based query classification for ambiguous cases.
+/// Returns the classification and the token usage from the API call.
+async fn classify_with_llm(api: &ApiClient, query: &str) -> Result<(QueryComplexity, Usage)> {
     let classification_prompt = format!(
         "Classify this query's complexity for retrieval. Respond with ONLY one word:\n\
          - NONE: Simple greeting, math, or direct knowledge (no retrieval needed)\n\
@@ -290,13 +303,14 @@ async fn classify_with_llm(api: &ApiClient, query: &str) -> Result<QueryComplexi
         .collect::<String>();
 
     let trimmed = text.trim().to_uppercase();
-    Ok(match trimmed.as_str() {
+    let complexity = match trimmed.as_str() {
         "NONE" => QueryComplexity::NoRetrieval,
         "SIMPLE" => QueryComplexity::SingleStep,
         "MULTI" => QueryComplexity::MultiSource,
         "COMPLEX" => QueryComplexity::MultiHop,
         _ => QueryComplexity::SingleStep, // safe default
-    })
+    };
+    Ok((complexity, response.usage))
 }
 
 fn strategy_for(complexity: QueryComplexity) -> RetrievalStrategy {

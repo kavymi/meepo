@@ -80,6 +80,16 @@ impl AccumulatedUsage {
         self.tool_calls.push(tool_name.to_string());
     }
 
+    /// Create from raw token counts (e.g. from a single pre-call API response)
+    pub fn from_tokens(input_tokens: u32, output_tokens: u32) -> Self {
+        Self {
+            input_tokens: input_tokens as u64,
+            output_tokens: output_tokens as u64,
+            api_calls: 1,
+            ..Default::default()
+        }
+    }
+
     /// Total tokens
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens + self.output_tokens

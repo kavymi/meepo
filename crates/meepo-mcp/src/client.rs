@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::protocol::McpTool;
 use meepo_core::tools::ToolHandler;
@@ -42,7 +42,7 @@ impl McpClient {
         cmd.args(&config.args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null());
+            .stderr(std::process::Stdio::piped());
 
         for (key, value) in &config.env {
             cmd.env(key, value);
@@ -61,6 +61,20 @@ impl McpClient {
             .take()
             .ok_or_else(|| anyhow!("Failed to capture MCP server stdout"))?;
 
+        // Drain stderr in background so MCP server errors are visible in logs
+        if let Some(stderr) = child.stderr.take() {
+            let server_name = config.name.clone();
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if !line.trim().is_empty() {
+                        warn!("MCP server '{}' stderr: {}", server_name, line);
+                    }
+                }
+            });
+        }
+
         let client = Arc::new(Self {
             config,
             child: Mutex::new(Some(child)),
@@ -69,8 +83,10 @@ impl McpClient {
             next_id: Mutex::new(1),
         });
 
-        // Send initialize
-        client.initialize().await?;
+        // Send initialize with a 60s timeout to handle slow npm-based servers
+        tokio::time::timeout(std::time::Duration::from_secs(60), client.initialize())
+            .await
+            .map_err(|_| anyhow!("MCP server '{}' initialize timed out after 60s", client.config.name))??;
 
         Ok(client)
     }

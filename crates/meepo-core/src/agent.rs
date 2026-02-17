@@ -7,11 +7,11 @@ use tracing::{debug, info};
 use crate::api::ApiClient;
 use crate::context::build_system_prompt;
 use crate::guardrails::{GuardrailContext, GuardrailPipeline};
-use crate::middleware::MiddlewareChain;
+use crate::middleware::{MiddlewareChain, MiddlewareContext};
 use crate::query_router::{self, QueryRouterConfig, RetrievalStrategy};
 use crate::summarization::{self, SummarizationConfig};
 use crate::tool_selector::{self, ToolSelectorConfig};
-use crate::tools::{ToolExecutor, ToolRegistry};
+use crate::tools::{GuardedToolExecutor, ToolExecutor, ToolRegistry};
 use crate::types::{IncomingMessage, MessageKind, OutgoingMessage};
 use crate::usage::{UsageSource, UsageTracker};
 
@@ -144,22 +144,47 @@ impl Agent {
             .await
             .context("Failed to store conversation")?;
 
-        // Route the query to determine retrieval strategy
-        let strategy =
-            query_router::route_query(&msg.content, Some(&self.api), &self.router_config)
+        // Route the query to determine retrieval strategy (with usage tracking)
+        let (strategy, router_usage) = query_router::route_query_tracked(
+            &msg.content,
+            Some(&self.api),
+            &self.router_config,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            debug!("Query routing failed, using default strategy: {}", e);
+            (
+                RetrievalStrategy {
+                    complexity: query_router::QueryComplexity::SingleStep,
+                    search_knowledge: true,
+                    search_web: false,
+                    load_history: true,
+                    graph_expand: false,
+                    corrective_rag: false,
+                    knowledge_limit: 5,
+                },
+                None,
+            )
+        });
+
+        // Record router LLM usage if any
+        if let (Some(tracker), Some(usage)) = (&self.usage_tracker, &router_usage) {
+            let precall_usage = crate::usage::AccumulatedUsage::from_tokens(
+                usage.input_tokens,
+                usage.output_tokens,
+            );
+            if let Err(e) = tracker
+                .record(
+                    self.api.model(),
+                    &precall_usage,
+                    &UsageSource::User,
+                    Some(&msg.channel.to_string()),
+                )
                 .await
-                .unwrap_or_else(|e| {
-                    debug!("Query routing failed, using default strategy: {}", e);
-                    RetrievalStrategy {
-                        complexity: query_router::QueryComplexity::SingleStep,
-                        search_knowledge: true,
-                        search_web: false,
-                        load_history: true,
-                        graph_expand: false,
-                        corrective_rag: false,
-                        knowledge_limit: 5,
-                    }
-                });
+            {
+                debug!("Failed to record router usage: {}", e);
+            }
+        }
 
         debug!("Query routed as {:?}", strategy.complexity);
 
@@ -169,16 +194,35 @@ impl Agent {
         // Build system prompt
         let system_prompt = build_system_prompt(&self.soul, &self.memory, &context);
 
-        // Get tool definitions (with optional LLM selection)
+        // Get tool definitions (with optional LLM selection + usage tracking)
         let all_tools = self.tools.list_tools();
-        let tool_definitions = tool_selector::select_tools(
+        let (tool_definitions, selector_usage) = tool_selector::select_tools_tracked(
             &self.api,
             &msg.content,
             &all_tools,
             &self.tool_selector_config,
         )
         .await
-        .unwrap_or(all_tools);
+        .unwrap_or((all_tools, None));
+
+        // Record selector LLM usage if any
+        if let (Some(tracker), Some(usage)) = (&self.usage_tracker, &selector_usage) {
+            let precall_usage = crate::usage::AccumulatedUsage::from_tokens(
+                usage.input_tokens,
+                usage.output_tokens,
+            );
+            if let Err(e) = tracker
+                .record(
+                    self.api.model(),
+                    &precall_usage,
+                    &UsageSource::User,
+                    Some(&msg.channel.to_string()),
+                )
+                .await
+            {
+                debug!("Failed to record selector usage: {}", e);
+            }
+        }
 
         debug!(
             "Using {} tools for this interaction",
@@ -222,6 +266,17 @@ impl Agent {
             }
         }
 
+        // Build the tool executor — wrap with guardrails if configured to scan tool outputs
+        // for indirect prompt injection (e.g. malicious content in web pages, emails, files)
+        let tool_executor: Arc<dyn ToolExecutor> = if self.guardrails.is_some() {
+            Arc::new(GuardedToolExecutor::new(
+                self.tools.clone(),
+                Arc::new(GuardrailPipeline::with_defaults()),
+            ))
+        } else {
+            self.tools.clone()
+        };
+
         // Run the tool loop to get final response
         let (response_text, usage) = self
             .api
@@ -229,10 +284,26 @@ impl Agent {
                 &msg.content,
                 &system_prompt,
                 &tool_definitions,
-                self.tools.as_ref(),
+                tool_executor.as_ref(),
             )
             .await
             .context("Failed to run agent tool loop")?;
+
+        // Run middleware after_agent hooks on the final response
+        let mw_ctx = MiddlewareContext {
+            query: msg.content.clone(),
+            channel: msg.channel.to_string(),
+            sender: msg.sender.clone(),
+            metadata: serde_json::Value::Null,
+        };
+        let response_text = self
+            .middleware
+            .run_after_agent(response_text, &mw_ctx)
+            .await
+            .unwrap_or_else(|e| {
+                debug!("Middleware after_agent failed: {}", e);
+                String::from("[Response processing error]")
+            });
 
         // Record usage
         if let Some(tracker) = &self.usage_tracker

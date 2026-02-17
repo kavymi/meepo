@@ -66,12 +66,12 @@ pub struct GuardrailContext {
 
 /// Prompt injection detector — pattern-based detection
 pub struct PromptInjectionDetector {
-    patterns: Vec<InjectionPattern>,
+    patterns: Vec<CompiledInjectionPattern>,
 }
 
-struct InjectionPattern {
+struct CompiledInjectionPattern {
     name: String,
-    pattern: String,
+    regex: regex::Regex,
     severity: Severity,
 }
 
@@ -83,38 +83,30 @@ impl Default for PromptInjectionDetector {
 
 impl PromptInjectionDetector {
     pub fn new() -> Self {
-        let patterns = vec![
-            InjectionPattern {
-                name: "system_prompt_override".to_string(),
-                pattern: r"(?i)(ignore|forget|disregard)\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)".to_string(),
-                severity: Severity::Critical,
-            },
-            InjectionPattern {
-                name: "role_hijack".to_string(),
-                pattern: r"(?i)(you\s+are\s+now|act\s+as|pretend\s+to\s+be|your\s+new\s+(role|instructions))".to_string(),
-                severity: Severity::High,
-            },
-            InjectionPattern {
-                name: "system_prompt_extraction".to_string(),
-                pattern: r"(?i)(reveal|show|display|print|output)\s+(your\s+)?(system\s+prompt|instructions|initial\s+prompt|hidden\s+prompt)".to_string(),
-                severity: Severity::High,
-            },
-            InjectionPattern {
-                name: "delimiter_injection".to_string(),
-                pattern: r"(?i)(```\s*system|<\|im_start\|>|<\|system\|>|\[INST\]|\[/INST\])".to_string(),
-                severity: Severity::Critical,
-            },
-            InjectionPattern {
-                name: "tool_abuse".to_string(),
-                pattern: r"(?i)(execute|run|call)\s+(the\s+)?(tool|function|command)\s+.{0,20}(rm\s+-rf|drop\s+table|delete\s+all|format\s+disk)".to_string(),
-                severity: Severity::Critical,
-            },
-            InjectionPattern {
-                name: "data_exfiltration".to_string(),
-                pattern: r"(?i)(send|post|upload|transmit|exfiltrate)\s+.{0,30}(to\s+|http|ftp|webhook)".to_string(),
-                severity: Severity::Medium,
-            },
+        let raw_patterns = vec![
+            ("system_prompt_override", r"(?i)(ignore|forget|disregard)\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)", Severity::Critical),
+            ("role_hijack", r"(?i)(you\s+are\s+now|act\s+as|pretend\s+to\s+be|your\s+new\s+(role|instructions))", Severity::High),
+            ("system_prompt_extraction", r"(?i)(reveal|show|display|print|output)\s+(your\s+)?(system\s+prompt|instructions|initial\s+prompt|hidden\s+prompt)", Severity::High),
+            ("delimiter_injection", r"(?i)(```\s*system|<\|im_start\|>|<\|system\|>|\[INST\]|\[/INST\])", Severity::Critical),
+            ("tool_abuse", r"(?i)(execute|run|call)\s+(the\s+)?(tool|function|command)\s+.{0,20}(rm\s+-rf|drop\s+table|delete\s+all|format\s+disk)", Severity::Critical),
+            ("data_exfiltration", r"(?i)(send|post|upload|transmit|exfiltrate)\s+.{0,30}(to\s+|http|ftp|webhook)", Severity::Medium),
         ];
+        let patterns = raw_patterns
+            .into_iter()
+            .filter_map(|(name, pattern, severity)| {
+                match regex::Regex::new(pattern) {
+                    Ok(regex) => Some(CompiledInjectionPattern {
+                        name: name.to_string(),
+                        regex,
+                        severity,
+                    }),
+                    Err(e) => {
+                        warn!("Failed to compile guardrail pattern '{}': {}", name, e);
+                        None
+                    }
+                }
+            })
+            .collect();
         Self { patterns }
     }
 }
@@ -129,25 +121,19 @@ impl GuardrailRule for PromptInjectionDetector {
         let mut violations = Vec::new();
 
         for pattern in &self.patterns {
-            let re: regex::Regex = match regex::Regex::new(&pattern.pattern) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            {
-                if re.is_match(content) {
-                    warn!(
-                        "Guardrail: prompt injection detected — rule='{}', source='{}', severity={:?}",
-                        pattern.name, context.source, pattern.severity
-                    );
-                    violations.push(Violation {
-                        rule: pattern.name.clone(),
-                        severity: pattern.severity,
-                        description: format!(
-                            "Potential prompt injection detected: {}",
-                            pattern.name
-                        ),
-                    });
-                }
+            if pattern.regex.is_match(content) {
+                warn!(
+                    "Guardrail: prompt injection detected — rule='{}', source='{}', severity={:?}",
+                    pattern.name, context.source, pattern.severity
+                );
+                violations.push(Violation {
+                    rule: pattern.name.clone(),
+                    severity: pattern.severity,
+                    description: format!(
+                        "Potential prompt injection detected: {}",
+                        pattern.name
+                    ),
+                });
             }
         }
 

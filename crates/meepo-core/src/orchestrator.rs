@@ -19,7 +19,7 @@ use tracing::{debug, warn};
 use crate::api::{ApiClient, ToolDefinition};
 use crate::tools::{ToolExecutor, ToolRegistry};
 use crate::types::{ChannelType, MessageKind, OutgoingMessage};
-use crate::usage::AccumulatedUsage;
+use crate::usage::{AccumulatedUsage, UsageSource, UsageTracker};
 
 /// Execution mode for a task group
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -143,6 +143,7 @@ pub struct TaskOrchestrator {
     progress_tx: mpsc::Sender<OutgoingMessage>,
     config: OrchestratorConfig,
     active_background_groups: Arc<AtomicUsize>,
+    usage_tracker: Option<Arc<UsageTracker>>,
 }
 
 impl TaskOrchestrator {
@@ -156,7 +157,14 @@ impl TaskOrchestrator {
             progress_tx,
             config,
             active_background_groups: Arc::new(AtomicUsize::new(0)),
+            usage_tracker: None,
         }
+    }
+
+    /// Set the usage tracker for recording sub-agent API costs
+    pub fn with_usage_tracker(mut self, tracker: Arc<UsageTracker>) -> Self {
+        self.usage_tracker = Some(tracker);
+        self
     }
 
     /// Spawn a single clone to execute a focused task. Returns the result.
@@ -203,6 +211,23 @@ impl TaskOrchestrator {
                 output: "Sub-task timed out".to_string(),
                 usage: AccumulatedUsage::new(),
             },
+        }
+    }
+
+    /// Record usage from sub-task results via the usage tracker (if configured)
+    async fn record_subtask_usage(
+        tracker: &UsageTracker,
+        model: &str,
+        results: &[SubTaskResult],
+    ) {
+        for result in results {
+            if result.usage.total_tokens() > 0
+                && let Err(e) = tracker
+                    .record(model, &result.usage, &UsageSource::SubAgent, None)
+                    .await
+            {
+                debug!("Failed to record sub-agent usage for {}: {}", result.task_id, e);
+            }
         }
     }
 
@@ -280,6 +305,11 @@ impl TaskOrchestrator {
             }
         }
 
+        // Record sub-agent usage
+        if let Some(tracker) = &self.usage_tracker {
+            Self::record_subtask_usage(tracker, self.api.model(), &results).await;
+        }
+
         Ok(Self::format_results(&results))
     }
 
@@ -327,6 +357,8 @@ impl TaskOrchestrator {
         let progress_tx = self.progress_tx.clone();
         let timeout_secs = self.config.background_timeout_secs;
         let max_concurrent = self.config.max_concurrent_subtasks;
+        let usage_tracker = self.usage_tracker.clone();
+        let model_name = self.api.model().to_string();
 
         tokio::spawn(async move {
             let _ = progress_tx
@@ -388,6 +420,11 @@ impl TaskOrchestrator {
                         });
                     }
                 }
+            }
+
+            // Record sub-agent usage
+            if let Some(tracker) = &usage_tracker {
+                Self::record_subtask_usage(tracker, &model_name, &results).await;
             }
 
             let summary = Self::format_results(&results);

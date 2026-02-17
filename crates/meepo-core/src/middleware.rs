@@ -267,6 +267,14 @@ impl ToolCallLimitMiddleware {
             call_count: std::sync::atomic::AtomicUsize::new(0),
         }
     }
+
+    /// Reset the call counter. Call this at the start of each interaction
+    /// to prevent the counter from permanently blocking tools after `max_calls`
+    /// total calls across all interactions.
+    pub fn reset(&self) {
+        self.call_count
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[async_trait]
@@ -592,6 +600,30 @@ mod tests {
         let cloned = ctx.clone();
         assert_eq!(cloned.query, "q");
         assert_eq!(cloned.channel, "c");
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_limit_reset() {
+        let mw = ToolCallLimitMiddleware::new(1);
+        let ctx = MiddlewareContext {
+            query: "test".to_string(),
+            channel: "ch".to_string(),
+            sender: "u".to_string(),
+            metadata: Value::Null,
+        };
+
+        // First call succeeds
+        let r1 = mw.before_tool("tool", Value::Null, &ctx).await.unwrap();
+        assert!(r1.is_some());
+
+        // Second call blocked
+        let r2 = mw.before_tool("tool", Value::Null, &ctx).await.unwrap();
+        assert!(r2.is_none());
+
+        // Reset and first call succeeds again
+        mw.reset();
+        let r3 = mw.before_tool("tool", Value::Null, &ctx).await.unwrap();
+        assert!(r3.is_some());
     }
 
     #[tokio::test]

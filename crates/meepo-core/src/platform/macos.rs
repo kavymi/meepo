@@ -281,6 +281,9 @@ end tell
         let safe_subject = sanitize_applescript_string(subject);
         let safe_body = sanitize_applescript_string(body);
 
+        // Ensure Mail.app is running before sending — avoids cryptic AppleScript errors
+        ensure_mail_app_running().await?;
+
         let script = if let Some(reply_subject) = in_reply_to {
             let safe_reply_subject = sanitize_applescript_string(reply_subject);
             debug!("Replying to email with subject: {}", reply_subject);
@@ -681,6 +684,7 @@ tell application "Notes"
         make new note{} with properties {{name:"{}", body:"{}"}}
         return "Note created: {}"
     on error errMsg
+        return "Error: " & errMsg
     end try
 end tell
 "#,
@@ -1132,13 +1136,27 @@ end tell
     }
 
     async fn screenshot_tab(&self, _tab_id: Option<&str>, path: Option<&str>) -> Result<String> {
-        let output = path.unwrap_or("/tmp/safari_screenshot.png");
-        let script = format!(
-            r#"do shell script "screencapture -x -o '{}'"#,
-            sanitize_applescript_string(output)
-        );
-        run_applescript(&script).await?;
-        Ok(output.to_string())
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let output_path = path
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| format!("/tmp/meepo-safari-screenshot-{}.png", timestamp));
+        validate_screenshot_path(&output_path)?;
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            Command::new("screencapture")
+                .arg("-x")
+                .arg(&output_path)
+                .output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Screenshot timed out"))?
+        .context("Failed to run screencapture")?;
+        if output.status.success() {
+            Ok(format!("Screenshot saved to {}", output_path))
+        } else {
+            let error = String::from_utf8_lossy(&output.stderr);
+            Err(anyhow::anyhow!("Screenshot failed: {}", error))
+        }
     }
 }
 
@@ -1601,7 +1619,9 @@ return "Do Not Disturb disabled""#
         debug!("Locking screen");
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            Command::new("pmset").arg("displaysleepnow").output(),
+            Command::new("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession")
+                .arg("-suspend")
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Lock screen timed out"))?
@@ -2085,7 +2105,12 @@ impl MessagesProvider for MacOsMessagesProvider {
             return Err(anyhow::anyhow!("Contact too long"));
         }
         let limit = limit.min(50);
-        let safe_contact = sanitize_applescript_string(contact);
+        // SQL-safe: escape single quotes and strip control/meta characters
+        let safe_contact: String = contact
+            .replace('\'', "''")
+            .chars()
+            .filter(|&c| c.is_alphanumeric() || c == '@' || c == '.' || c == '+' || c == '-' || c == '_' || c == ' ')
+            .collect();
         debug!("Reading messages from: {}", contact);
         let db_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
