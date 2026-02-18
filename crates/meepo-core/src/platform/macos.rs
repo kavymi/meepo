@@ -88,10 +88,11 @@ fn validate_screenshot_path(path: &str) -> Result<()> {
 
 /// Check if an application is currently running
 async fn is_app_running(app_name: &str) -> bool {
+    let safe_name = sanitize_applescript_string(app_name);
     let script = format!(
         r#"tell application "System Events" to (name of processes) contains "{}"
 "#,
-        app_name
+        safe_name
     );
     match tokio::time::timeout(
         std::time::Duration::from_secs(10),
@@ -113,7 +114,9 @@ async fn ensure_mail_app_running() -> Result<()> {
 
     info!("Mail.app not running, launching it...");
     let launch_script = r#"tell application "Mail" to activate"#;
-    let _ = tokio::time::timeout(
+    // Note: "Mail" is hardcoded here, not user input — safe from injection
+    // Best-effort launch: log warning on failure but don't abort
+    match tokio::time::timeout(
         std::time::Duration::from_secs(10),
         Command::new("osascript")
             .arg("-e")
@@ -121,8 +124,11 @@ async fn ensure_mail_app_running() -> Result<()> {
             .output(),
     )
     .await
-    .map_err(|_| anyhow::anyhow!("Timed out launching Mail.app"))?
-    .context("Failed to launch Mail.app")?;
+    {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => warn!("Failed to launch Mail.app: {}", e),
+        Err(_) => warn!("Timed out launching Mail.app"),
+    }
 
     // Wait for Mail.app to finish launching (poll up to 30s)
     for _ in 0..15 {
@@ -1440,17 +1446,23 @@ end tell
     }
 
     async fn screenshot_tab(&self, _tab_id: Option<&str>, path: Option<&str>) -> Result<String> {
-        let output = path.unwrap_or("/tmp/chrome_screenshot.png");
-        validate_screenshot_path(output)?;
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let output_path = path
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| format!("/tmp/meepo-chrome-screenshot-{}.png", timestamp));
+        validate_screenshot_path(&output_path)?;
         let output_result = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            Command::new("screencapture").arg("-x").arg(output).output(),
+            Command::new("screencapture")
+                .arg("-x")
+                .arg(&output_path)
+                .output(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Screenshot timed out"))?
         .context("Failed to run screencapture")?;
         if output_result.status.success() {
-            Ok(format!("Screenshot saved to {}", output))
+            Ok(format!("Screenshot saved to {}", output_path))
         } else {
             let error = String::from_utf8_lossy(&output_result.stderr);
             Err(anyhow::anyhow!("Screenshot failed: {}", error))
@@ -1690,22 +1702,27 @@ return "Quit {}"
             return Err(anyhow::anyhow!("App name too long"));
         }
         debug!("Force quitting app: {}", app_name);
-        run_applescript(&format!(
-            r#"
-tell application "System Events"
-    set targetProcs to every application process whose name is "{}"
-    if (count of targetProcs) > 0 then
-        repeat with p in targetProcs
-            do shell script "kill -9 " & (unix id of p)
-        end repeat
-        return "Force quit {}"
-    else
-        return "No process found: {}"
-    end if
-end tell"#,
-            safe_name, safe_name, safe_name
-        ))
+        // Use pkill directly instead of do shell script to avoid shell injection
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            Command::new("pkill").arg("-9").arg("-x").arg(app_name).output(),
+        )
         .await
+        .map_err(|_| anyhow::anyhow!("Force quit timed out"))?
+        .context("Failed to run pkill")?;
+        if output.status.success() {
+            Ok(format!("Force quit {}", app_name))
+        } else {
+            let exit = output.status.code().unwrap_or(-1);
+            if exit == 1 {
+                Ok(format!("No process found: {}", app_name))
+            } else {
+                Err(anyhow::anyhow!(
+                    "Force quit failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ))
+            }
+        }
     }
 }
 
@@ -1776,28 +1793,45 @@ end tell"#,
                 valid_tags.join(", ")
             ));
         }
-        let safe_path = sanitize_applescript_string(path);
-        let safe_tag = sanitize_applescript_string(tag);
         debug!(
             "{} tag '{}' on: {}",
             if remove { "Removing" } else { "Setting" },
             tag,
             path
         );
-        let script = if remove {
-            format!(
-                r#"do shell script "xattr -w com.apple.metadata:_kMDItemUserTags '()' '{}'"
-return "Tag removed from {}""#,
-                safe_path, safe_path
-            )
+        // Use Command::new directly to avoid shell injection via single quotes in path
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            if remove {
+                Command::new("xattr")
+                    .args(["-w", "com.apple.metadata:_kMDItemUserTags", "()", path])
+                    .output()
+            } else {
+                Command::new("xattr")
+                    .args([
+                        "-w",
+                        "com.apple.metadata:_kMDItemUserTags",
+                        &format!("(\"{tag}\")"),
+                        path,
+                    ])
+                    .output()
+            },
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("xattr timed out"))?
+        .context("Failed to run xattr")?;
+        if output.status.success() {
+            if remove {
+                Ok(format!("Tag removed from {}", path))
+            } else {
+                Ok(format!("Tagged {} with {}", path, tag))
+            }
         } else {
-            format!(
-                r#"do shell script "xattr -w com.apple.metadata:_kMDItemUserTags '(\"{}\")' '{}'"
-return "Tagged {} with {}""#,
-                safe_tag, safe_path, safe_path, safe_tag
-            )
-        };
-        run_applescript(&script).await
+            Err(anyhow::anyhow!(
+                "xattr failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
     }
 
     async fn quick_look(&self, path: &str) -> Result<String> {
@@ -2306,6 +2340,7 @@ impl MediaProvider for MacOsMediaProvider {
         if path.contains("..") {
             return Err(anyhow::anyhow!("Path cannot contain '..'"));
         }
+        validate_screenshot_path(&path)?;
         debug!("Recording audio for {}s to {}", duration_secs, path);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(duration_secs + 5),

@@ -22,10 +22,14 @@ const MAIL_POLL_TIMEOUT_SECS: u64 = 60;
 
 /// Check if an application is currently running via System Events
 async fn is_app_running(app_name: &str) -> bool {
+    let safe_name = app_name
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace(['\n', '\r'], " ");
     let script = format!(
         r#"tell application "System Events" to (name of processes) contains "{}"
 "#,
-        app_name
+        safe_name
     );
     match tokio::time::timeout(
         Duration::from_secs(10),

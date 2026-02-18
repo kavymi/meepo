@@ -59,9 +59,10 @@ pub async fn run_applescript(script: &str, timeout_secs: u64, max_retries: u32) 
 
 /// Check if an application is currently running via System Events
 pub async fn is_app_running(app_name: &str) -> bool {
+    let safe_name = sanitize(app_name);
     let script = format!(
         r#"tell application "System Events" to (name of processes) contains "{}""#,
-        app_name
+        safe_name
     );
     match tokio::time::timeout(
         Duration::from_secs(10),
@@ -82,7 +83,8 @@ pub async fn ensure_app_running(app_name: &str) -> Result<()> {
     }
 
     debug!("{} not running, launching...", app_name);
-    let launch_script = format!(r#"tell application "{}" to activate"#, app_name);
+    let safe_name = sanitize(app_name);
+    let launch_script = format!(r#"tell application "{}" to activate"#, safe_name);
     let _ = tokio::time::timeout(
         Duration::from_secs(10),
         Command::new("osascript")

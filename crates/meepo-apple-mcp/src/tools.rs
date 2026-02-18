@@ -277,6 +277,8 @@ async fn exec_send_email(args: Value) -> Result<String> {
     let safe_body = sanitize(body);
     let safe_to = sanitize(to);
 
+    ensure_app_running("Mail").await?;
+
     let cc_block = if let Some(cc_addr) = cc {
         let safe_cc = sanitize(cc_addr);
         format!(
