@@ -194,7 +194,10 @@ impl Agent {
             } else {
                 intent.canonical.clone()
             };
-            debug!("Intent flagged clarification needed for: {:?}", clarification_prompt);
+            debug!(
+                "Intent flagged clarification needed for: {:?}",
+                clarification_prompt
+            );
         }
 
         // Route the query to determine retrieval strategy (with usage tracking)
@@ -602,7 +605,10 @@ mod tests {
             corrective_rag: false,
             knowledge_limit: 5,
         };
-        let context = agent.load_context(&msg, &strategy, &UserIntent::default()).await.unwrap();
+        let context = agent
+            .load_context(&msg, &strategy, &UserIntent::default())
+            .await
+            .unwrap();
         // Context is a String — load_context should succeed without panic
         assert!(context.len() <= 100_000, "Context unexpectedly large");
     }
@@ -697,7 +703,10 @@ mod tests {
             corrective_rag: false,
             knowledge_limit: 0,
         };
-        let context = agent.load_context(&msg, &strategy, &UserIntent::default()).await.unwrap();
+        let context = agent
+            .load_context(&msg, &strategy, &UserIntent::default())
+            .await
+            .unwrap();
         assert!(context.is_empty() || context.len() < 100);
     }
 
@@ -729,7 +738,10 @@ mod tests {
             corrective_rag: false,
             knowledge_limit: 5,
         };
-        let context = agent.load_context(&msg, &strategy, &UserIntent::default()).await.unwrap();
+        let context = agent
+            .load_context(&msg, &strategy, &UserIntent::default())
+            .await
+            .unwrap();
         assert!(context.contains("Rust Language"));
     }
 }

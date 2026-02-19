@@ -95,9 +95,13 @@ fn heuristic_intent(message: &str) -> UserIntent {
         "send"
     } else if lower.starts_with("remind") || lower.contains("remind me") {
         "remind"
-    } else if lower.starts_with("search") || lower.starts_with("find") || lower.starts_with("look up") {
+    } else if lower.starts_with("search")
+        || lower.starts_with("find")
+        || lower.starts_with("look up")
+    {
         "search"
-    } else if lower.starts_with("create") || lower.starts_with("make") || lower.starts_with("write") {
+    } else if lower.starts_with("create") || lower.starts_with("make") || lower.starts_with("write")
+    {
         "create"
     } else if lower.starts_with("open") || lower.starts_with("show") || lower.starts_with("get") {
         "retrieve"
@@ -107,7 +111,13 @@ fn heuristic_intent(message: &str) -> UserIntent {
         "play"
     } else if lower.starts_with("run") || lower.starts_with("execute") {
         "execute"
-    } else if lower.contains("?") || lower.starts_with("what") || lower.starts_with("how") || lower.starts_with("why") || lower.starts_with("when") || lower.starts_with("who") {
+    } else if lower.contains("?")
+        || lower.starts_with("what")
+        || lower.starts_with("how")
+        || lower.starts_with("why")
+        || lower.starts_with("when")
+        || lower.starts_with("who")
+    {
         "query"
     } else {
         "general"
@@ -191,7 +201,9 @@ JSON:"#,
 fn parse_intent_json(text: &str) -> Result<UserIntent> {
     // Find the JSON object in the response (LLM may add preamble)
     let start = text.find('{').context("No JSON object found in response")?;
-    let end = text.rfind('}').context("No closing brace found in response")?;
+    let end = text
+        .rfind('}')
+        .context("No closing brace found in response")?;
     let json_str = &text[start..=end];
 
     let value: serde_json::Value =
